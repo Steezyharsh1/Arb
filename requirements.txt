@@ -5,7 +5,9 @@
 # This file is the single source of truth for runtime deps; pyproject.toml
 # reads it dynamically. Test tooling lives in the `dev` extra.
 httpx>=0.27
-websockets>=12.0
+# >=14: top-level connect/serve are the asyncio implementation used by
+# adapters/kalshi_ws.py (additional_headers kwarg, automatic ping/pong).
+websockets>=14.0
 pydantic>=2.7
 sqlalchemy>=2.0
 pyyaml>=6.0

@@ -4,11 +4,31 @@ venues:
   kalshi:
     enabled: true
     adapter: kalshi
-    rest_base: "https://api.elections.kalshi.com/trade-api/v2"
-    ws_url: "wss://api.elections.kalshi.com/trade-api/ws/v2"
-    demo_rest_base: "https://demo-api.kalshi.co/trade-api/v2"
-    rate_limit_reads_per_sec: 8     # stay under published ~10/s
-    rate_limit_writes_per_sec: 3    # stay under published ~5/s
+    # Phase 2 (2026-09-13): switched to Kalshi's RECOMMENDED dedicated
+    # Trade API hosts (docs.kalshi.com/getting_started/api_environments,
+    # VERIFIED / DOC / 2026-09-13, evidence rows K1/K2 in
+    # docs/VENUE_RESEARCH.md). The legacy shared hosts stay configured as
+    # documented compatibility fallbacks; the adapter rotates to the next
+    # base automatically on HTTP 5xx or transport (DNS/TLS/timeout)
+    # failures. 4xx responses never rotate (the host answered fine).
+    rest_base: "https://external-api.kalshi.com/trade-api/v2"
+    rest_base_fallbacks:
+      - "https://api.elections.kalshi.com/trade-api/v2"   # legacy shared host (K1)
+    ws_url: "wss://external-api-ws.kalshi.com/trade-api/ws/v2"
+    ws_url_fallbacks:
+      - "wss://api.elections.kalshi.com/trade-api/ws/v2"  # legacy shared host (K2)
+    demo_rest_base: "https://external-api.demo.kalshi.co/trade-api/v2"
+    demo_rest_base_fallbacks:
+      - "https://demo-api.kalshi.co/trade-api/v2"         # legacy demo host (K1)
+    # Local request budgets (requests/second) — deliberately below the
+    # published Basic tier (200 read / 100 write tokens per second at the
+    # default 10-token endpoint cost, i.e. 20/10 req/s). When credentials
+    # are configured, startup discovery of GET /account/limits clamps these
+    # further to `headroom` of the account's real tier; it only ever lowers
+    # the budget, never raises it (§13: never circumvent limits).
+    rate_limit_reads_per_sec: 8     # stay under published Basic ~20 req/s read
+    rate_limit_writes_per_sec: 3    # stay under published Basic ~10 req/s write
+    rate_limit_headroom: 0.8        # budget 80% of the discovered tier
 
   webull:
     enabled: false        # SAME_VENUE route into Kalshi — no independent

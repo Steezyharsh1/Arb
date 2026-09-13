@@ -53,6 +53,34 @@ payout; profitable path yields TRADE; reproducibility (identical inputs
 pairs never evaluated; graph candidates; full matching pipeline with a
 mock LLM (approve) and without one (REVIEW only).
 
+**Kalshi Phase 2** (`test_kalshi_phase2.py`, 2026-09-13 — all offline:
+mock HTTP transport + a scripted **local WebSocket server**):
+* host failover — 5xx rotation to the fallback base, 404/429 never
+  rotate, DNS/transport failure rotation, all-bases-5xx raises, sticky
+  host kept, connect-time probing of every base, refusal when all dead;
+* bulk `GET /markets/orderbooks` — auth required, 100-ticker batching,
+  auth headers present, parsed books;
+* rate-limit discovery — `GET /account/limits` tier parsing,
+  `GET /account/endpoint_costs` cost map + default cost, budget
+  clamping that only ever LOWERS the configured read/write budgets
+  (headroom 80%), zero-budget tier keeps configured values;
+* parser hardening — WebSocket `*_fp` key names, sequence passthrough,
+  malformed / non-tradeable levels dropped and logged;
+* WebSocket feed against the local server — handshake signature over the
+  host-independent `GET /trade-api/ws/v2` path (verified with a
+  generated RSA key), snapshot + in-order delta application with ask
+  synthesis, sid-based unsubscribe, **sequence gap ⇒ recovery snapshot,
+  never silent apply**, clean-close reconnect with resubscribe/rebase,
+  and terminal handling of WS error code 9 (auth).
+
+**Paper streaming** (`test_paper_streaming.py`, 2026-09-13 — all offline,
+fake adapters): a streamed contract is no longer REST-polled and pushed
+books land in the live cache; a streaming failure falls back to polling
+exactly once per venue per run (never a per-cycle retry storm); with no
+credentials the engine polls only; and a market that leaves discovery is
+unsubscribed and evicted from the book cache (even when discovery
+returns nothing at all).
+
 ## Integration-testing record
 
 On 2026-08-30, a prior run exercised `--mode collect --cycles 1` against the

@@ -69,6 +69,9 @@ def build_adapters(config: AppConfig) -> dict[str, PredictionMarketAdapter]:
             or config.env.get("KALSHI_LIVE_PRIVATE_KEY_PEM"),
             reads_per_sec=float(k.get("rate_limit_reads_per_sec", 8)),
             writes_per_sec=float(k.get("rate_limit_writes_per_sec", 3)),
+            ws_url=k.get("ws_url"),
+            rest_base_fallbacks=list(k.get("rest_base_fallbacks") or []),
+            ws_url_fallbacks=list(k.get("ws_url_fallbacks") or []),
             # The ONLY place order placement is enabled, and only in live:
             allow_order_placement=(config.mode == Mode.LIVE))
     if vcfg.get("webull", {}).get("enabled"):
@@ -95,6 +98,47 @@ async def disconnect_all(adapters: dict[str, PredictionMarketAdapter]) -> None:
             await adapter.disconnect()
         except Exception:
             pass
+
+
+async def maybe_calibrate_kalshi_rate_limits(
+        adapters: dict[str, PredictionMarketAdapter],
+        config: AppConfig) -> None:
+    """Phase 2 (K5): with credentials, discover the account's real
+    rate-limit tier and endpoint costs, and clamp the local read/write
+    budgets below the published budget (headroom from config).
+
+    Best-effort: a failure here NEVER blocks startup — the adapter keeps
+    its configured, documented-conservative budgets. Without credentials
+    (public market data only) there is nothing to calibrate."""
+    kalshi = adapters.get("kalshi")
+    if kalshi is None or not getattr(kalshi, "has_credentials", False):
+        return
+    headroom = float(config.venues.get("kalshi", {}).get(
+        "rate_limit_headroom", 0.8))
+    try:
+        limits = await kalshi.get_rate_limits()
+    except Exception as exc:
+        console.print(f"[yellow]kalshi: tier discovery unavailable "
+                      f"({exc.__class__.__name__}: {exc}); keeping "
+                      f"configured budgets[/yellow]")
+        return
+    try:
+        costs = await kalshi.get_endpoint_costs()
+    except Exception as exc:
+        costs = {}
+        console.print(f"[yellow]kalshi: endpoint-cost discovery unavailable "
+                      f"({exc.__class__.__name__}: {exc})[/yellow]")
+    kalshi.apply_rate_limits(limits, headroom=headroom)
+    console.print(
+        f"[green]kalshi rate limits:[/green] tier={limits.usage_tier} "
+        f"read={limits.read_refill_rate:.0f} tok/s "
+        f"(bucket {limits.read_bucket_capacity:.0f}), "
+        f"write={limits.write_refill_rate:.0f} tok/s "
+        f"(bucket {limits.write_bucket_capacity:.0f}); "
+        f"{len(costs)} non-default endpoint costs; local budgets clamped "
+        f"to read={kalshi.effective_reads_per_sec():.2f} req/s, "
+        f"write={kalshi.effective_writes_per_sec():.2f} req/s "
+        f"(headroom={headroom})")
 
 
 def cmd_status(config: AppConfig) -> int:
@@ -163,6 +207,7 @@ async def async_main(args: argparse.Namespace, config: AppConfig) -> int:
     llm = LLMMatcher(client=None)   # no LLM configured in v1 → conservative
     adapters = build_adapters(config)
     await connect_all(adapters)
+    await maybe_calibrate_kalshi_rate_limits(adapters, config)
 
     try:
         if config.mode == Mode.COLLECT:

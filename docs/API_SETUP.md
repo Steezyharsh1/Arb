@@ -24,9 +24,11 @@ is environment-dependent. Phase 1 documentation verification (2026-09-13):
 | Demo | `https://external-api.demo.kalshi.co/trade-api/v2` | `wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2` |
 
 Official source: https://docs.kalshi.com/getting_started/api_environments
-(**VERIFIED / DOC / 2026-09-13**). The legacy `api.elections` and
-`demo-api` hosts currently in `config/venues.yaml` remain officially supported
-compatibility hosts. Migration/failover is Phase 2, not part of Phase 1.
+(**VERIFIED / DOC / 2026-09-13**). `config/venues.yaml` (Phase 2,
+2026-09-13) now points at the recommended hosts above, with the legacy
+`api.elections` / `demo-api` hosts configured as automatic fallbacks: the
+adapter rotates to the next base on HTTP 5xx or transport (DNS/TLS/timeout)
+failures, and `connect()` probes every base before starting.
 
 For authenticated streaming or future owner-approved order testing:
 

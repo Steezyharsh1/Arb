@@ -29,6 +29,11 @@ class PredictionMarketAdapter(abc.ABC):
 
     venue: str = "abstract"
 
+    # Class-level capability flags (Phase 2 streaming). Adapters that can
+    # push real-time books set this to True; modes check it before trying
+    # to subscribe and fall back to REST polling otherwise.
+    supports_streaming: bool = False
+
     # -- lifecycle ---------------------------------------------------------
     @abc.abstractmethod
     async def connect(self) -> None: ...
@@ -60,6 +65,13 @@ class PredictionMarketAdapter(abc.ABC):
     async def subscribe_order_book(
         self, market_id: str, callback: OrderBookCallback
     ) -> None: ...
+
+    async def unsubscribe_order_book(self, market_id: str) -> None:
+        """Drop a streaming subscription started by subscribe_order_book.
+
+        Default is a no-op: adapters without streaming (supports_streaming
+        False) have nothing to tear down. Streaming adapters override this."""
+        return None
 
     # -- orders --------------------------------------------------------
     @abc.abstractmethod

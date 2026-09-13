@@ -24,7 +24,7 @@ Status tags used throughout:
 
 | Check | Result |
 |---|---|
-| `pytest` | **118 passed** (~0.9s): Phase 0's 107 plus 11 Phase 1 fee/provenance/compliance regression tests |
+| `pytest` | **144 passed** (~17s): Phase 0's 107 + 11 Phase 1 fee/provenance/compliance + 26 Phase 2 tests — 22 Kalshi host-failover/bulk/WS-streaming/rate-limit + 4 paper-streaming integration (all offline) |
 | `python -m prediction_arb.main --status` | Works: kalshi=VERIFIED, forecast_ex=API_DOCUMENTED_UNTESTED; independence matrix correct |
 | `python -m prediction_arb.main --readiness` | 13,801 snapshots recorded; **0 opportunities ever analyzed**; live NOT RECOMMENDED |
 | Live-capable venues | **1** (Kalshi). Cross-venue arbitrage is therefore impossible today |
@@ -47,7 +47,7 @@ wiring, and exact contextual fee/eligibility data remain independent blockers.
 |---|---|---|---|
 | 0 | Repo hygiene, packaging, runnability, spec reconstruction | **DONE 2026-09-13** | Fresh clone → `pip install -e ".[dev]"` → full suite passes → CLI runs, no manual hacks |
 | 1 | Venue & API research refresh (2026) | **DONE 2026-09-13 — OWNER CHECKPOINT** | Owner selects Polymarket US, Gemini, or IBKR route before adapter work |
-| 2 | Kalshi adapter refresh + streaming | PARTIAL/BROKEN (D5) | 24h collect run with ≥99% cycle success; WebSocket streaming in paper |
+| 2 | Kalshi adapter refresh + streaming | PARTIAL — code complete 2026-09-13 (D5 fixed in code); 24h run pending | 24h collect run with ≥99% cycle success; WebSocket streaming in paper |
 | 3 | **Second independent venue adapter** | NOT STARTED — BLOCKED AT OWNER CHECKPOINT | Real books from the owner-selected venue proven INDEPENDENT of Kalshi, in paper mode |
 | 4 | Data lineage, replay, backtest metrics | BROKEN (D3, D4) | `--mode historical --date …` replays recorded data and reports metrics |
 | 5 | Matching that can actually match | BROKEN (D6, D9) | APPROVED certificates produced from real cross-venue data |
@@ -171,24 +171,65 @@ selects one. Utah sports remains disabled regardless of selection.
 
 ---
 
-### Phase 2 — Kalshi adapter refresh + streaming  ·  PARTIAL/BROKEN
+### Phase 2 — Kalshi adapter refresh + streaming  ·  PARTIAL (code complete 2026-09-13; operational exit pending)
 
-**Paused at the Phase 1 owner checkpoint; do not start adapter work yet.**
+The Phase 1 owner checkpoint gated *second-venue* (Phase 3) adapter work;
+the owner directed Phase 2 (Kalshi refresh) to proceed on 2026-09-13.
 
-- Switch `config/venues.yaml` to the recommended hosts, keep the legacy
-  host as a documented fallback, and add host-failover on 5xx.
-- Re-verify `orderbook_fp` parsing against the new host (dollar-string
-  levels, fractional quantities, YES-ask synthesis from NO bids).
-- Implement `subscribe_order_book` (currently raises
-  `NotImplementedError`) — WebSocket auth is required even for market
-  data, so this needs the user's Kalshi API key (H2).
-- Consider `GET /markets/orderbooks` (bulk, up to 100 tickers,
-  **requires auth**) to replace per-ticker polling; polling 500 markets
-  at 8 req/s takes ~60s per cycle, which is why book staleness (D11)
-  matters so much.
-- Discover the authenticated account's published rate-limit tier, preserve
-  separate read/write token buckets and endpoint costs, and budget below it;
-  never circumvent limits (`prediction_arb/compliance/restrictions.py`).
+Implemented and test-covered (26 new tests — 22 in
+`tests/test_kalshi_phase2.py` and 4 in `tests/test_paper_streaming.py`,
+all offline — mock HTTP transport + scripted local WebSocket server):
+
+- **Hosts + failover (D5).** `config/venues.yaml` now points at the
+  recommended dedicated Trade API hosts
+  (`https://external-api.kalshi.com/trade-api/v2`,
+  `wss://external-api-ws.kalshi.com/trade-api/ws/v2`, plus the
+  `external-api.*.kalshi.co` demo pair); the legacy `api.elections` /
+  `demo-api` hosts remain configured as documented compatibility
+  fallbacks. The adapter rotates to the next base on HTTP 5xx and
+  transport failures (DNS/TLS/timeout) — the exact D5 failure modes —
+  keeps 4xx sticky, and `connect()` probes all bases before starting.
+  New hosts added to the official-host ledger in
+  `prediction_arb/compliance/restrictions.py`.
+- **`orderbook_fp` re-verified (K3).** Dollar-string prices, fractional
+  quantities, YES-ask synthesis from NO bids, and the WebSocket
+  `*_fp` key variants all parse through one hardened parser that drops
+  (and logs) malformed / non-tradeable levels instead of guessing.
+- **Streaming (K2/K4).** `subscribe_order_book` is implemented:
+  authenticated WS handshake (RSA-PSS over the host-independent path
+  `GET /trade-api/ws/v2`), `orderbook_delta` subscription, sequenced
+  snapshot/delta application, **gap/out-of-order ⇒ recovery, never
+  silent apply** (fresh snapshot via `update_subscription get_snapshot`,
+  resubscribe fallback), reconnect with exponential backoff, terminal
+  handling of auth (code 9) and subscription-terminal (10/25) errors.
+  Paper mode now streams books into its live book cache as events
+  (sub-second staleness) when credentials exist, with automatic
+  per-venue fallback to REST polling; collect mode uses the
+  authenticated **bulk** endpoint `GET /markets/orderbooks` (≤100
+  tickers/request) when a key is configured, falling back to the public
+  per-ticker endpoint otherwise. Everything degrades to the old
+  unauthenticated polling path when no key is present.
+- **Rate limits (K5).** Separate read/write buckets kept; on startup
+  with credentials the adapter discovers the account tier
+  (`GET /account/limits`) and non-default endpoint costs
+  (`GET /account/endpoint_costs`) and clamps its local request budgets
+  to `rate_limit_headroom` (default 80%) of the published budget —
+  only ever lowering, never circumventing (§13). Without credentials the
+  documented-conservative configured budgets (8/3 req/s, under the Basic
+  tier) apply unchanged.
+
+Still open (exit criterion — requires the owner's machine + key):
+
+1. **H2:** Kalshi API key in `.env.paper` (needed to exercise WS, bulk
+   books, and tier discovery against the real venue — and to verify the
+   handshake signature against a live session).
+2. A 24-hour `--mode collect` run with ≥99% successful cycles and no
+   unhandled 5xx, plus a paper session confirming sub-second streaming
+   staleness. Feed counters (`snapshots`, `deltas_applied`,
+   `sequence_gaps`, `reconnects`) are exposed via
+   `adapter.streaming_stats()` for that evidence.
+3. K9 stands: no fresh live endpoint validation from this sandbox
+   (TLS EOF); nothing here is labelled live-tested.
 
 Exit: a 24-hour `--mode collect` run with ≥99% successful cycles and no
 unhandled 5xx; streaming books in paper mode with sub-second staleness.
@@ -353,7 +394,7 @@ collection), and log rotation.
 | D2 | ~~No `.gitignore`; artifacts tracked~~ **FIXED 2026-09-13**: `.gitignore` + `.gitattributes` added, 60 `.pyc` + both DBs + `logs/` + `reports/` untracked (files kept on disk), `reconnect.py` → `scripts/ibkr_gateway_session.py` with safe TLS handling. *Caveat: the 17 MB blob remains in git **history**; purging it needs a history rewrite (owner's call)* | `git ls-files \| grep -c pycache` → 0; CI step guards against regressions | 0 |
 | D3 | Collect data is invisible to historical replay | collect → `data/paper/…` (tagged `mode=collect`); historical → `data/historical/…` (0 rows); report shows `frames: 0` | 4 |
 | D4 | Recorded markets lose the metadata matching needs | `MarketRow` has no settlement/rules/threshold/payout/version columns; `_reconstruct_contract` sets `settlement_time=None`, `resolution_source=""` → `deterministic_match` rejects on both | 4 |
-| D5 | Kalshi on legacy host, intermittent failures, no failover | `config/venues.yaml` → `api.elections.kalshi.com`; collect log: 18 DNS failures + 14 HTTP 500s | 2 |
+| D5 | ~~Kalshi on legacy host, intermittent failures, no failover~~ **FIXED IN CODE 2026-09-13**: recommended `external-api` hosts configured, legacy hosts kept as fallbacks, 5xx/transport failover + connect-time probing, bulk books, WS streaming, tier-aware budget clamping (26 tests). *Operational verification (24h run on the owner's machine) still pending — see Phase 2 section* | Was: `config/venues.yaml` → `api.elections.kalshi.com`; collect log: 18 DNS failures + 14 HTTP 500s | 2 |
 | D6 | Cross-venue candidate generation cannot produce candidates | `normalized_event_key` = exact canonical title + settlement date | 5 |
 | D7 | ~~Venue research stale~~ **FIXED 2026-09-13**: evidence ledger now covers direct DCMs, aliases, multi-route frontends, fees, Utah/CFTC context, and ranked candidates; old “only one independent pair” premise removed | `docs/VENUE_RESEARCH.md`; provenance/fee/compliance registries; focused tests | 1 |
 | D8 | ~~Spec document missing~~ **FIXED 2026-09-13**: `docs/SPEC.md` reconstructs all 73 cited sections from code/docs/tests/config evidence, with `[I]` flags on the two thin ones (§33, §68) and an appendix of the 22 numbers that have no surviving citation | Was: 73 distinct `§` sections cited at 224 sites with no spec file. Now: `grep -c "^### §" docs/SPEC.md` → 73 | 0 |

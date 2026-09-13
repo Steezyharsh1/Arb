@@ -41,7 +41,8 @@ pytest                                               # run the full safety suite
 # safest first step — inspect provenance/readiness; sends no orders
 python -m prediction_arb.main --status
 
-# collect public Kalshi data (compatibility host until Phase 2 migration)
+# collect public Kalshi data (recommended hosts + legacy fallback;
+# with a Kalshi API key in .env.paper it uses bulk books + WS streaming)
 python -m prediction_arb.main --mode collect
 
 # paper trading (default mode): real data, simulated execution
@@ -67,6 +68,15 @@ interactively; no flag bypasses it. With only one live-capable venue,
 live mode is monitor-only by construction.
 
 ## What works today
+- The Kalshi adapter runs on the recommended `external-api` hosts with the
+  legacy hosts as automatic fallbacks (5xx/transport failover, connect-time
+  probing). Public REST works without credentials; with a key it adds
+  authenticated **bulk order books** (`GET /markets/orderbooks`, ≤100
+  tickers/request) in collect mode, **WebSocket streaming**
+  (`orderbook_delta` with sequenced snapshots/deltas, gap-triggered
+  recovery, reconnect backoff) in paper mode, and startup discovery of the
+  account's rate-limit tier with budget clamping below the published limits.
+  All of it degrades to public polling when no key is configured.
 - The Kalshi parser handles documented fixed-point bid books and synthesizes
   complementary asks. Official hosts, formats, sequencing, limits, and fees
   were documentation-verified on 2026-09-13; a fresh sandbox network smoke

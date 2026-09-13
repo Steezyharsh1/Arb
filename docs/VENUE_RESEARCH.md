@@ -61,10 +61,20 @@ Owner agreement is required before Phase 2/3 adapter work.
 | K8 | Actual fill fees use six-decimal model-fee rounding plus account-balance precision, a per-order rounding accumulator, and rebates. Direct-member and non-direct-member precision differ. | VERIFIED / DOC | https://docs.kalshi.com/getting_started/fee_rounding | 2026-09-13 |
 | K9 | A fresh unauthenticated HTTP smoke test did not reach an HTTP response; the sandbox terminated TLS with EOF. This does **not** establish a Kalshi outage or validate the current payload. | UNAVAILABLE / LIVE | `https://external-api.kalshi.com/trade-api/v2/exchange/status` (attempted) | 2026-09-13 |
 
-**Code consequence:** `config/venues.yaml` still uses compatibility hosts. Moving
-to the recommended hosts and implementing sequenced streaming remains Phase 2.
-The parser already handles fixed-point bid books, but this Phase 1 run does not
-claim a fresh live payload.
+**Code consequence (updated 2026-09-13, Phase 2):** `config/venues.yaml` now
+uses the recommended `external-api` hosts from K1/K2 with the legacy shared
+hosts kept as documented fallbacks; the adapter fails over on 5xx/transport
+errors, streams order books over the authenticated WebSocket with
+seq-gap-triggered recovery (K4), supports the authenticated bulk
+`GET /markets/orderbooks` (K3), and clamps its request budgets below the
+discovered account tier (K5). The parser handles both REST
+(`yes_dollars`/`no_dollars`) and WebSocket (`*_fp`) fixed-point bid books and
+drops malformed/non-tradeable levels. This still does **not** claim a fresh
+live payload: the sandbox cannot reach Kalshi (K9, UNAVAILABLE), and all Phase
+2 tests run against mock/local servers. Live verification of the new hosts,
+streaming session, bulk endpoint, and tier discovery requires the owner's
+machine and API key (H2) — tracked in the Phase 2 exit criteria in
+`docs/ROADMAP.md`.
 
 ## 3. Direct exchange / DCM evidence ledger
 

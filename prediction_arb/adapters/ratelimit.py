@@ -17,17 +17,26 @@ class TokenBucket:
         self.updated = time.monotonic()
         self._lock = asyncio.Lock()
 
-    async def acquire(self) -> None:
+    async def acquire(self, cost: float = 1.0) -> None:
+        """Wait until ``cost`` tokens are available, then deduct them.
+
+        ``cost`` lets callers model per-endpoint token costs (Kalshi's
+        token buckets charge each endpoint a token cost, default 10 — see
+        docs/VENUE_RESEARCH.md K5). This engine expresses its budgets in
+        requests/second and clamps them below the discovered tier, so the
+        default cost of 1.0 request is the normal path."""
+        if cost <= 0:
+            cost = 1.0
         async with self._lock:
             while True:
                 now = time.monotonic()
                 self.tokens = min(self.capacity,
                                   self.tokens + (now - self.updated) * self.rate)
                 self.updated = now
-                if self.tokens >= 1:
-                    self.tokens -= 1
+                if self.tokens >= cost:
+                    self.tokens -= cost
                     return
-                wait = (1 - self.tokens) / self.rate
+                wait = (cost - self.tokens) / self.rate
                 await asyncio.sleep(wait)
 
 
