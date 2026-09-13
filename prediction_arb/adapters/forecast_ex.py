@@ -1,30 +1,27 @@
-"""ForecastEx (IBKR) adapter — structured stub, status API_DOCUMENTED_UNTESTED.
+"""ForecastEx (IBKR) adapter — structured stub, API_DOCUMENTED_UNTESTED.
 
-Research finding (docs/VENUE_RESEARCH.md, verified 2026-08-30):
-  * ForecastEx LLC is a CFTC-registered DCM **and** DCO, wholly owned by
-    Interactive Brokers Group — genuinely INDEPENDENT of Kalshi. It is the
-    only independent counterpart venue available to this system.
-  * Access is via IBKR's API surfaces (Client Portal Web API, TWS API,
-    FIX). Forecast contracts route like other IBKR instruments.
-  * Microstructure is PAIRED_BID: there are no asks. Only YES bids and
-    NO bids exist; a trade occurs when YES_bid + NO_bid = $1.01 ($0.01 is
-    the exchange fee). The synthetic YES ask = 1.01 - best NO bid.
+Phase 1 finding (docs/VENUE_RESEARCH.md, documentation re-verified
+2026-09-13; live account test UNAVAILABLE):
+  * ForecastEx LLC is a CFTC-registered DCM and DCO, independent of
+    Kalshi's DCM/book. It is one of several now-known independent venues.
+  * Retail access evaluated here is via IBKR's Client Portal, TWS, or FIX
+    surfaces and must remain route-qualified as IBKR -> ForecastEx.
+  * Microstructure is PAIRED_BID. A YES bid and opposite NO bid match when
+    they sum to $1.00. Therefore synthetic YES ask = 1.00 - best NO bid
+    (and vice versa). ForecastEx separately charges $0.01 per executed
+    contract side; the fee is not embedded in a $1.01 pairing threshold.
 
-Why this is a stub in v1:
-  IBKR's API requires an authenticated brokerage session (running IB
-  Gateway / TWS, or a Client Portal session). No IBKR account is
-  available in this build environment, so every capability would be
-  UNVERIFIED code pretending to work. Per spec §5/§84, this adapter is a
-  properly structured stub: importable, typed, honest about status, and
-  raising NotImplementedError with exact instructions.
+Why this remains a stub:
+  IBKR APIs require an authenticated brokerage session (IB Gateway/TWS or
+  Client Portal). No owner-authorized IBKR account was available during
+  Phase 1. Implementing calls without an authenticated test would violate
+  the repository's honesty and fail-closed requirements.
 
-To activate:
-  1. Open an IBKR account (paper account first), enable ForecastEx.
-  2. Run IB Gateway locally; set cp_gateway_base in config/venues.yaml.
-  3. Implement the marked methods against the Client Portal Web API
-     (contract search: /iserver/secdef/search with secType filtering;
-     books: /iserver/marketdata/snapshot; orders: /iserver/account/orders).
-  4. Verify against the paper account before flipping api_status.
+Owner-approved activation steps (Phase 2/3 only):
+  1. Use an IBKR paper account and enable prediction-market permissions.
+  2. Run IB Gateway; set ``cp_gateway_base`` in ``config/venues.yaml``.
+  3. Implement contract discovery, bid-side book normalization, and orders.
+  4. Reconcile displayed and reported fees/fills before enabling paper use.
 """
 from __future__ import annotations
 
@@ -41,32 +38,32 @@ from .stubs import StubAdapter
 class ForecastExAdapter(StubAdapter):
     venue = "forecast_ex"
     api_status = APIStatus.API_DOCUMENTED_UNTESTED
-    reason = ("ForecastEx is accessible only through an authenticated IBKR "
-              "session (IB Gateway / Client Portal API). No IBKR account is "
-              "configured, so this adapter is a structured stub. Follow the "
-              "activation steps in adapters/forecast_ex.py.")
+    reason = ("ForecastEx access requires an authenticated IBKR session. "
+              "Documentation was verified, but no owner-authorized IBKR "
+              "account was available for live testing; owner selection is "
+              "also required at the Phase 1 checkpoint.")
 
     def __init__(self, cp_gateway_base: str | None = None):
         self.cp_gateway_base = cp_gateway_base
 
     def get_supported_order_types(self) -> OrderTypeSupport:
-        # From IBKR/ForecastEx documentation: limit-style bids only
-        # (paired-bid mechanism). Market orders do not exist on ForecastEx.
+        # Limit-style opposite-side bids are documented; authenticated order
+        # behavior has not been tested in this repository.
         return OrderTypeSupport(
             market=False, limit=True, ioc=False, fok=False, gtc=True,
             verified=False,
-            source="IBKR ForecastTrader docs (paired-bid; docs only, "
-                   "not live-tested)",
+            source="IBKR ForecastTrader and ForecastEx rules (documentation "
+                   "only; not live-tested)",
             verified_at=utcnow(),
         )
 
     def get_market_microstructure(self) -> MarketMicrostructure:
         return MarketMicrostructure(
             type=MicrostructureType.PAIRED_BID,
-            has_order_book=True,      # bid-only book, both sides
+            has_order_book=True,
             has_pricing_function=False,
             quote_validity_ms=None,
             verified=False,
-            source="ForecastEx launch documentation (PR Newswire "
-                   "2024-07-31); YES_bid + NO_bid = $1.01 pairing",
+            source="CFTC ForecastEx rules filed 2026-03-02 and 2026-03-24: "
+                   "YES_bid + NO_bid = $1.00; separate $0.01 fee per side",
         )

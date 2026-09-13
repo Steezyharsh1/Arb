@@ -70,14 +70,33 @@ class TestMissingFeeData:
 
 
 class TestSimulationEdgeCases:
-    def test_insufficient_cash_rejected(self, fee_calc):
+    def test_context_incomplete_fee_rejects_simulated_order(self, fee_calc):
         import uuid
         from prediction_arb.core.types import (
             OrderAction, OrderRequest, OrderType, Side,
         )
         from prediction_arb.execution.simulated import PaperExecutionEngine
         eng = PaperExecutionEngine(
-            starting_cash={"kalshi": Decimal("1")}, fee_calc=fee_calc,
+            starting_cash={"kalshi": Decimal("100")}, fee_calc=fee_calc,
+            book_lookup=lambda v, c: make_book(
+                "kalshi", "K1", asks=[("0.50", "10")]))
+        req = OrderRequest(
+            venue="kalshi", contract_id="K1", side=Side.YES,
+            action=OrderAction.BUY, quantity=Decimal("1"),
+            order_type=OrderType.LIMIT, limit_price=Decimal("0.50"),
+            client_order_id=str(uuid.uuid4()), mode=Mode.PAPER)
+        result = asyncio.run(eng.submit_order(req))
+        assert result.status.value == "REJECTED"
+        assert "FEE_DATA_INCOMPLETE" in result.message
+
+    def test_insufficient_cash_rejected(self, complete_fee_calc):
+        import uuid
+        from prediction_arb.core.types import (
+            OrderAction, OrderRequest, OrderType, Side,
+        )
+        from prediction_arb.execution.simulated import PaperExecutionEngine
+        eng = PaperExecutionEngine(
+            starting_cash={"kalshi": Decimal("1")}, fee_calc=complete_fee_calc,
             book_lookup=lambda v, c: make_book("kalshi", "K1",
                                                asks=[("0.50", "100")]))
         req = OrderRequest(venue="kalshi", contract_id="K1", side=Side.YES,
@@ -90,7 +109,7 @@ class TestSimulationEdgeCases:
         assert res.status.value == "REJECTED"
         assert "insufficient" in res.message
 
-    def test_limit_price_respected(self, fee_calc):
+    def test_limit_price_respected(self, complete_fee_calc):
         import uuid
         from prediction_arb.core.types import (
             OrderAction, OrderRequest, OrderType, Side,
@@ -99,7 +118,7 @@ class TestSimulationEdgeCases:
         book = make_book("kalshi", "K1",
                          asks=[("0.40", "10"), ("0.60", "100")])
         eng = PaperExecutionEngine(
-            starting_cash={"kalshi": Decimal("1000")}, fee_calc=fee_calc,
+            starting_cash={"kalshi": Decimal("1000")}, fee_calc=complete_fee_calc,
             book_lookup=lambda v, c: book)
         req = OrderRequest(venue="kalshi", contract_id="K1", side=Side.YES,
                            action=OrderAction.BUY, quantity=Decimal("50"),

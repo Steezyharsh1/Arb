@@ -124,10 +124,12 @@ Clearing entities are tracked in their own registry on the same terms.
 
 ### §15 — Independence engine  `[C,T]`
 **Requirement.** Venue independence MUST be computed deterministically from
-provenance. Sharing ANY of underlying exchange, matching engine, clearing
-entity, liquidity source, contract issuer or settlement authority collapses
-the pair (SAME_VENUE / LIKELY_SAME_VENUE). INDEPENDENT requires both records
-at HIGH confidence. UNKNOWN MUST NEVER be treated as independent, and only
+contract-qualified provenance. Sharing an underlying DCM, matching system,
+contract issuer, or settlement authority collapses the pair to SAME_VENUE.
+Sharing only a third-party clearing organization is non-dispositive: separate
+DCMs may clear through one DCO while retaining separate contracts and books.
+Missing/conflicting critical fields and generic multi-route frontend IDs are
+UNKNOWN. UNKNOWN MUST NEVER be treated as independent, and only fully verified
 INDEPENDENT pairs are eligible for guaranteed arbitrage.
 **Evidence.** `prediction_arb/provenance/independence.py`,
 `tests/test_units.py` (independence matrix), `tests/test_spec_cases.py`
@@ -205,21 +207,25 @@ passes. TYPE C/D opportunities are not eligible for execution at all.
 ### §23 — Order-book model and staleness  `[C,T]`
 **Requirement.** Books are normalized to a single perspective (YES bids and
 YES asks) regardless of how a venue quotes them; a venue that publishes only
-bids on both sides MUST have its asks synthesized (Kalshi: `ask = 1 − NO bid`;
-ForecastEx: `ask = 1.01 − best NO bid`). Every book carries a timestamp and an
-optional sequence number. A book older than the configured maximum age is
+bids on both sides MUST have its asks synthesized (Kalshi and ForecastEx:
+`ask = 1.00 − opposite bid`). ForecastEx's $0.01 fee per executed side is
+separate from its $1.00 matching identity. Every book carries a timestamp and
+an optional sequence number. A book older than the configured maximum age is
 STALE and MUST be hidden from decision-making, never used.
 **Evidence.** `prediction_arb/orderbooks/orderbook.py` (`is_stale`),
 `orderbooks/aggregator.py`, `adapters/kalshi.py` (`parse_order_book`),
 `tests/test_failure_modes.py`, `tests/test_units.py`.
 
 ### §24 — Fee engine  `[C,G,T]`
-**Requirement.** Fees MUST come from versioned, timestamped schedules that
-record source and verification date. Kalshi taker fee is quadratic
-(`ceil_cents(0.07 × C × P × (1−P))`); ForecastEx carries a structural
-$0.01/contract. A venue with no schedule on file is `FEE_DATA_INCOMPLETE` and
-MUST block execution — fees MUST NEVER default to zero. Live mode MUST refuse
-stale schedules (strict freshness).
+**Requirement.** Fees MUST come from versioned, timestamped schedules recording
+calculation status, documentation and live-test status, source, verification
+date, fee context, and required runtime context. A value may be returned only
+for a COMPLETE component whose freshness and required context pass validation.
+Missing, incomplete, unverified, stale, or context-deficient data raises
+`FEE_DATA_INCOMPLETE`; it MUST block execution and MUST NEVER default to zero or
+an estimate. Kalshi's quadratic base model remains blocked until its dynamic
+series/event multiplier and rounding state are represented. ForecastEx pairs
+bids at $1.00 and separately charges $0.01 per executed side.
 **Evidence.** `prediction_arb/fees/calculator.py`, `config/fees.yaml`,
 `tests/test_units.py`, `tests/test_failure_modes.py`,
 `docs/TRADING_LOGIC.md`.
@@ -321,9 +327,12 @@ confirmation.
 ### §35 — Eligibility gate  `[C,D,T]`
 **Requirement.** Eligibility is tracked per (jurisdiction, venue, contract
 category) with status, effective date, source and verification date. Nothing is
-hard-coded as legal. UNKNOWN eligibility MUST block LIVE trading while allowing
-paper and research to continue. Venues with no record are UNKNOWN. Sports
-categories are detected conservatively (erring toward classifying as sports).
+hard-coded as legal. RESTRICTED is never tradable; UNKNOWN MUST block LIVE while
+allowing paper/research only under their mode rules. Missing records are
+UNKNOWN. Category detection MUST inspect both venue category/ticker and event
+text and err toward classifying clear league, game, player-prop, spread, and
+total contracts as sports. The current Utah wildcard sports record is
+RESTRICTED across all venues/routes.
 **Evidence.** `prediction_arb/compliance/jurisdiction.py`,
 `compliance/eligibility.py`, `docs/COMPLIANCE.md`.
 

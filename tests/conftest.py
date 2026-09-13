@@ -73,5 +73,59 @@ def make_book(venue: str, contract_id: str,
 
 @pytest.fixture
 def fee_calc():
+    """Production fee ledger (context-incomplete venues fail closed)."""
     from prediction_arb.fees.venue_fees import load_fee_calculator
     return load_fee_calculator()
+
+
+@pytest.fixture
+def complete_fee_calc():
+    """Static synthetic schedules for deterministic engine math tests.
+
+    Production Kalshi fees are intentionally context-incomplete. Tests whose
+    purpose is sizing, coordination, or generic profitability use this isolated
+    fixture instead of weakening the production fail-closed ledger.
+    """
+    from prediction_arb.fees.calculator import FeeCalculator
+    return FeeCalculator.from_config({
+        "schedules": [
+            {
+                "venue": "kalshi",
+                "version": "test-static-v1",
+                "effective_date": "2020-01-01",
+                "verified_at": "2026-09-13",
+                "verification_status": "VERIFIED",
+                "documentation_tested": True,
+                "source": "synthetic deterministic test fixture",
+                "trade_calculation_status": "COMPLETE",
+                "settlement_calculation_status": "COMPLETE",
+                "fees": [
+                    {"fee_type": "test_quadratic", "multiplier": "0.07",
+                     "applies_to": "taker"},
+                    {"fee_type": "test_quadratic", "multiplier": "0.0175",
+                     "applies_to": "maker"},
+                    {"fee_type": "settlement", "fixed_amount": "0",
+                     "applies_to": "settlement"},
+                ],
+            },
+            {
+                "venue": "forecast_ex",
+                "version": "test-static-v1",
+                "effective_date": "2020-01-01",
+                "verified_at": "2026-09-13",
+                "verification_status": "VERIFIED",
+                "documentation_tested": True,
+                "source": "synthetic deterministic test fixture",
+                "trade_calculation_status": "COMPLETE",
+                "settlement_calculation_status": "COMPLETE",
+                "fees": [
+                    {"fee_type": "test_fixed", "fixed_amount": "0.01",
+                     "applies_to": "taker"},
+                    {"fee_type": "test_fixed", "fixed_amount": "0.01",
+                     "applies_to": "maker"},
+                    {"fee_type": "settlement", "fixed_amount": "0",
+                     "applies_to": "settlement"},
+                ],
+            },
+        ]
+    })

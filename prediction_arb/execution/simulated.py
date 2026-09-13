@@ -17,6 +17,7 @@ from decimal import Decimal
 from typing import Any, Callable, Optional
 
 from ..core.types import (
+    FeeDataError,
     Mode,
     OrderBook,
     OrderRequest,
@@ -102,8 +103,13 @@ class _SimulatedExecutionEngine(ExecutionEngine):
                 return self._reject(request, "no executable liquidity at limit")
 
             avg = cost / filled
-            fees = self.fee_calc.trade_fee(request.venue, avg, filled,
-                                           is_taker=True)
+            try:
+                fees = self.fee_calc.trade_fee(
+                    request.venue, avg, filled, is_taker=True)
+            except FeeDataError as exc:
+                # Missing contextual fees block even simulated fills: otherwise
+                # paper results would silently overstate executable profit.
+                return self._reject(request, str(exc))
             total = cost + fees
             venue_cash = self.state.cash.get(request.venue, Decimal("0"))
             if request.action.value == "buy" and total > venue_cash:

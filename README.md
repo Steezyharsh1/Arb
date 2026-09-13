@@ -6,36 +6,42 @@ with hard mode isolation (historical / paper / live), a live-order
 firewall, full audit logging, and honest handling of everything that is
 UNKNOWN.
 
-## THE HEADLINE RESEARCH RESULT (read this first)
+## PHASE 1 RESEARCH RESULT (read this first)
 
-Of the four requested platforms, **three are the same exchange**:
+Evidence was refreshed through **2026-09-13**. The old “only Kalshi ↔
+ForecastEx” conclusion is obsolete: Polymarket US, Gemini Titan, CDNA, CME,
+Railbird/DKeX, Ludlow/Novig, and Rothera have distinct DCM/matching identities.
+Consumer apps still require contract-qualified routing:
 
-| Frontend | Underlying exchange | Verdict |
+| Route example | Underlying exchange | Verdict vs direct Kalshi |
 |---|---|---|
-| Kalshi | Kalshi DCM (Kalshi Klear DCO) | the venue itself |
-| Webull event contracts | **Kalshi** | SAME_VENUE (frontend) |
-| Moomoo event contracts | **Kalshi** | SAME_VENUE (frontend) |
-| IBKR ForecastTrader | ForecastEx DCM+DCO | **INDEPENDENT** |
+| Coinbase, Webull, Moomoo Kalshi contracts | Kalshi | SAME_VENUE |
+| IBKR Kalshi contract | Kalshi | SAME_VENUE |
+| IBKR ForecastEx / CME contract | ForecastEx / CME | INDEPENDENT |
+| Robinhood contract | Kalshi, ForecastEx, Rothera, or CDNA | UNKNOWN until route identified |
+| FanDuel contract | CME or OG/CDNA | UNKNOWN until route identified |
+| DraftKings contract | CME, CDNA, or proprietary DKeX/Railbird | UNKNOWN until route identified |
 
-The only genuine cross-venue pair is **Kalshi ↔ ForecastEx**, and
-ForecastEx access requires an IBKR account (adapter is a documented,
-structured stub until one exists). Full evidence:
+The conditional adapter shortlist is **Polymarket US**, **Gemini**, then
+**IBKR ForecastEx/CME** (especially if the owner already has IBKR). This is now
+at the owner-selection checkpoint; no new adapter has been started.
+
+Utah sports contracts are **RESTRICTED** across venues; Utah non-sports
+eligibility is **UNKNOWN**. Context-incomplete fees fail closed. Full claim-level
+statuses, sources, dates, matrix, and recommendation:
 `docs/VENUE_RESEARCH.md`.
-
-> **⚠ This research is dated 2026-08-30 and is being re-verified.** IBKR now
-> fronts three exchanges (Kalshi, CME Group, ForecastEx) through one account and
-> one API, and several new CFTC-regulated venues have launched since. Refreshing
-> this table is **Phase 1** — see `docs/ROADMAP.md`. Do not treat the "only one
-> independent pair" conclusion as current without checking that document.
 
 ## Quick start
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate   # Python 3.11+
 pip install -e ".[dev]"                              # package + test tooling
-pytest                                               # 107 tests, all passing
+pytest                                               # run the full safety suite
 
-# safest first step — record real Kalshi market data (no credentials needed)
+# safest first step — inspect provenance/readiness; sends no orders
+python -m prediction_arb.main --status
+
+# collect public Kalshi data (compatibility host until Phase 2 migration)
 python -m prediction_arb.main --mode collect
 
 # paper trading (default mode): real data, simulated execution
@@ -60,19 +66,22 @@ Live mode (`--mode live`) requires typing `I UNDERSTAND LIVE TRADING`
 interactively; no flag bypasses it. With only one live-capable venue,
 live mode is monitor-only by construction.
 
-## What works today (VERIFIED)
-- Kalshi REST market data + order books (live-tested, no credentials
-  needed for market data; `orderbook_fp` dollar format handled).
-- Full pipeline in paper/collect: discovery → normalization →
-  deterministic matching → (LLM stage, conservative no-match without a
-  configured client) → certificates → order-book walking → fee/slippage/
-  settlement-costed two-leg arbitrage → risk checks → simulated execution.
-- Mode isolation, kill switch, crash-recovery intents, all 10 spec §75
-  test cases (107 tests total: `pytest`, or `python -m pytest tests/`).
+## What works today
+- The Kalshi parser handles documented fixed-point bid books and synthesizes
+  complementary asks. Official hosts, formats, sequencing, limits, and fees
+  were documentation-verified on 2026-09-13; a fresh sandbox network smoke
+  test was **UNAVAILABLE**, not reported as live-tested.
+- Full paper/collect pipeline: discovery → normalization → deterministic +
+  LLM-gated matching → certificates → order-book walking → fee/slippage/
+  settlement costing → risk checks → simulated execution. Incomplete fees
+  now block rather than becoming estimates, so direct Kalshi opportunities
+  remain blocked until contextual metadata is integrated.
+- Mode isolation, kill switch, crash-recovery intents, and all ten mandatory
+  spec cases are covered by the test suite (`pytest`).
 
 ## What is stubbed (honest NotImplementedError, clean interfaces)
-- ForecastEx adapter (needs IBKR account), Webull (SAME_VENUE — no arb
-  value), Moomoo (no event-contract API + SAME_VENUE).
+- ForecastEx/IBKR, Webull, and Moomoo adapters. Phase 1 researched additional
+  candidates but deliberately stopped before adapter implementation.
 - Multi-leg / logical arbitrage, graph cycle search, web dashboard,
   email/webhook alerts, full backtest metrics (§3 v1 scope).
 
@@ -90,7 +99,7 @@ logs/<mode>/             per-mode JSONL audit logs                 (git-ignored)
 reports/<mode>/          generated reports                        (git-ignored)
 docs/                    the documentation set listed below
 scripts/                 operator utilities (IBKR gateway session check)
-tests/                   107 tests: units, safety, failure modes, spec §75
+tests/                   units, safety, failure modes, and spec §75 cases
 pyproject.toml           packaging, console script, pytest config
 ```
 

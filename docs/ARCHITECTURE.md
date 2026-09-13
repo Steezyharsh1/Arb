@@ -39,7 +39,8 @@
 ## Key data flow (paper cycle)
 
 1. `PaperEngine._discover()` — verified adapters only; eligibility
-   filter (Utah, category-aware; sports=UNKNOWN blocked from live).
+   filter (Utah, category/event-text aware; sports=RESTRICTED across venues,
+   non-sports=UNKNOWN and blocked from live).
 2. `modes/shared.run_matching` — event grouping → deterministic filter
    → LLM (conservative no-match if unconfigured) → rules validator →
    match certificate (persisted).

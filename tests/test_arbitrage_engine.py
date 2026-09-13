@@ -34,12 +34,12 @@ class TestSizing:
 
 
 class TestProfitMath:
-    def test_profitable_opportunity_trade_status(self, fee_calc):
+    def test_profitable_opportunity_trade_status(self, complete_fee_calc):
         yes_c = make_contract(venue="kalshi", contract_id="Y")
         no_c = make_contract(venue="forecast_ex", contract_id="N")
         yes = make_book("kalshi", "Y", asks=[("0.40", "500")])
         no = make_book("forecast_ex", "N", asks=[("0.50", "500")])
-        op = evaluate_two_leg(yes_c, no_c, yes, no, fee_calc, Mode.PAPER,
+        op = evaluate_two_leg(yes_c, no_c, yes, no, complete_fee_calc, Mode.PAPER,
                               independence=Independence.INDEPENDENT)
         assert op is not None
         assert op.status == OpportunityStatus.TRADE
@@ -50,14 +50,14 @@ class TestProfitMath:
         assert op.capital_required > Decimal("450")
         assert op.return_on_capital > 0
 
-    def test_reproducible(self, fee_calc):
+    def test_reproducible(self, complete_fee_calc):
         yes_c = make_contract(venue="kalshi", contract_id="Y")
         no_c = make_contract(venue="forecast_ex", contract_id="N")
         yes = make_book("kalshi", "Y", asks=[("0.40", "500")])
         no = make_book("forecast_ex", "N", asks=[("0.50", "500")])
-        a = evaluate_two_leg(yes_c, no_c, yes, no, fee_calc, Mode.HISTORICAL,
+        a = evaluate_two_leg(yes_c, no_c, yes, no, complete_fee_calc, Mode.HISTORICAL,
                              independence=Independence.INDEPENDENT)
-        b = evaluate_two_leg(yes_c, no_c, yes, no, fee_calc, Mode.HISTORICAL,
+        b = evaluate_two_leg(yes_c, no_c, yes, no, complete_fee_calc, Mode.HISTORICAL,
                              independence=Independence.INDEPENDENT)
         assert a is not None and b is not None
         assert (a.net_profit, a.quantity, a.gross_cost, a.total_fees) == \
@@ -65,7 +65,7 @@ class TestProfitMath:
 
 
 class TestMultiVenueSearch:
-    def test_search_requires_approved_certificate(self, fee_calc):
+    def test_search_requires_approved_certificate(self, complete_fee_calc):
         from prediction_arb.arbitrage.optimizer import search_event
         yes_c = make_contract(venue="kalshi", contract_id="Y")
         no_c = make_contract(venue="forecast_ex", contract_id="N")
@@ -74,17 +74,17 @@ class TestMultiVenueSearch:
                  ("forecast_ex", "N"): make_book("forecast_ex", "N",
                                                  asks=[("0.50", "100")])}
         # no approved pairs → no opportunities (Principle B)
-        ops = search_event([yes_c, no_c], books, fee_calc, Mode.PAPER, {})
+        ops = search_event([yes_c, no_c], books, complete_fee_calc, Mode.PAPER, {})
         assert ops == []
         # with approval → found
         ka, kb = "kalshi:Y", "forecast_ex:N"
         approved = {(min(ka, kb), max(ka, kb)): ("m1", 0.99)}
-        ops = search_event([yes_c, no_c], books, fee_calc, Mode.PAPER,
+        ops = search_event([yes_c, no_c], books, complete_fee_calc, Mode.PAPER,
                            approved)
         assert len(ops) >= 1
         assert ops[0].match_id == "m1"
 
-    def test_same_venue_pairs_never_evaluated(self, fee_calc):
+    def test_same_venue_pairs_never_evaluated(self, complete_fee_calc):
         from prediction_arb.arbitrage.optimizer import search_event
         a = make_contract(venue="kalshi", contract_id="A")
         b = make_contract(venue="webull", contract_id="B")
@@ -94,7 +94,7 @@ class TestMultiVenueSearch:
                                             asks=[("0.30", "100")])}
         ka, kb = "kalshi:A", "webull:B"
         approved = {(min(ka, kb), max(ka, kb)): ("m1", 0.99)}
-        ops = search_event([a, b], books, fee_calc, Mode.PAPER, approved)
+        ops = search_event([a, b], books, complete_fee_calc, Mode.PAPER, approved)
         assert ops == []   # SAME_VENUE filtered before evaluation
 
 

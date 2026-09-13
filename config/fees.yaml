@@ -1,23 +1,50 @@
-# Versioned, timestamped fee schedules (§24). Sources recorded.
-# DO NOT edit rates without updating version/effective_date/source.
-schema_version: 1
+# Versioned fee evidence ledger (§24), re-verified 2026-09-13.
+#
+# Safety rule: a published headline rate is not enough to make a schedule
+# executable. trade_calculation_status / settlement_calculation_status must be
+# COMPLETE before FeeCalculator returns a value. INCOMPLETE always raises
+# FEE_DATA_INCOMPLETE. Context dimensions are recorded even when they are not
+# yet supplied by adapters so no one silently promotes a venue-wide estimate.
+schema_version: 2
 
 schedules:
   - venue: kalshi
-    version: "2026-02"
-    effective_date: "2026-02-01"
+    version: "2026-07-07-snapshot"
+    effective_date: "2026-07-07"
     expiration_date: null
-    verified_at: "2026-08-30"
-    source: "https://kalshi.com/docs/fee-schedule"
+    verified_at: "2026-09-13"
+    verification_status: VERIFIED
+    documentation_tested: true
+    live_test_status: UNAVAILABLE
+    source: "https://kalshi.com/fee-schedule; https://docs.kalshi.com/getting_started/fee_rounding; https://docs.kalshi.com/api-reference/market/get-series; https://docs.kalshi.com/api-reference/exchange/get-series-fee-changes"
     currency: USD
+    trade_calculation_status: INCOMPLETE
+    settlement_calculation_status: COMPLETE
+    fee_context:
+      series: "dynamic: series_ticker"
+      listing_cohort: "all current listings; series/event overrides apply"
+      event_status: "event fee override may change over lifecycle"
+      contract_type: "$1 event contract; margin contracts excluded"
+      access_route: "direct Kalshi member route"
+      account_or_fill_state: "balance precision + per-order rounding accumulator"
+    required_context:
+      - series
+      - event_status
+      - contract_type
+      - access_route
+      - fee_type
+      - fee_multiplier
+      - account_balance_precision
+      - cumulative_fill_quantity
+      - cumulative_fee_charged
+      - metadata_verified_at
+    blocking_reason: "series/event fee type and multiplier, account balance precision, walked fill partition, and per-order rounding accumulator are not supplied to FeeCalculator"
     fees:
-      - fee_type: taker_quadratic
-        # fee = ceil_cents(multiplier * C * P * (1-P))
+      # Reference formulas only. The INCOMPLETE status prevents execution use.
+      - fee_type: taker_quadratic_reference
         multiplier: "0.07"
         applies_to: taker
-      - fee_type: maker_quadratic
-        # $0 on most markets; some markets use 0.0175. We conservatively
-        # apply the nonzero maker multiplier to ALL maker fills.
+      - fee_type: maker_quadratic_reference
         multiplier: "0.0175"
         applies_to: maker
       - fee_type: settlement
@@ -25,24 +52,313 @@ schedules:
         applies_to: settlement
 
   - venue: forecast_ex
-    version: "2026-08"
-    effective_date: "2024-08-01"
+    version: "2026-03-24"
+    effective_date: "2026-03-24"
     expiration_date: null
-    verified_at: "2026-08-30"
-    source: "https://forecastex.com / IBKR ForecastTrader product pages"
+    verified_at: "2026-09-13"
+    verification_status: VERIFIED
+    documentation_tested: true
+    live_test_status: UNAVAILABLE
+    source: "https://www.cftc.gov/filings/orgrules/rules03022640215.pdf; https://www.cftc.gov/filings/orgrules/rules03242641956.pdf; https://www.interactivebrokers.com/en/pricing/commissions-events.php"
     currency: USD
+    trade_calculation_status: COMPLETE
+    settlement_calculation_status: COMPLETE
+    fee_context:
+      series: "all ForecastEx $1 forecast-contract series"
+      listing_cohort: "current rulebook"
+      event_status: "all"
+      contract_type: "$1 binary Forecast Contract"
+      access_route: "IBKR ForecastTrader / ForecastEx"
     fees:
-      - fee_type: per_contract
-        # structural $0.01: YES bid + NO bid pair at $1.01, payout $1.00
+      # Opposite bids pair at $1.00. This separate fee applies to each
+      # executed side; it is not embedded in a $1.01 pairing threshold.
+      - fee_type: exchange_fee_per_executed_contract
         fixed_amount: "0.01"
         applies_to: taker
-      - fee_type: per_contract_maker
-        fixed_amount: "0.00"
+      - fee_type: maker_not_distinguished
+        fixed_amount: "0.01"
         applies_to: maker
       - fee_type: settlement
         fixed_amount: "0.00"
         applies_to: settlement
 
-# Venues with NO fee schedule on file are FEE_DATA_INCOMPLETE and are
-# blocked from execution by the fee engine. webull / moomoo intentionally
-# have no schedule (their broker-layer fees on Kalshi routing are UNKNOWN).
+  - venue: polymarket_us
+    version: "2026-07-01-snapshot"
+    effective_date: "2026-07-01"
+    expiration_date: null
+    verified_at: "2026-09-13"
+    verification_status: VERIFIED
+    documentation_tested: true
+    live_test_status: UNAVAILABLE
+    source: "https://docs.polymarket.us/fees"
+    currency: USD
+    trade_calculation_status: INCOMPLETE
+    settlement_calculation_status: INCOMPLETE
+    fee_context:
+      series: "fee-enabled market selector required"
+      listing_cohort: "current Polymarket US listings"
+      event_status: "all"
+      contract_type: "$1 event contract"
+      access_route: "direct Polymarket US API"
+      account_or_fill_state: "cumulative aggressive-order adjustment"
+    required_context:
+      - series
+      - listing_cohort
+      - event_status
+      - contract_type
+      - access_route
+      - cumulative_fill_quantity
+      - cumulative_fee_charged
+    blocking_reason: "half-even cent rounding and cumulative aggressive-order fee cap require order/fill state absent from the calculator; settlement fee was not independently verified"
+    fees:
+      - fee_type: taker_quadratic_reference
+        multiplier: "0.06"
+        applies_to: taker
+      - fee_type: maker_rebate_reference
+        multiplier: "-0.0125"
+        applies_to: maker
+
+  - venue: gemini
+    version: "2026-03-18"
+    effective_date: "2026-03-18"
+    expiration_date: null
+    verified_at: "2026-09-13"
+    verification_status: VERIFIED
+    documentation_tested: true
+    live_test_status: UNAVAILABLE
+    source: "https://www.gemini.com/fees/predictions; https://www.gemini.com/fees/predictions-2026-03-18; https://developer.gemini.com/products/prediction-markets"
+    currency: USD
+    trade_calculation_status: INCOMPLETE
+    settlement_calculation_status: INCOMPLETE
+    fee_context:
+      series: "contract series required"
+      listing_cohort: "before/on-or-after 2026-03-18"
+      event_status: "all"
+      contract_type: "$1 binary or variable-payout Titan contract"
+      access_route: "direct Gemini"
+      clearing_route: "QC Clearing or Gemini Olympus"
+    required_context:
+      - series
+      - listing_cohort
+      - event_status
+      - contract_type
+      - access_route
+      - metadata_verified_at
+    blocking_reason: "listing cohort selects a different formula and the current contract metadata pipeline does not carry cohort or clearing route; settlement fee was not independently verified"
+    fees:
+      - fee_type: post_2026_03_18_taker_reference
+        multiplier: "0.07"
+        applies_to: taker
+      - fee_type: post_2026_03_18_maker_reference
+        multiplier: "0.0175"
+        applies_to: maker
+
+  - venue: cdna
+    version: "2026-06-30"
+    effective_date: "2026-06-30"
+    expiration_date: null
+    verified_at: "2026-09-13"
+    verification_status: UNVERIFIED
+    documentation_tested: true
+    live_test_status: UNAVAILABLE
+    source: "https://help.crypto.com/en/articles/10748690-prediction-markets-trading-fees"
+    currency: USD
+    trade_calculation_status: INCOMPLETE
+    settlement_calculation_status: INCOMPLETE
+    fee_context:
+      series: "required"
+      listing_cohort: "effective 2026-06-30"
+      event_status: "pre-game / in-play may differ"
+      contract_type: "$1 event contract"
+      access_route: "CDNA direct, OG partner, or frontend-specific route"
+    blocking_reason: "official material gives a $0.01-$0.0175 taker range but the exact price function and route-specific treatment were not verified"
+    fees: []
+
+  - venue: cme
+    version: "2026-event-contract-snapshot"
+    effective_date: "2026-01-01"
+    expiration_date: null
+    verified_at: "2026-09-13"
+    verification_status: VERIFIED
+    documentation_tested: true
+    live_test_status: UNAVAILABLE
+    source: "https://www.cmegroup.com/markets/event-contracts.html; https://www.cmegroup.com/company/files/2026-fee-schedule.pdf"
+    currency: USD
+    trade_calculation_status: INCOMPLETE
+    settlement_calculation_status: INCOMPLETE
+    fee_context:
+      series: "CME event-contract product code required"
+      listing_cohort: "2026"
+      event_status: "all"
+      contract_type: "$1 event contract"
+      access_route: "FCM/member route required"
+    blocking_reason: "the $0.01 exchange fee is documented, but FCM commission, membership/account treatment, and settlement charges require an explicit route"
+    fees:
+      - fee_type: exchange_fee_reference
+        fixed_amount: "0.01"
+        applies_to: taker
+
+  - venue: ibkr_forecastex
+    version: "snapshot-2026-09-13"
+    effective_date: "2026-09-13"
+    expiration_date: null
+    verified_at: "2026-09-13"
+    verification_status: VERIFIED
+    documentation_tested: true
+    live_test_status: UNAVAILABLE
+    source: "https://www.interactivebrokers.com/en/pricing/commissions-events.php"
+    currency: USD
+    trade_calculation_status: COMPLETE
+    settlement_calculation_status: COMPLETE
+    fee_context:
+      series: "ForecastEx"
+      listing_cohort: "current"
+      event_status: "all"
+      contract_type: "$1 Forecast Contract"
+      access_route: "IBKR -> ForecastEx"
+    fees:
+      - fee_type: ibkr_commission_plus_exchange_fee
+        fixed_amount: "0.01"
+        applies_to: taker
+      - fee_type: ibkr_commission_plus_exchange_fee
+        fixed_amount: "0.01"
+        applies_to: maker
+      - fee_type: settlement
+        fixed_amount: "0.00"
+        applies_to: settlement
+
+  - venue: ibkr_kalshi
+    version: "snapshot-2026-09-13"
+    effective_date: "2026-09-13"
+    expiration_date: null
+    verified_at: "2026-09-13"
+    verification_status: VERIFIED
+    documentation_tested: true
+    live_test_status: UNAVAILABLE
+    source: "https://www.interactivebrokers.com/en/pricing/commissions-events.php"
+    currency: USD
+    trade_calculation_status: INCOMPLETE
+    settlement_calculation_status: INCOMPLETE
+    fee_context:
+      series: "Kalshi series required"
+      listing_cohort: "current"
+      event_status: "all"
+      contract_type: "$1 event contract"
+      access_route: "IBKR -> Kalshi"
+    blocking_reason: "published $0.01 IBKR commission + $0.01 exchange fee was verified, but settlement/account treatment was not live-verified and the route has no adapter"
+    fees:
+      - fee_type: route_charge_reference
+        fixed_amount: "0.02"
+        applies_to: taker
+
+  - venue: ibkr_cme
+    version: "snapshot-2026-09-13"
+    effective_date: "2026-09-13"
+    expiration_date: null
+    verified_at: "2026-09-13"
+    verification_status: VERIFIED
+    documentation_tested: true
+    live_test_status: UNAVAILABLE
+    source: "https://www.interactivebrokers.com/en/pricing/commissions-events.php"
+    currency: USD
+    trade_calculation_status: INCOMPLETE
+    settlement_calculation_status: INCOMPLETE
+    fee_context:
+      series: "CME event-contract product required"
+      listing_cohort: "current"
+      event_status: "all"
+      contract_type: "$1 event contract"
+      access_route: "IBKR -> CME"
+    blocking_reason: "published $0.01 IBKR commission + $0.01 exchange fee was verified, but settlement/account treatment was not live-verified and the route has no adapter"
+    fees:
+      - fee_type: route_charge_reference
+        fixed_amount: "0.02"
+        applies_to: taker
+
+  - venue: railbird
+    version: "snapshot-2026-09-13"
+    effective_date: "2026-09-13"
+    expiration_date: null
+    verified_at: "2026-09-13"
+    verification_status: UNKNOWN
+    documentation_tested: true
+    live_test_status: UNAVAILABLE
+    source: "https://www.cftc.gov/csl/26-13/download"
+    currency: USD
+    trade_calculation_status: INCOMPLETE
+    settlement_calculation_status: INCOMPLETE
+    fee_context:
+      series: "required"
+      listing_cohort: "DKeX/current"
+      event_status: "pre-game/in-play"
+      contract_type: "binary or variable-payout event contract"
+      access_route: "Railbird/DKeX member or FCM route"
+    blocking_reason: "no complete public current fee schedule was verified and the QC-to-Bitnomial operational cutover remains unverified"
+    fees: []
+
+  - venue: dkex
+    version: "snapshot-2026-09-13"
+    effective_date: "2026-09-13"
+    expiration_date: null
+    verified_at: "2026-09-13"
+    verification_status: UNKNOWN
+    documentation_tested: true
+    live_test_status: UNAVAILABLE
+    source: "https://ir.aboutdraftkings.com/news/news-details/2026/DraftKings-Launches-Proprietary-Exchange-to-Bolster-Differentiated-Predictions-Experience/default.aspx"
+    currency: USD
+    trade_calculation_status: INCOMPLETE
+    settlement_calculation_status: INCOMPLETE
+    fee_context:
+      series: "required"
+      listing_cohort: "post-launch 2026-06-26"
+      event_status: "pre-game/in-play"
+      contract_type: "DKeX event contract"
+      access_route: "DraftKings Predictions -> DKeX/Railbird"
+    blocking_reason: "no complete public current DKeX fee schedule or API route was verified"
+    fees: []
+
+  - venue: ludlow
+    version: "snapshot-2026-09-13"
+    effective_date: "2026-09-13"
+    expiration_date: null
+    verified_at: "2026-09-13"
+    verification_status: UNKNOWN
+    documentation_tested: true
+    live_test_status: UNAVAILABLE
+    source: "https://www.cftc.gov/IndustryOversight/IndustryFilings/TradingOrganizations/59390"
+    currency: USD
+    trade_calculation_status: INCOMPLETE
+    settlement_calculation_status: INCOMPLETE
+    fee_context:
+      series: "required"
+      listing_cohort: "current"
+      event_status: "pre-event/in-play"
+      contract_type: "Ludlow event contract"
+      access_route: "Novig/Ludlow"
+    blocking_reason: "no complete current fee schedule, public API, or named operational DCO route was verified"
+    fees: []
+
+  - venue: rothera
+    version: "snapshot-2026-09-13"
+    effective_date: "2026-09-13"
+    expiration_date: null
+    verified_at: "2026-09-13"
+    verification_status: UNKNOWN
+    documentation_tested: true
+    live_test_status: UNAVAILABLE
+    source: "https://robinhood.com/us/en/newsroom/the-world-cup-is-now-trading-on-robinhood-and-rothera/"
+    currency: USD
+    trade_calculation_status: INCOMPLETE
+    settlement_calculation_status: INCOMPLETE
+    fee_context:
+      series: "required"
+      listing_cohort: "current"
+      event_status: "pre-game/in-play"
+      contract_type: "Rothera event contract"
+      access_route: "FCM route, currently evidenced through Robinhood"
+    blocking_reason: "exchange formula and Robinhood commission are route/account dependent; no direct public API route was verified"
+    fees: []
+
+# Frontend brands not listed as complete schedules (Coinbase, Webull, Moomoo,
+# Robinhood, FanDuel, and DraftKings frontend routes) remain execution-blocking.
+# Their app identity never implies the underlying DCM's direct fee schedule.

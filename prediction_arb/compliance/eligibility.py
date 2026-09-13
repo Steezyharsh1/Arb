@@ -19,7 +19,15 @@ def check_contract_eligibility(contract: NormalizedContract,
                                mode: Mode,
                                block_unknown_status: bool = True
                                ) -> EligibilityDecision:
-    rec = get_eligibility(jurisdiction, contract.venue, contract.category)
+    # Venue category labels are inconsistent. Include the event text so clear
+    # sports contracts cannot evade the Utah restriction through a generic or
+    # ticker-only category. Ambiguous categories still resolve to UNKNOWN.
+    category_evidence = " ".join(filter(None, (
+        contract.category,
+        contract.event_description,
+        contract.normalized_event,
+    )))
+    rec = get_eligibility(jurisdiction, contract.venue, category_evidence)
     if rec.status == EligibilityStatus.ELIGIBLE:
         return EligibilityDecision(True, rec.status, "eligible")
     if rec.status == EligibilityStatus.RESTRICTED:

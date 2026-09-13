@@ -85,7 +85,7 @@ class OpportunityStatus(str, Enum):
 
 class MicrostructureType(str, Enum):
     CLOB = "CLOB"
-    PAIRED_BID = "PAIRED_BID"    # ForecastEx: YES bid + NO bid pairing
+    PAIRED_BID = "PAIRED_BID"    # ForecastEx: opposite bids pair at $1.00
     AMM = "AMM"
     RFQ = "RFQ"
     DEALER = "DEALER"
