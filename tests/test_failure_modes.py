@@ -141,15 +141,42 @@ class TestHistoricalHonesty:
         frames = HistoricalDataProvider(repo).load_frames(None, None)
         assert frames == []
 
-    def test_backtest_stub_raises(self, tmp_path):
+    def test_backtest_empty_data_reports_empty_never_fabricates(self, tmp_path):
+        """The property the old NotImplementedError stub protected: with no
+        recorded data the backtest returns an EMPTY result — it never
+        invents frames, opportunities, or an equity curve (§92)."""
         from prediction_arb.backtesting.engine import BacktestEngine
         from prediction_arb.database.repository import Repository
         repo = Repository(tmp_path / "h2.sqlite3", Mode.HISTORICAL)
-        engine = BacktestEngine(repo)
+        engine = BacktestEngine(repo, fee_calc=_fee_calc())
         inv = engine.data_inventory()
         assert inv.frames_available == 0
-        with pytest.raises(NotImplementedError):
-            engine.run_backtest()
+        result = asyncio.run(engine.run_backtest())
+        assert result.frames_available == 0
+        assert result.first_frame is None and result.last_frame is None
+        assert result.opportunities_observed == 0
+        assert result.equity.points == []
+        assert result.equity.final_equity == Decimal("0")
+        assert result.equity.max_drawdown == Decimal("0")
+
+    def test_backtest_refuses_to_run_without_fee_data(self, tmp_path):
+        """Cost is what separates a real trade from a fantasy one, so a
+        backtest with no fee calculator refuses rather than reporting
+        profit it could not have priced (§92)."""
+        from prediction_arb.backtesting.engine import BacktestEngine
+        from prediction_arb.database.repository import Repository
+        repo = Repository(tmp_path / "h3.sqlite3", Mode.HISTORICAL)
+        engine = BacktestEngine(repo)  # no fee_calc
+        with pytest.raises(ValueError, match="FeeCalculator"):
+            asyncio.run(engine.run_backtest())
+
+
+def _fee_calc():
+    """A real calculator from the checked-in schedules (never fabricated)."""
+    from prediction_arb.core.config import load_config
+    from prediction_arb.fees.venue_fees import load_fee_calculator
+    config = load_config("historical")
+    return load_fee_calculator(config.fees, 30)
 
 
 class TestCapitalConstraints:

@@ -201,13 +201,14 @@ _Status note (2026-09-13, second pass): the owner selected Polymarket US. The ad
   certificates, with a human-reviewable false-match rate.
 
 ### M5 — Replay, backtest, and paper realism (Phases 4 + 6, defects D3, D4, D11, D12)
-- Persist the full `NormalizedContract` + raw payload at collect time
+_Status note (2026-09-13, third pass): **Phase 4 is code complete — D3 and D4 are fixed.** Collect mode persists all 37 `NormalizedContract` fields plus the raw payload via `record_contract()`; migration `002` is forward-only and `PRAGMA`-guarded (`SCHEMA_VERSION` 1 → 2); `database/contract_codec.py` owns both directions and a round trip is verified lossless across every field. Historical mode reads the recorded store **read-only** (SQLite `mode=ro`, enforced by the engine, not by convention) and writes only its own database; a missing store raises rather than being created empty. Reconstruction **never invents** — an under-recorded row returns `None` and is counted, replacing the old invented `payout=1.00`/`tick_size=0.01`/`contract_version="historical"`. The metric battery (opportunity duration keyed on the stable leg pair, fill probability, partial-fill rate, drawdown, capital utilisation, fee drag) is implemented in `backtesting/metrics.py` with measured and modelled results kept apart and assumptions disclosed on every result. 24 new tests in `tests/test_phase4_recording.py`. **Still open:** the phase exit needs the owner's real collected data (neither venue is reachable from the sandbox), and the Phase 6 half of M5 — D11 book freshness and D12 fill probability — is untouched. `HistoricalExecutionEngine` deliberately stays unwired; wiring it would imply execution evidence that does not exist._
+- ~~Persist the full `NormalizedContract` + raw payload at collect time
   (migration `002` through the forward-only runner) and make the recorded
   store readable by historical mode; reconstruct faithfully in
-  `prediction_arb/modes/historical/data_provider.py`.
-- Implement `prediction_arb/backtesting/engine.py::run_backtest` metrics (opportunity
+  `prediction_arb/modes/historical/data_provider.py`.~~ **DONE 2026-09-13.**
+- ~~Implement `prediction_arb/backtesting/engine.py::run_backtest` metrics (opportunity
   duration, fill probability, partial-fill rate, drawdown, capital
-  utilisation, fee drag).
+  utilisation, fee drag).~~ **DONE 2026-09-13.**
 - Enforce book freshness in paper (use `OrderBookAggregator`, which is
   currently dead code) and either implement
   `simulated_fill_probability_at_touch` or delete the config key and

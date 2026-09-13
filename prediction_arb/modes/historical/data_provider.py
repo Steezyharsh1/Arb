@@ -1,5 +1,6 @@
-"""Historical data provider: reads recorded snapshots from the
-COLLECT/paper database lineage, groups them into replay frames."""
+"""Historical data provider: reads recorded snapshots from the recorded
+store, groups them into replay frames, and rebuilds each contract exactly
+as it was captured (D4)."""
 from __future__ import annotations
 
 import json
@@ -9,14 +10,12 @@ from typing import Optional
 
 from ...core.clock import ensure_utc
 from ...core.types import (
-    MarketMicrostructure,
     MicrostructureType,
     NormalizedContract,
     OrderBook,
-    OrderTypeSupport,
-    OutcomeType,
     PriceLevel,
 )
+from ...database.contract_codec import decode_contract
 from ...database.repository import Repository
 
 Frame = tuple[datetime, list[NormalizedContract],
@@ -24,14 +23,22 @@ Frame = tuple[datetime, list[NormalizedContract],
 
 
 class HistoricalDataProvider:
-    """Groups recorded snapshots into time-bucketed frames (default 60s)."""
+    """Groups recorded snapshots into time-bucketed frames (default 60s).
+
+    Also tracks what it could *not* faithfully rebuild, so a replay that
+    produced nothing says why instead of looking like a quiet market.
+    """
 
     def __init__(self, repo: Repository, bucket_seconds: int = 60):
         self.repo = repo
         self.bucket_seconds = bucket_seconds
+        #: (venue, contract_id, reason) for every snapshot whose contract
+        #: could not be reconstructed from the recorded store.
+        self.under_recorded: list[tuple[str, str, str]] = []
 
     def load_frames(self, start: Optional[datetime],
                     end: Optional[datetime]) -> list[Frame]:
+        self.under_recorded = []
         rows = self.repo.orderbook_snapshots(start, end)
         if not rows:
             return []
@@ -54,42 +61,30 @@ class HistoricalDataProvider:
         out: list[Frame] = []
         for bucket in sorted(frames):
             books = frames[bucket]
-            contracts = [self._reconstruct_contract(v, c)
-                         for (v, c) in books]
+            contracts = [c for c in (
+                self._reconstruct_contract(v, cid)
+                for (v, cid) in books) if c is not None]
             out.append((bucket, contracts, books))
         return out
 
-    def _reconstruct_contract(self, venue: str,
-                              contract_id: str) -> NormalizedContract:
-        """Minimal contract reconstruction from recorded metadata. Fields
-        the recording lacks stay empty — the deterministic matcher will
-        reject pairs missing settlement data, which is the correct
-        conservative behavior for incomplete historical records."""
-        from sqlalchemy import select
-        from sqlalchemy.orm import Session
-        from ...database.models import MarketRow
+    def _reconstruct_contract(self, venue: str, contract_id: str
+                              ) -> Optional[NormalizedContract]:
+        """Rebuild the contract exactly as it was recorded (D4).
 
-        desc, category = "", ""
-        with Session(self.repo.engine) as s:
-            row = s.scalar(select(MarketRow).where(
-                MarketRow.venue == venue,
-                MarketRow.market_id == contract_id))
-            if row is not None:
-                desc, category = row.description, row.category
-
-        return NormalizedContract(
-            venue=venue, underlying_exchange="", clearing_entity="",
-            market_id=contract_id, contract_id=contract_id,
-            event_description=desc, normalized_event="",
-            outcome_type=OutcomeType.BINARY, outcome="YES",
-            normalized_outcome="", outcome_count=2,
-            all_outcomes=("YES", "NO"), settlement_time=None,
-            timezone="UTC", cutoff_time=None, resolution_source="",
-            resolution_method="", threshold=None, threshold_operator=None,
-            units=None, payout=Decimal("1.00"), currency="USD",
-            early_resolution_rules="", cancellation_rules="",
-            contract_version="historical", tick_size=Decimal("0.01"),
-            min_order_size=Decimal("1"), max_order_size=None,
-            jurisdiction_requirements="US", category=category,
-            market_microstructure=MarketMicrostructure(),
-            supported_order_types=OrderTypeSupport())
+        Returns ``None`` when the row was never recorded, or was recorded
+        before migration 002 and so lacks the fields a contract needs.
+        That is counted and reported, never papered over with a plausible
+        default: an invented settlement time, payout, or tick size would
+        let the matcher and the cost model reason about a contract that
+        was never actually observed (§92 — never fabricate data).
+        """
+        row = self.repo.get_market_row(venue, contract_id)
+        if row is None:
+            self.under_recorded.append((venue, contract_id, "not recorded"))
+            return None
+        contract = decode_contract(row)
+        if contract is None:
+            self.under_recorded.append(
+                (venue, contract_id,
+                 "recorded before migration 002 (contract fields missing)"))
+        return contract

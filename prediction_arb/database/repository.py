@@ -6,15 +6,23 @@ discoverable at startup for reconciliation against venue state.
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, or_, select
 from sqlalchemy.orm import Session
 
 from ..core.clock import utcnow
-from ..core.types import Mode, Opportunity, OrderBook, OrderStatus
+from ..core.types import (
+    Mode,
+    NormalizedContract,
+    Opportunity,
+    OrderBook,
+    OrderStatus,
+)
+from .contract_codec import encode_contract
 from .migrations.runner import run_migrations
 from .models import (
     Base,
@@ -30,10 +38,44 @@ from .models import (
 )
 
 
+#: Modes whose recorded market data historical replay is allowed to read
+#: (read-only). Replay must be able to see what collect recorded — that is
+#: the whole point of collecting — but it may never write into that store.
+_REPLAY_READABLE_TAGS = frozenset({"collect", "paper"})
+
+
 class Repository:
-    def __init__(self, db_path: Path, mode: Mode):
+    """Mode-tagged database handle.
+
+    ``read_only=True`` opens an existing recorded store at the OS level in
+    read-only mode: migrations are skipped, the mode tag is not written,
+    and every write is refused by SQLite itself rather than by convention.
+    It never creates the file. This is how historical mode reads the
+    recorded store while keeping its own database for replay output (D3).
+    """
+
+    def __init__(self, db_path: Path, mode: Mode,
+                 read_only: bool = False):
         self.mode = mode
         self.db_path = db_path
+        self.read_only = read_only
+        if read_only:
+            if not Path(db_path).exists():
+                raise FileNotFoundError(
+                    f"Recorded store {db_path} does not exist. Historical "
+                    f"replay never creates or fabricates data — run "
+                    f"`--mode collect` to record real order books first "
+                    f"(§55, §92).")
+            uri = f"file:{Path(db_path).resolve()}?mode=ro"
+            # `creator` keeps SQLAlchemy's SQLite dialect from rewriting the
+            # `file:` URI into a relative path; mode=ro is enforced by
+            # SQLite, not by us.
+            self.engine = create_engine(
+                "sqlite://", future=True,
+                creator=lambda: sqlite3.connect(uri, uri=True))
+            self._assert_mode_tag()
+            return
+
         self.engine = create_engine(f"sqlite:///{db_path}", future=True)
         run_migrations(self.engine)
         self._assert_mode_tag()
@@ -44,21 +86,43 @@ class Repository:
         with Session(self.engine) as s:
             row = s.scalar(select(MetaRow).where(MetaRow.key == "mode"))
             if row is None:
+                if self.read_only:
+                    raise RuntimeError(
+                        f"Recorded store {self.db_path} has no mode tag; "
+                        f"refusing to read an untagged database (§49).")
                 s.add(MetaRow(key="mode", value=self.mode.value))
                 s.add(MetaRow(key="schema_version", value=str(SCHEMA_VERSION)))
                 s.commit()
-            elif row.value != self.mode.value and not (
-                    row.value == "collect" and self.mode == Mode.PAPER
+                return
+            if row.value == self.mode.value:
+                return
+            # collect <-> paper share one market-data lineage.
+            if (row.value == "collect" and self.mode == Mode.PAPER
                     or row.value == "paper" and self.mode == Mode.COLLECT):
-                raise RuntimeError(
-                    f"Database {self.db_path} is tagged mode={row.value!r} "
-                    f"but application mode is {self.mode.value!r}. Refusing "
-                    f"to mix mode data (§49).")
+                return
+            # Historical replay reads the recorded store read-only and
+            # writes only to its own database, so reading a collect/paper
+            # tag is the intended path, not a mode mix (D3).
+            if (self.read_only and self.mode == Mode.HISTORICAL
+                    and row.value in _REPLAY_READABLE_TAGS):
+                self.recorded_store_tag = row.value
+                return
+            raise RuntimeError(
+                f"Database {self.db_path} is tagged mode={row.value!r} "
+                f"but application mode is {self.mode.value!r}. Refusing "
+                f"to mix mode data (§49).")
 
     # -------------------------------------------------------------- markets
     def upsert_market(self, venue: str, market_id: str, contract_id: str,
                       underlying_exchange: str, description: str,
                       outcome_type: str, category: str, status: str) -> None:
+        """Legacy narrow upsert. Prefer :meth:`record_contract` (D4).
+
+        Kept for callers that only know the discovery-time basics. It
+        writes NULLs for the D4 columns rather than guessing at them, so a
+        market recorded this way decodes as under-recorded at replay time
+        instead of pretending to have settlement data it never had.
+        """
         now = utcnow()
         with Session(self.engine) as s:
             row = s.scalar(select(MarketRow).where(
@@ -77,6 +141,53 @@ class Repository:
                 row.status = status
                 row.updated_at = now
             s.commit()
+
+    def record_contract(self, contract: NormalizedContract,
+                        status: str = "open") -> None:
+        """Persist the FULL normalized contract + raw payload (D4).
+
+        Replay can only reconstruct what was recorded, so collect mode
+        records everything the matcher and the cost model need: settlement
+        and cutoff times, resolution source/method, threshold + operator +
+        units, early-resolution and cancellation rules, payout, tick size,
+        order-size bounds, contract version, provenance, microstructure,
+        supported order types, and the venue's own payload.
+        """
+        values = encode_contract(contract)
+        now = utcnow()
+        with Session(self.engine) as s:
+            row = s.scalar(select(MarketRow).where(
+                MarketRow.mode == self.mode.value,
+                MarketRow.venue == contract.venue,
+                MarketRow.market_id == contract.market_id))
+            if row is None:
+                s.add(MarketRow(
+                    mode=self.mode.value, market_id=contract.market_id,
+                    venue=contract.venue,
+                    contract_id=contract.contract_id,
+                    status=status, created_at=now, updated_at=now, **values))
+            else:
+                for key, value in values.items():
+                    setattr(row, key, value)
+                row.status = status
+                row.updated_at = now
+            s.commit()
+
+    def get_market_row(self, venue: str, identifier: str
+                       ) -> Optional[MarketRow]:
+        """The recorded row for one contract, for faithful replay (D4).
+
+        Snapshots are keyed by ``contract_id`` while contracts are keyed by
+        ``market_id``. Every adapter currently sets those equal, but that
+        is an implementation detail, not a guarantee — so replay accepts
+        either rather than silently failing to find a contract it did
+        record.
+        """
+        with Session(self.engine) as s:
+            return s.scalar(select(MarketRow).where(
+                MarketRow.venue == venue,
+                or_(MarketRow.market_id == identifier,
+                    MarketRow.contract_id == identifier)))
 
     # ------------------------------------------------------------ matches
     def save_match_certificate(self, match_id: str, contract_a: str,

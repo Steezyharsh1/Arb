@@ -102,8 +102,27 @@ live mode is monitor-only by construction.
   settlement costing → risk checks → simulated execution. Incomplete fees
   now block rather than becoming estimates, so direct Kalshi opportunities
   remain blocked until contextual metadata is integrated.
+- Collect mode now records the **full** normalized contract — settlement
+  and cutoff times, resolution source/method, threshold + operator +
+  units, early-resolution and cancellation rules, payout, tick size,
+  order-size bounds, contract version, provenance, microstructure,
+  supported order types, and the venue's own payload — so historical
+  replay reconstructs what was actually observed instead of inventing
+  plausible defaults. Reconstruction that cannot be done faithfully is
+  counted and reported, never substituted.
+- Historical mode reads the recorded store **read-only** (SQLite `mode=ro`,
+  so writes are refused by the database engine rather than by convention)
+  and writes replay output to its own database. A missing recorded store
+  is reported honestly; it is never created empty, and history is never
+  fabricated or back-filled from live data.
+- Backtest metrics over recorded frames: opportunity duration, fill
+  probability, partial-fill rate, drawdown, capital utilisation and fee
+  drag. Measured quantities and modelled ones stay separated, and every
+  result carries its assumptions in plain text — the equity curve assumes
+  every executable opportunity filled, so it is an upper bound, never a
+  forecast.
 - Mode isolation, kill switch, crash-recovery intents, and all ten mandatory
-  spec cases are covered by the test suite (`pytest` — 224 passing, all
+  spec cases are covered by the test suite (`pytest` — 249 passing, all
   offline).
 - Fees are charged **per fill** from the levels a walk actually consumed,
   with each venue's documented rounding, and Polymarket US's exact
@@ -118,7 +137,12 @@ live mode is monitor-only by construction.
 - ForecastEx/IBKR, Webull, and Moomoo adapters. Phase 1 researched additional
   candidates but deliberately stopped before adapter implementation.
 - Multi-leg / logical arbitrage, graph cycle search, web dashboard,
-  email/webhook alerts, full backtest metrics (§3 v1 scope).
+  email/webhook alerts (§3 v1 scope).
+- Backtest *metrics* are implemented, but backtest *execution* is not:
+  replay measures opportunities, it does not simulate fills against them
+  (`HistoricalExecutionEngine` stays unwired — that is Phase 6 / D12).
+  The phase exit criterion also needs real collected data, which requires
+  an owner-run collect session on a network-reachable machine.
 
 ## Repository layout
 

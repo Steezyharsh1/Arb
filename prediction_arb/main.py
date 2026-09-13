@@ -23,6 +23,7 @@ import asyncio
 import sys
 from datetime import date
 from pathlib import Path
+from typing import Optional
 
 # Allow `python prediction_arb/main.py` (running the file directly, without
 # installing the package): put the PROJECT ROOT on sys.path so that the
@@ -251,7 +252,22 @@ async def async_main(args: argparse.Namespace, config: AppConfig) -> int:
             from prediction_arb.modes.historical.reports import (
                 write_replay_report,
             )
-            engine = HistoricalEngine(config, repo, fee_calc, llm, console)
+            # D3: replay reads the store collect/paper recorded, read-only,
+            # and writes its own database. A missing recorded store is the
+            # honest empty state — the engine reports it, nothing is
+            # created or fabricated here (§55, §92).
+            recorded: Optional[Repository] = None
+            recorded_path = config.recorded_store_path
+            if recorded_path.exists():
+                recorded = Repository(recorded_path, config.mode,
+                                      read_only=True)
+                console.print(f"Recorded store (read-only): {recorded_path}")
+            else:
+                console.print(
+                    f"[yellow]No recorded store at {recorded_path} — nothing "
+                    f"has been collected yet.[/yellow]")
+            engine = HistoricalEngine(config, repo, fee_calc, llm, console,
+                                      recorded=recorded)
             summary = await engine.run(
                 start=date.fromisoformat(args.start) if args.start else None,
                 end=date.fromisoformat(args.end) if args.end else None,

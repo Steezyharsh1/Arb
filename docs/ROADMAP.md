@@ -50,7 +50,7 @@ wiring, and exact contextual fee/eligibility data remain independent blockers.
 | 1 | Venue & API research refresh (2026) | **DONE 2026-09-13 — OWNER CHECKPOINT** | Owner selects Polymarket US, Gemini, or IBKR route before adapter work |
 | 2 | Kalshi adapter refresh + streaming | PARTIAL — code complete + verification script delivered 2026-09-13 (D5, D14 fixed); **owner run pending** | 24h collect run with ≥99% cycle success; WebSocket streaming in paper |
 | 3 | **Second independent venue adapter** | PARTIAL — adapter + exact fee model complete 2026-09-13 (gate 3 CLOSED); **gates 1, 2, 4 are owner-gated** | Real books from the owner-selected venue proven INDEPENDENT of Kalshi, in paper mode |
-| 4 | Data lineage, replay, backtest metrics | BROKEN (D3, D4) | `--mode historical --date …` replays recorded data and reports metrics |
+| 4 | Data lineage, replay, backtest metrics | CODE COMPLETE 2026-09-13 (D3, D4 fixed); **exit needs owner's real collected data** | `--mode historical --date …` replays recorded data and reports metrics |
 | 5 | Matching that can actually match | BROKEN (D6, D9) | APPROVED certificates produced from real cross-venue data |
 | 6 | Paper validation & realism | PARTIAL (D11, D12) | Multi-week paper run with realistic fill/staleness modelling |
 | 7 | Compliance & legal re-verification | PARTIAL — 2026-09-13 Utah/CFTC snapshot complete | Owner/legal review and venue/category eligibility evidence before live |
@@ -427,54 +427,126 @@ is persisted as APPROVED or REVIEW (never forced to APPROVED).
 
 ---
 
-### Phase 4 — Data lineage, replay, backtest metrics  ·  BROKEN
+### Phase 4 — Data lineage, replay, backtest metrics  ·  CODE COMPLETE 2026-09-13 (exit needs owner data)
 
-- D3: recorded data lands in the paper DB; historical mode opens an
+- ~~D3: recorded data lands in the paper DB; historical mode opens an
   empty DB; `Repository._assert_mode_tag` would refuse cross-mode reads
-  anyway. Decide the recorded-data store explicitly (e.g. collect
-  writes `data/recorded/…` readable by historical mode) and update
-  `prediction_arb/core/config.py:_EXPECTED_DB` + `_assert_mode_tag` together.
-- D4: persist the **full** `NormalizedContract` (settlement time,
-  cutoff, resolution source/method, threshold + operator + units,
-  early-resolution rules, payout, tick size, contract version,
-  underlying exchange, clearing entity) plus the raw market payload.
-  Add migration `002` via `prediction_arb/database/migrations/runner.py` (forward-only)
-  and reconstruct faithfully in
-  `prediction_arb/modes/historical/data_provider.py::_reconstruct_contract`.
-- Implement `prediction_arb/backtesting/engine.py::run_backtest` metrics: opportunity
-  duration, fill probability, partial-fill rate, drawdown, capital
-  utilisation, fee drag. No fabricated history, no live fallback.
+  anyway.~~ **FIXED 2026-09-13.** `Repository` gained a `read_only`
+  handle and `_assert_mode_tag` a narrow allowance (historical +
+  read-only + a `collect`/`paper` tag). `AppConfig.recorded_store_path`
+  is derived from the same constants collect writes with, so the two
+  cannot drift. Historical mode now reads the recorded store read-only
+  and writes only its own database.
+- ~~D4: persist the **full** `NormalizedContract` … plus the raw market
+  payload.~~ **FIXED 2026-09-13.** `MarketRow` gained 26 nullable
+  columns (`SCHEMA_VERSION` 1 → 2), migration `002` is forward-only and
+  idempotent, and `database/contract_codec.py` owns both directions so a
+  field written at collect time cannot be dropped at replay time.
+- ~~Implement `backtesting/engine.py::run_backtest` metrics.~~ **DONE
+  2026-09-13** in `backtesting/metrics.py`: opportunity duration, fill
+  probability, partial-fill rate, drawdown, capital utilisation, fee
+  drag. No fabricated history, no live fallback.
 
 Exit: `--mode historical --date <collected date>` replays real frames
 and produces a report with non-zero frames and honest zero-or-more
-opportunities, reproducible across runs.
+opportunities, reproducible across runs. **Still needs the owner's real
+collected data** — the sandbox cannot reach either venue, so no genuine
+frames exist to replay. The code path is exercised end to end in
+`tests/test_phase4_recording.py` instead.
 
-#### Phase 4 readiness — verified 2026-09-13, nothing upstream blocks it
+#### Phase 4 — what was built, and the honesty rules it holds to
 
-Both defects were re-derived from the current code rather than taken on
-trust, so Phase 4 can start immediately:
+**D3 — recorded store is now readable by replay.** Historical mode keeps
+its own writable database for replay output and opens the collect/paper
+store separately, read-only:
 
-| Defect | Evidence re-checked 2026-09-13 |
-|---|---|
-| D3 | `core/config.py:_EXPECTED_DB[Mode.COLLECT] = "prediction_arb_paper"` and `AppConfig.database_path` maps collect into `data/paper/`, while historical opens `data/historical/prediction_arb_historical.sqlite3`. `Repository._assert_mode_tag` permits only `collect ↔ paper` — a historical-mode open of the recorded store raises. Recorded data is therefore invisible to replay. |
-| D4 | `database/models.py:MarketRow` has exactly 11 columns (`mode, market_id, venue, underlying_exchange, contract_id, description, outcome_type, category, status, created_at, updated_at`) — no settlement, cutoff, resolution source/method, threshold/operator/units, early-resolution, payout, tick size, contract version, or raw payload. `modes/historical/data_provider.py:_reconstruct_contract` consequently sets `settlement_time=None`, `resolution_source=""`, `threshold=None`, `contract_version="historical"`. |
-| — | `database/migrations/runner.py:MIGRATIONS` still holds only `(1, "create initial schema", _m001_create_all)`, so migration `002` has a clean, forward-only slot. |
+- `Repository(db_path, mode, read_only=True)` opens via
+  `sqlite3.connect("file:…?mode=ro", uri=True)`. Writes are refused by
+  SQLite itself, not by a convention the code could bypass. Migrations
+  are skipped and the mode tag is never written.
+- It refuses a missing file rather than creating an empty database
+  (`FileNotFoundError`), and still refuses a `live`-tagged store.
+- The allowance is deliberately narrow: `read_only=True` **and**
+  `mode == HISTORICAL` **and** tag in `{collect, paper}`. Anything else
+  still raises "Refusing to mix mode data (§49)".
 
-Decisions already made for Phase 4 (so the work starts at code, not design):
+**D4 — recording is now faithful, and gaps stay gaps.**
 
-1. **Recorded store:** collect keeps writing its per-mode DB, and
-   historical mode gains read access to that *recorded* store rather than
-   collect being repointed — `_EXPECTED_DB` and `_assert_mode_tag` must
-   change together, and the mode column stays on every row.
-2. **Migration `002`:** add the full `NormalizedContract` columns plus a
-   raw-payload column, forward-only through the existing runner; existing
-   rows stay readable with NULLs, never back-filled with invented values.
-3. **No fabrication:** `_reconstruct_contract` may only return what was
-   recorded; a field that was not captured stays empty and the
-   deterministic matcher keeps rejecting on it.
+- `record_contract()` persists all 37 `NormalizedContract` fields plus
+  the raw venue payload. Verified: a rich contract round-trips with
+  **zero** field differences.
+- Decimals are stored as text (matching the existing convention),
+  datetimes as `DateTime(timezone=True)`, microstructure / order-type /
+  raw payload as JSON text.
+- Migration `002` adds each column only if absent, so a fresh database
+  (which already gets the columns from `create_all`) does not fail with
+  "duplicate column name". A genuine v1 database is upgraded in place
+  with its existing rows preserved and the new columns NULL.
+- **Decode never invents.** `decode_contract` returns `None` when a row
+  lacks the fields a contract needs. `HistoricalDataProvider` counts and
+  reports those rows (`under_recorded`) and the replay says how many were
+  excluded. The previous behaviour — substituting `payout=1.00`,
+  `tick_size=0.01`, `min_order_size=1`, `contract_version="historical"` —
+  was fabrication, and it is gone.
 
-Phase 4's *exit* criterion still needs real recorded data, i.e. the
-owner's collect run (Phase 2 step 2/3 above). The code work does not.
+**Backtest metrics — measured vs modelled stays separated.**
+
+- *Measured* from the recording: opportunity duration, fill statistics,
+  fee drag, peak capital required.
+- *Modelled*, and labelled as such in every result: the equity curve and
+  drawdown assume every executable opportunity filled in full at the
+  recorded prices. `BacktestResult.assumptions` carries that in plain
+  text so a report can never be read as a forecast.
+- Opportunity duration keys on the **sorted leg pair**, not
+  `opportunity_id`: each `evaluate_two_leg` call mints a fresh `uuid4`,
+  so the id can never express persistence across frames. With the leg
+  pair, `first_seen == last_seen` no longer holds by construction.
+- Fill statistics come from recorded book depth. When no walk was
+  recorded they are `None` — never an assumed 100% (that assumption is
+  defect D12, and it is not repeated here).
+- `run_backtest` refuses to run without a `FeeCalculator`: cost is what
+  separates a real trade from a fantasy one.
+
+**One thing this phase deliberately did not do:** `HistoricalExecutionEngine`
+is still unwired — replay counts and measures opportunities, it does not
+simulate executions against them. That belongs to Phase 6 (fill realism,
+D12), not here, and wiring it now would have implied execution evidence
+that does not exist.
+
+#### Phase 4 — verification record (2026-09-13)
+
+The three decisions recorded before the work started were all followed,
+and each is now pinned by a test in `tests/test_phase4_recording.py`
+(24 tests, all passing):
+
+| Decision | Where it landed | Test that pins it |
+|---|---|---|
+| Historical reads the recorded store; collect is not repointed | `Repository(read_only=True)` + narrow `_assert_mode_tag` allowance + `AppConfig.recorded_store_path` | `test_historical_reads_collect_store_read_only`, `test_read_only_still_refuses_a_live_tagged_store`, `test_config_recorded_store_matches_where_collect_writes` |
+| Migration `002` forward-only; old rows keep NULLs | `migrations/runner.py:_m002_market_contract_fields`, guarded by `PRAGMA table_info` | `test_migration_002_is_registered_and_idempotent`, `test_migration_002_upgrades_a_v1_database` |
+| No fabrication in reconstruction | `contract_codec.decode_contract` returns `None` when under-recorded | `test_decode_never_invents_for_under_recorded_rows`, `test_provider_counts_unreconstructable_instead_of_dropping` |
+
+Also verified rather than assumed:
+
+- **Round trip is lossless.** `test_record_contract_round_trips_every_field`
+  walks all 37 `NormalizedContract` fields and asserts the difference
+  list is empty. A silently dropped field is exactly how replay starts
+  inventing, so this is checked field by field, not spot-checked.
+- **Read-only is enforced by SQLite, not by convention.** The test
+  attempts a write through the read-only handle and asserts it raises.
+- **A missing recorded store is never created.**
+  `test_read_only_never_creates_a_missing_store` asserts both the
+  `FileNotFoundError` and that the file still does not exist afterwards.
+- **The metric battery is not permanently empty.** One test pins the
+  honest zero (no LLM ⇒ pair is REVIEW ⇒ nothing approved, even with a
+  profitable-looking spread); a second approves the pair and asserts the
+  metrics actually populate. Without both, a green metric test could pass
+  on an unwired pipeline.
+
+**What still blocks the phase exit:** real recorded data. Neither venue
+is reachable from this environment, so no genuine frames exist to replay
+and the exit criterion cannot be met here. The owner's 24h collect run
+(Phase 2) produces it; `--mode historical --date <that date>` is then the
+acceptance run.
 
 ---
 
@@ -570,8 +642,8 @@ collection), and log rotation.
 |---|---|---|---|
 | D1 | ~~Package unimportable as committed~~ **FIXED 2026-09-13**: package moved to `prediction_arb/`, `pyproject.toml` added, three working entry points | Was: `import prediction_arb` → ModuleNotFoundError on a fresh clone. Now: `pip install -e ".[dev]"` → 118 tests pass | 0 |
 | D2 | ~~No `.gitignore`; artifacts tracked~~ **FIXED 2026-09-13**: `.gitignore` + `.gitattributes` added, 60 `.pyc` + both DBs + `logs/` + `reports/` untracked (files kept on disk), `reconnect.py` → `scripts/ibkr_gateway_session.py` with safe TLS handling. *Caveat: the 17 MB blob remains in git **history**; purging it needs a history rewrite (owner's call)* | `git ls-files \| grep -c pycache` → 0; CI step guards against regressions | 0 |
-| D3 | Collect data is invisible to historical replay | collect → `data/paper/…` (tagged `mode=collect`); historical → `data/historical/…` (0 rows); report shows `frames: 0` | 4 |
-| D4 | Recorded markets lose the metadata matching needs | `MarketRow` has no settlement/rules/threshold/payout/version columns; `_reconstruct_contract` sets `settlement_time=None`, `resolution_source=""` → `deterministic_match` rejects on both | 4 |
+| D3 | ~~Collect data is invisible to historical replay~~ **FIXED 2026-09-13**: `Repository` gained a `read_only` handle (SQLite `mode=ro`, so writes are refused by the engine, not by convention) and `_assert_mode_tag` a narrow allowance — `read_only` **and** `mode=HISTORICAL` **and** a `collect`/`paper` tag. `AppConfig.recorded_store_path` is derived from the same constants collect writes with, so replay and the writer cannot drift. A missing store raises instead of creating an empty DB; a `live`-tagged store is still refused | Was: collect → `data/paper/…` (tagged `mode=collect`); historical → `data/historical/…` (0 rows); report showed `frames: 0`. Now: `tests/test_phase4_recording.py::TestRecordedStoreAccess` (6 tests) | 4 |
+| D4 | ~~Recorded markets lose the metadata matching needs~~ **FIXED 2026-09-13**: `MarketRow` gained 26 nullable columns (`SCHEMA_VERSION` 1 → 2) and migration `002` is forward-only and `PRAGMA`-guarded, so a fresh DB does not die on "duplicate column name" and a real v1 DB upgrades with its rows intact. `record_contract()` persists all 37 `NormalizedContract` fields plus the raw payload; `database/contract_codec.py` owns both directions. **Decode never invents** — an under-recorded row returns `None` and is counted, replacing the old invented `payout=1.00` / `tick_size=0.01` / `contract_version="historical"` | Was: `MarketRow` had 11 columns; `_reconstruct_contract` set `settlement_time=None`, `resolution_source=""` → `deterministic_match` rejected on both. Now: `test_record_contract_round_trips_every_field` asserts an empty difference list across all 37 fields | 4 |
 | D5 | ~~Kalshi on legacy host, intermittent failures, no failover~~ **FIXED IN CODE 2026-09-13**: recommended `external-api` hosts configured, legacy hosts kept as fallbacks, 5xx/transport failover + connect-time probing, bulk books, WS streaming, tier-aware budget clamping (26 tests). *Operational verification (24h run on the owner's machine) still pending — see Phase 2 section* | Was: `config/venues.yaml` → `api.elections.kalshi.com`; collect log: 18 DNS failures + 14 HTTP 500s | 2 |
 | D6 | Cross-venue candidate generation cannot produce candidates | `normalized_event_key` = exact canonical title + settlement date | 5 |
 | D7 | ~~Venue research stale~~ **FIXED 2026-09-13**: evidence ledger now covers direct DCMs, aliases, multi-route frontends, fees, Utah/CFTC context, and ranked candidates; old “only one independent pair” premise removed | `docs/VENUE_RESEARCH.md`; provenance/fee/compliance registries; focused tests | 1 |

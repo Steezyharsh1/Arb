@@ -3,6 +3,7 @@ also physical: each mode uses its own SQLite database file (§49)."""
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import (
     Boolean,
@@ -15,7 +16,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class Base(DeclarativeBase):
@@ -36,6 +37,44 @@ class MarketRow(Base):
     status: Mapped[str] = mapped_column(String(16), default="open")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    # --- Phase 4 / D4 (migration 002): the rest of the NormalizedContract.
+    # Everything here is nullable on purpose. Rows recorded before
+    # migration 002 simply do not have the data, and `_reconstruct_contract`
+    # must return "unknown" for them rather than an invented value. Adding
+    # a NOT NULL column with a fabricated default would be exactly the
+    # silent fabrication §92 forbids.
+    clearing_entity: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    normalized_event: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    outcome: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    normalized_outcome: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    outcome_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    all_outcomes_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    settlement_time: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True)
+    timezone: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    cutoff_time: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True)
+    resolution_source: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    resolution_method: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    threshold: Mapped[Optional[str]] = mapped_column(String(48), nullable=True)
+    threshold_operator: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    units: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    payout: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    currency: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    early_resolution_rules: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    cancellation_rules: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    contract_version: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    tick_size: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    min_order_size: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    max_order_size: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    jurisdiction_requirements: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True)
+    microstructure_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    order_types_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # The venue's own payload, verbatim. Replay must be able to prove what
+    # was actually observed rather than trusting the normalized copy.
+    raw_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class ContractMatchRow(Base):

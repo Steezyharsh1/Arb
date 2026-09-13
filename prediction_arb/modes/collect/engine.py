@@ -67,13 +67,10 @@ class CollectEngine:
                 f"[cycle {cycle}] {venue}: {len(markets)} open binary "
                 f"markets discovered")
             for m in markets:
-                self.repo.upsert_market(
-                    venue=venue, market_id=m.market_id,
-                    contract_id=m.contract_id,
-                    underlying_exchange=m.underlying_exchange,
-                    description=m.event_description,
-                    outcome_type=m.outcome_type.value,
-                    category=m.category, status="open")
+                # Record the FULL contract, not just the discovery basics:
+                # replay can only reconstruct what was captured, and the
+                # matcher rejects pairs missing settlement data (D4).
+                self.repo.record_contract(m, status="open")
 
             tickers = [m.market_id for m in markets[: self.max_books]]
             books = await self._fetch_books(adapter, venue, tickers)
