@@ -4,9 +4,19 @@
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate   # Python 3.11+
-pip install -r requirements.txt
-python -m pytest tests/          # verify: 84 tests should pass
+pip install -e ".[dev]"          # installs the package + pytest
+pytest                           # verify: 107 tests should pass
+python -m prediction_arb.main --status    # venue/provenance status, no network
 ```
+
+After an editable install three equivalent entry points exist:
+`python -m prediction_arb.main …`, `python -m prediction_arb …` and the console
+script `prediction-arb …`.
+
+`requirements.txt` holds runtime dependencies only; test tooling lives in the
+`dev` extra (`pyproject.toml`). If you prefer not to install the package,
+`pip install -r requirements.txt && python -m pytest tests/` also works —
+`tests/conftest.py` puts the project root on `sys.path`.
 
 ## Kalshi
 
@@ -16,7 +26,8 @@ Market data (REST) needs NO credentials — `--mode collect` and
 For WebSocket streaming and (eventually) live trading:
 1. Create a Kalshi account at kalshi.com; generate an API key in
    account settings (you get a Key ID and download an RSA private key).
-2. Paper/streaming: put into `.env.paper`:
+2. Paper/streaming: copy the template (`cp .env.example .env.paper`) and put
+   them into `.env.paper`:
    ```
    KALSHI_API_KEY_ID=<key id>
    KALSHI_PRIVATE_KEY_PEM="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
@@ -31,7 +42,7 @@ For WebSocket streaming and (eventually) live trading:
 
 Signing: RSA-PSS SHA256 over `timestamp + METHOD + /trade-api/v2<path>`,
 headers `KALSHI-ACCESS-KEY/SIGNATURE/TIMESTAMP` (implemented in
-`adapters/kalshi.py`).
+`prediction_arb/adapters/kalshi.py`).
 
 ## ForecastEx (IBKR) — activation checklist
 
@@ -39,7 +50,7 @@ headers `KALSHI-ACCESS-KEY/SIGNATURE/TIMESTAMP` (implemented in
    contracts / ForecastTrader.
 2. Run IB Gateway or Client Portal Gateway locally
    (default `https://localhost:5000/v1/api`).
-3. Implement the marked methods in `adapters/forecast_ex.py`
+3. Implement the marked methods in `prediction_arb/adapters/forecast_ex.py`
    (contract search, snapshot/book, orders) against the paper account.
 4. Only after paper verification, change the adapter's `api_status`.
    The provenance record already exists and is INDEPENDENT of Kalshi.

@@ -1,0 +1,30 @@
+# Normalize line endings on commit; check out as LF everywhere except Windows
+# batch files. Several files were committed with CRLF (see docs/ROADMAP.md D2).
+* text=auto eol=lf
+
+*.py      text eol=lf
+*.pyi     text eol=lf
+*.md      text eol=lf
+*.txt     text eol=lf
+*.yaml    text eol=lf
+*.yml     text eol=lf
+*.json    text eol=lf
+*.jsonl   text eol=lf
+*.toml    text eol=lf
+*.cfg     text eol=lf
+*.ini     text eol=lf
+*.sh      text eol=lf
+
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+
+# Binary — never diff or normalize
+*.sqlite3 binary
+*.db      binary
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.gz      binary
+*.zip     binary

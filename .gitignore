@@ -1,0 +1,54 @@
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------------------------------------------------------------------------
+# Runtime artifacts — recorded market data, audit logs, generated reports.
+# These are created on demand by the application and must never be committed:
+#   data/<mode>/*.sqlite3   per-mode databases (one day of collection ≈ 17 MB)
+#   data/KILL_SWITCH        global kill-switch state file
+#   logs/<mode>/*.jsonl     per-mode audit logs
+#   reports/<mode>/*.json   generated reports
+# Retention policy: see the 'Human action checklist' (H5) in docs/ROADMAP.md. Keep locally or move to
+# external storage; git is not a data warehouse.
+# ---------------------------------------------------------------------------
+data/
+logs/
+reports/
+
+# ---------------------------------------------------------------------------
+# Secrets — mode-specific env files (docs/API_SETUP.md).
+# Live-marked keys are refused outside live mode by core/config.py, but they
+# must never reach git in the first place.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+
+# ---------------------------------------------------------------------------
+# Editors / OS
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/

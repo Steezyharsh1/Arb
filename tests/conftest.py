@@ -8,7 +8,10 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+# Make `prediction_arb` importable when the package is not installed
+# (e.g. a bare `pytest` run in a fresh checkout). parents[1] is the project
+# root, which holds the `prediction_arb/` package directory.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from prediction_arb.core.types import (
     MarketMicrostructure,

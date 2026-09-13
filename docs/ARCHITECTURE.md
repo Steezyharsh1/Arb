@@ -21,17 +21,17 @@
 
 ## Security boundary (not a UI feature)
 
-- `execution/simulated.py` (Historical/Paper engines) has **no adapter
+- `prediction_arb/execution/simulated.py` (Historical/Paper engines) has **no adapter
   attribute**. There is no object reachable from a simulation engine
   that can transmit an order.
-- `adapters/kalshi.py` refuses `place_order` unless constructed with
+- `prediction_arb/adapters/kalshi.py` refuses `place_order` unless constructed with
   `allow_order_placement=True`; `main.py` passes that only when
   `config.mode == Mode.LIVE`.
-- `execution/live.py` is the only importer of `LiveOrderFirewall`.
+- `prediction_arb/execution/live.py` is the only importer of `LiveOrderFirewall`.
   `LiveExecutionEngine.submit_order` (the generic interface method)
   raises unconditionally; the only working path is
   `submit_order_with_context(request, FirewallContext)`.
-- `core/config.py` fails startup on any mode/engine/database/env
+- `prediction_arb/core/config.py` fails startup on any mode/engine/database/env
   inconsistency (spec test case 10 verified in tests + live run).
 - Databases are per-mode files, tagged internally with their mode;
   opening a file under the wrong mode raises.
@@ -55,6 +55,19 @@
    PaperExecutionEngine → partial-fill handler if leg B fails.
 7. Everything persisted to the paper DB; JSONL audit logs per mode.
 
+## Repository layout & path resolution
+
+The importable package is `prediction_arb/` and contains **code only**.
+`config/`, `data/<mode>/`, `logs/<mode>/` and `reports/<mode>/` live at the
+project root, because an installed package may be read-only and per-mode
+runtime data must never ship inside it (§49, §51, §77).
+
+`prediction_arb/core/paths.py` is the single place that resolves those
+locations. Project root = `$PREDICTION_ARB_HOME` if set, else the first
+ancestor of the package (then of the cwd) containing `config/settings.yaml`;
+otherwise it raises `ProjectRootError` rather than guessing — a wrong root
+would write one mode's data into another mode's directory.
+
 ## Extending
 
 - New venue: implement `PredictionMarketAdapter`, add a provenance
@@ -66,6 +79,6 @@
 ## Concurrency
 
 asyncio throughout; shared order-book state behind `asyncio.Lock`
-(`orderbooks/aggregator.py`); token-bucket rate limiting + exponential
+(`prediction_arb/orderbooks/aggregator.py`); token-bucket rate limiting + exponential
 backoff per adapter (§39). IBKR TWS (if ever used instead of Client
 Portal) must be wrapped in `asyncio.to_thread` (§9).
