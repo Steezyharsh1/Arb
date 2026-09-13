@@ -24,7 +24,7 @@ Status tags used throughout:
 
 | Check | Result |
 |---|---|
-| `pytest` | **224 passed** (~23s), re-run 2026-09-13 after the Phase 2/3 completion pass: Phase 0's 107 + 11 Phase 1 fee/provenance/compliance + 26 Phase 2 (22 Kalshi host-failover/bulk/WS-streaming/rate-limit + 4 paper-streaming) + 41 Phase 3 Polymarket US + 24 exact-fee-model (`tests/test_polymarket_fees.py`) + 12 smoke-script/D14 (`tests/test_kalshi_smoke_script.py`, `tests/test_units.py::TestRateLimitCalibration`) + 3 per-fill accuracy. All offline: mock HTTP transports and a scripted local WebSocket server |
+| `pytest` | **250 passed** (~24s), re-run 2026-09-13 after the Phase 4 pass: Phase 0's 107 + 11 Phase 1 fee/provenance/compliance + 26 Phase 2 (22 Kalshi host-failover/bulk/WS-streaming/rate-limit + 4 paper-streaming) + 41 Phase 3 Polymarket US + 24 exact-fee-model (`tests/test_polymarket_fees.py`) + 12 smoke-script/D14 (`tests/test_kalshi_smoke_script.py`, `tests/test_units.py::TestRateLimitCalibration`) + 3 per-fill accuracy + **25 Phase 4** (`tests/test_phase4_recording.py`: contract round-trip, migration 002, read-only recorded store, no-fabrication decode, backtest metrics). All offline: mock HTTP transports and a scripted local WebSocket server |
 | `python -m prediction_arb.main --status` | Works: kalshi=VERIFIED, polymarket_us=API_DOCUMENTED_UNTESTED, forecast_ex=API_DOCUMENTED_UNTESTED; independence matrix correct (kalshi↔polymarket_us = INDEPENDENT) |
 | `python -m prediction_arb.main --readiness` | 0 snapshots recorded in a fresh clone; **0 opportunities ever analyzed**; live NOT RECOMMENDED. (The 13,801-snapshot figure below was from the previous engineer's working copy — the DB is git-ignored, so a fresh clone starts empty.) |
 | Live-capable venues | **1** (Kalshi). Polymarket US is implemented and INDEPENDENT, but stays API_DOCUMENTED_UNTESTED until the owner captures observed-payload evidence (P7) |
@@ -506,6 +506,16 @@ store separately, read-only:
   defect D12, and it is not repeated here).
 - `run_backtest` refuses to run without a `FeeCalculator`: cost is what
   separates a real trade from a fantasy one.
+- **The battery is reachable from the CLI.** `--mode historical` runs
+  `summarize_frames` over the opportunities that replay just produced —
+  it does not re-scan, so the numbers describe exactly the run that was
+  persisted — and the full battery lands in
+  `reports/historical/historical_replay_*.json` under `metrics`. This
+  was a real gap in the first cut: the battery existed but only
+  `BacktestEngine` could reach it, so the exit criterion ("replays
+  recorded data **and reports metrics**") was not met by the command the
+  criterion names. Unavailable metrics print as `n/a`, never as a bare
+  `None` (reads like a bug) or `0` (reads like a measurement of nothing).
 
 **One thing this phase deliberately did not do:** `HistoricalExecutionEngine`
 is still unwired — replay counts and measures opportunities, it does not
@@ -517,7 +527,7 @@ that does not exist.
 
 The three decisions recorded before the work started were all followed,
 and each is now pinned by a test in `tests/test_phase4_recording.py`
-(24 tests, all passing):
+(25 tests, all passing):
 
 | Decision | Where it landed | Test that pins it |
 |---|---|---|

@@ -542,6 +542,48 @@ class TestBacktestMetrics:
         assert any("MODELLED" in a for a in result.assumptions)
         assert result.to_dict()["capital"]["peak_capital_required"] is not None
 
+    def test_replay_report_carries_the_metric_battery(self, tmp_path):
+        """`--mode historical` must REPORT metrics, not just count frames.
+
+        The metric battery was implemented but reachable only from
+        `BacktestEngine`, so the phase exit criterion ("replays recorded
+        data and reports metrics") was not actually met by the CLI path.
+        This pins the wiring: the replay summary itself carries the
+        battery, computed over the same opportunities it persisted.
+        """
+        from prediction_arb.modes.historical.engine import HistoricalEngine
+        from prediction_arb.matching.llm_matcher import LLMMatcher
+        from prediction_arb.core.config import load_config
+        from prediction_arb.fees.venue_fees import load_fee_calculator
+        from rich.console import Console
+
+        recorded_path = tmp_path / "recorded.sqlite3"
+        recorded = Repository(recorded_path, Mode.COLLECT)
+        recorded.record_contract(TestContractRecording._rich_contract())
+        recorded.save_orderbook_snapshot(make_book(
+            "kalshi", "KXBTC-26SEP2517-70000-B1",
+            asks=[("0.45", "10")], bids=[("0.40", "10")]))
+
+        own = Repository(tmp_path / "own.sqlite3", Mode.HISTORICAL)
+        reader = Repository(recorded_path, Mode.HISTORICAL, read_only=True)
+        config = load_config("historical")
+        engine = HistoricalEngine(config, own,
+                                  load_fee_calculator(config.fees, 30),
+                                  LLMMatcher(client=None), Console(),
+                                  recorded=reader)
+        summary = asyncio.run(engine.run())
+
+        metrics = summary["metrics"]
+        assert metrics["frames_available"] == 1
+        # every section of the battery is present in the report payload
+        for section in ("fills", "durations", "capital", "fee_drag",
+                        "modelled_equity"):
+            assert section in metrics, f"missing {section} from replay report"
+        assert metrics["assumptions"]
+        # the modelled label survives into the report, so it cannot be
+        # misread downstream as measured performance
+        assert any("MODELLED" in a for a in metrics["assumptions"])
+
     def test_data_inventory_still_reports_recorded_range(self, tmp_path):
         from prediction_arb.backtesting.engine import BacktestEngine
         repo = Repository(tmp_path / "inv.sqlite3", Mode.COLLECT)

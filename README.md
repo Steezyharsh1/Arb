@@ -122,7 +122,7 @@ live mode is monitor-only by construction.
   every executable opportunity filled, so it is an upper bound, never a
   forecast.
 - Mode isolation, kill switch, crash-recovery intents, and all ten mandatory
-  spec cases are covered by the test suite (`pytest` — 249 passing, all
+  spec cases are covered by the test suite (`pytest` — 250 passing, all
   offline).
 - Fees are charged **per fill** from the levels a walk actually consumed,
   with each venue's documented rounding, and Polymarket US's exact

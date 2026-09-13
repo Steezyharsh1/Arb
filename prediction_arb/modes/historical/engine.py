@@ -14,6 +14,7 @@ from typing import Optional
 
 from rich.console import Console
 
+from ...backtesting.metrics import summarize_frames
 from ...core.config import AppConfig
 from ...core.logging import get_logger
 from ...core.types import Mode
@@ -24,6 +25,16 @@ from ..shared import run_arbitrage_scan, run_matching
 from .data_provider import HistoricalDataProvider
 
 log = get_logger("modes.historical")
+
+
+def _fmt(value) -> str:
+    """Render a metric for display: `n/a` when it was not computable.
+
+    An unavailable metric must never print as a bare ``None`` (which reads
+    like a bug) or as ``0`` (which reads like a real measurement of
+    nothing).
+    """
+    return "n/a" if value is None else str(value)
 
 
 class HistoricalEngine:
@@ -95,6 +106,7 @@ class HistoricalEngine:
         total_ops = 0
         surviving_fees = 0
         executable = 0
+        per_frame: list[tuple[datetime, list]] = []
         for ts, contracts, books in frames:
             approved, _mr = await run_matching(contracts, self.llm)
             ops = await run_arbitrage_scan(
@@ -108,8 +120,21 @@ class HistoricalEngine:
             total_ops += len(ops)
             surviving_fees += sum(1 for o in ops if o.net_profit > 0)
             executable += sum(1 for o in ops if o.status.value == "TRADE")
+            per_frame.append((ts, ops))
             for op in ops:
                 self.repo.save_opportunity(op)
+
+        # The metric battery runs over the opportunities the replay already
+        # produced — it does not re-scan, so the numbers describe exactly
+        # the run that was persisted above.
+        risk = self.config.settings.get("risk", {})
+        max_capital = risk.get("max_total_capital")
+        metrics = summarize_frames(
+            per_frame,
+            max_total_capital=(Decimal(str(max_capital))
+                               if max_capital is not None else None),
+            contracts_reconstructed=sum(len(c) for _, c, _ in frames),
+            contracts_unreconstructable=len(under))
 
         summary = {
             "frames": len(frames),
@@ -121,6 +146,23 @@ class HistoricalEngine:
             "contracts_unreconstructable": len(under),
             "recorded_store": (str(self.recorded.db_path)
                                if self.recorded is not None else None),
+            "metrics": metrics.to_dict(),
         }
-        self.console.print(f"Historical replay complete: {summary}")
+        self.console.print(
+            f"Historical replay complete: {summary['frames']} frames, "
+            f"{total_ops} opportunities ({executable} executable), "
+            f"{summary['contracts_reconstructed']} contracts reconstructed"
+            + (f", {len(under)} unreconstructable" if under else ""))
+        # `n/a` rather than a bare `None`: an unavailable metric must read
+        # as unavailable, never as zero or as a value.
+        dur = metrics.durations.median_seconds
+        self.console.print(
+            f"Opportunity duration median: "
+            f"{'n/a' if dur is None else f'{dur}s'} | fill probability: "
+            f"{_fmt(metrics.fills.fill_probability_at_touch)} | fee drag: "
+            f"{_fmt(metrics.fee_drag.drag_ratio)}")
+        self.console.print(
+            f"[dim]Modelled equity (upper bound — assumes every executable "
+            f"opportunity filled): final {metrics.equity.final_equity}, "
+            f"max drawdown {metrics.equity.max_drawdown}[/dim]")
         return summary
