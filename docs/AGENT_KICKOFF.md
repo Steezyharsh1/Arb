@@ -12,21 +12,19 @@ You are the engineer taking over **`prediction_arb`**, a conservative,
 safety-first multi-venue prediction-market arbitrage engine (Python 3.11+,
 asyncio, httpx, SQLAlchemy, pydantic, rich). A previous engineer built a
 complete v1: hard mode isolation (historical / paper / live / collect), a
-15-check live-order firewall, honest stubs, full audit logging, and 107
-passing tests. Your job is to take it from "architecturally sound but has
+15-check live-order firewall, honest stubs, full audit logging, and a
+passing safety suite. Your job is to take it from "architecturally sound but has
 never found a single opportunity" to "two genuinely independent venues
 producing real, costed arbitrage candidates in paper mode."
 
 ## MISSION (in priority order)
 
-1. **PRIMARY — Add a second, genuinely independent venue with a working
-   API.** The system currently has exactly one live-capable venue
-   (Kalshi), so cross-venue arbitrage is mathematically impossible. The
-   recommended route is the **IBKR Client Portal Web API**, which now
-   fronts **three** exchanges (Kalshi, CME Group, ForecastEx) from one
-   account — one integration can unlock two venues independent of Kalshi.
-   Polymarket US (live CFTC DCM+DCO with its own CLOB API) is the
-   fallback route.
+1. **PRIMARY — stop at the owner venue-selection checkpoint.** Phase 1
+   conditionally ranks Polymarket US direct first, Gemini direct second, and
+   IBKR ForecastEx+CME third. Do not write adapter code until the owner selects
+   a route. After selection, add a second genuinely independent venue through
+   documented reads, paper/sandbox validation, contract-qualified provenance,
+   complete fees, and Utah non-sports eligibility evidence.
 2. **Unblock the pipeline** so that a real opportunity could actually be
    detected once two venues exist: fix packaging, the Kalshi API host,
    cross-venue candidate generation, and LLM matcher wiring.
@@ -45,8 +43,8 @@ producing real, costed arbitrage candidates in paper mode."
 2. `docs/SPEC.md` — the reconstructed specification. Every `§N` cited in the
    code resolves here; read the sections covering whatever you are changing.
 2. `README.md` — headline research result and quick start.
-3. `docs/VENUE_RESEARCH.md` — the 2026-08-30 venue/provenance research
-   (now stale; Phase 1 is yours to refresh).
+3. `docs/VENUE_RESEARCH.md` — the completed 2026-09-13 Phase 1 evidence
+   ledger, ranked shortlist, recommendation, and owner checkpoint.
 4. `docs/ARCHITECTURE.md`, `docs/MODE_SEPARATION.md`,
    `docs/TRADING_LOGIC.md`, `docs/RISK_MANAGEMENT.md`,
    `docs/CRASH_RECOVERY.md`, `docs/LLM_MATCHING.md`,
@@ -103,8 +101,9 @@ producing real, costed arbitrage candidates in paper mode."
 6. **Deterministic filters are final.** An LLM may narrow matches, never
    widen them, and never authorises a trade.
 7. **No scraping, no geo-bypass, no rate-limit circumvention, no ToS
-   violations** (`prediction_arb/compliance/restrictions.py`). Respect Kalshi's ~10
-   reads/s and ~5 order writes/s; honour 429 + backoff.
+   violations** (`prediction_arb/compliance/restrictions.py`). Discover the
+   authenticated account's Kalshi tier, budget separate read/write token
+   buckets below published limits, and honour endpoint costs, 429s, and backoff.
 8. **Secrets**: never log credentials, never commit `.env*`, never print
    a private key. Use the existing redaction filter in `prediction_arb/core/logging.py`.
 9. **Provenance discipline for new venues**: a new frontend that routes
@@ -147,24 +146,21 @@ Left over from Phase 0 (owner decisions, not yours to make alone): CI's first
 real run on push; whether to rewrite git history to purge the 17 MB SQLite
 blob; the data-retention policy (H5); confirming SPEC §33 and §68 (`[I]`).
 
-### M1 — Venue research refresh (Phase 1)
-- Re-verify Kalshi (hosts, order-book format, rate limits, fee schedule)
-  and re-research the 2026 landscape: IBKR's three-exchange platform,
-  CME event contracts, ForecastEx, Polymarket US, Gemini (Titan/Olympus),
-  Crypto.com CDNA / OG, Railbird, Novig, CME-routed FanDuel/DraftKings,
-  and the routing status of Robinhood/Coinbase/Webull/Moomoo. Include the
-  2026 regulatory/litigation picture and Utah eligibility per venue per
-  category.
-- Update `docs/VENUE_RESEARCH.md` (v2), `prediction_arb/provenance/exchange_registry.py`,
-  the independence matrix, `prediction_arb/compliance/jurisdiction.py`, and
-  `config/fees.yaml`. New provenance records only with evidence.
-- Produce a **ranked candidate table** (independence confidence × API
-  quality × Utah eligibility × contract overlap with Kalshi × liquidity)
-  and a recommendation with reasoning.
-- **Checkpoint**: present the shortlist and recommendation to the owner
-  and get agreement on which venue to build before writing adapter code.
+### M1 — Venue research refresh (Phase 1) · **DONE 2026-09-13 / CHECKPOINT**
+- Kalshi hosts, books, sequencing, limits, and contextual fees were re-verified
+  from official documentation. Fresh sandbox HTTP testing was UNAVAILABLE.
+- The US venue/routing landscape, regulatory context, and Utah restrictions
+  are recorded in `docs/VENUE_RESEARCH.md` with claim-level evidence status,
+  source URL, date, and DOC-vs-LIVE distinction.
+- Provenance, independence, compliance, and fee registries were updated and
+  focused tests added. ForecastEx now correctly pairs bids at $1.00 and charges
+  a separate $0.01 fee per executed side. Utah sports is RESTRICTED; non-sports
+  is UNKNOWN.
+- Conditional ranking: Polymarket US, Gemini, then IBKR ForecastEx+CME.
+- **Checkpoint:** present this shortlist and obtain the owner's selection. Do
+  not begin M2 or M3 adapter work first.
 
-### M2 — Kalshi refresh (Phase 2, defects D5)
+### M2 — Kalshi refresh (Phase 2, defects D5) · **WAIT FOR OWNER CHECKPOINT**
 - Move `config/venues.yaml` to the recommended hosts
   (`https://external-api.kalshi.com/trade-api/v2`,
   `wss://external-api-ws.kalshi.com/trade-api/ws/v2`, demo
@@ -176,22 +172,18 @@ blob; the data-retention policy (H5); confirming SPEC §33 and §68 (`[I]`).
 - **Exit**: a collect run with no unhandled 5xx; a verification script
   the owner can run to confirm both hosts and the book format.
 
-### M3 — Second venue adapter (Phase 3) · the main event
-- IBKR route: reliable gateway session handling (`scripts/ibkr_gateway.py`),
-  contract discovery (`/iserver/secdef/search` → `/iserver/secdef/strikes`
-  → `/iserver/secdef/info`, exchange `FORECASTX`), market data
-  (`/iserver/marketdata/snapshot`), then orders — **paper account only**.
-  Encode ForecastEx `PAIRED_BID` microstructure (no asks; synthetic YES
-  ask = 1.01 − best NO bid; $0.01 structural fee) and the "cannot sell,
-  only buy the opposite side" rule. Wrap any synchronous SDK in
-  `asyncio.to_thread`.
-- Implement `PredictionMarketAdapter` fully; add fee schedule,
-  provenance, and eligibility records; flip `api_status` only after paper
-  verification.
-- **Exit**: `--status` shows the new venue VERIFIED and INDEPENDENT of
-  Kalshi; paper mode fetches real books from it; at least one event where
-  both venues list an economically equivalent contract is identified and
-  persisted as a certificate (APPROVED or REVIEW — never fabricated).
+### M3 — Second venue adapter (Phase 3) · **BLOCKED ON OWNER CHOICE**
+- Implement only the selected Polymarket US, Gemini, or IBKR route. Begin with
+  official reads, payload capture, contract-qualified provenance, dynamic fee
+  context, and Utah/account eligibility validation; orders remain paper/sandbox
+  only.
+- For IBKR, distinguish `IBKR_KALSHI`, `IBKR_FORECAST_EX`, and `IBKR_CME` per
+  contract. ForecastEx has no embedded $1.01 threshold: opposite bids pair at
+  $1.00 and each executed side separately pays $0.01.
+- Flip `api_status` only after actual paper/sandbox verification.
+- **Exit**: real books from a route proven independent of direct Kalshi, complete
+  fee/eligibility context, and one real overlap persisted as APPROVED or REVIEW
+  (never fabricated or forced).
 
 ### M4 — Make matching able to match (Phase 5, defects D6 + D9)
 - **D6** is the silent killer: `normalized_event_key` groups by exact
@@ -223,7 +215,7 @@ blob; the data-retention policy (H5); confirming SPEC §33 and §68 (`[I]`).
 
 ## ENGINEERING STANDARDS
 
-- **Tests are the gate.** `pytest` must stay green (107 tests today);
+- **Tests are the gate.** `pytest` must stay green; report the current count,
   add tests for everything you build, including the spec §75 mandatory
   cases and the safety suite. New adapters get stub-honesty tests
   (NotImplementedError, never fabricated data) until verified.
@@ -294,14 +286,15 @@ milestone's first action. Keep `docs/ROADMAP.md` statuses current.
 2. Set up the environment: `python3 -m venv .venv && source
    .venv/bin/activate && pip install -e ".[dev]"` from the repository root
    (the directory holding `pyproject.toml`).
-3. Run `pytest` and `python -m prediction_arb.main --status`; confirm
-   **107 passing** and the venue table. Also read `docs/SPEC.md`'s preamble
+3. Run `pytest` and `python -m prediction_arb.main --status`; confirm the
+   suite passes and inspect the venue table. Also read `docs/SPEC.md`'s preamble
    so you know how the `§` numbering works before you touch code that cites it.
 4. Skim `main.py`, `prediction_arb/core/config.py`, `prediction_arb/adapters/kalshi.py`,
    `provenance/*`, `prediction_arb/modes/shared.py`, `prediction_arb/normalization/contracts.py`.
 5. Confirm your understanding of the defect register by re-deriving at least
    D3, D6, D9 and D11 from the code yourself (D1, D2 and D8 are already fixed).
-6. Post a short plan for M1 and start it.
+6. Present the completed M1 shortlist and wait for the owner's route selection;
+   do not start M2/M3 adapter work before that response.
 
 ## FORBIDDEN
 

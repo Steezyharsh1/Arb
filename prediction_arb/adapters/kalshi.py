@@ -1,9 +1,11 @@
 """Kalshi adapter — the one fully implemented adapter in v1.
 
-VERIFIED live 2026-08-30 against https://api.elections.kalshi.com/trade-api/v2:
-  * GET /markets, GET /markets/{ticker}, GET /markets/{ticker}/orderbook,
-    GET /series/{series}, GET /exchange/status — public, no auth.
-  * Order book format is the CURRENT `orderbook_fp` dollar-string format:
+Last observed live 2026-08-30 on the officially supported compatibility host
+https://api.elections.kalshi.com/trade-api/v2. Official documentation was
+re-verified 2026-09-13; a fresh sandbox smoke test was UNAVAILABLE (TLS EOF),
+so it is not represented as a new live test. Documented public endpoints include
+GET /markets, /markets/{ticker}, /markets/{ticker}/orderbook, /series/{series},
+and /exchange/status. The documented `orderbook_fp` dollar-string format is:
         {"orderbook_fp": {"yes_dollars": [["0.16","44.54"], ...],
                           "no_dollars":  [["0.62","95.00"], ...]}}
     Both sides are resting BIDS. The executable YES ask at quantity q is
@@ -304,14 +306,14 @@ class KalshiAdapter(PredictionMarketAdapter):
         if not (self.api_key_id and self.private_key_pem):
             raise KalshiAuthError(
                 "Kalshi WebSocket requires an API key even for market data "
-                "(verified in docs 2026-08-30). Configure KALSHI_API_KEY_ID "
+                "(re-verified in docs 2026-09-13). Configure KALSHI_API_KEY_ID "
                 "and KALSHI_PRIVATE_KEY_PEM, or use REST polling "
                 "(get_order_book) which needs no credentials.")
         raise NotImplementedError(
             "Kalshi WebSocket subscription is scheduled for the streaming "
             "milestone; v1 uses REST polling. The wire format "
-            "(orderbook_snapshot + orderbook_delta on "
-            "wss://api.elections.kalshi.com/trade-api/ws/v2) is documented "
+            "(orderbook_snapshot + orderbook_delta on the recommended "
+            "wss://external-api-ws.kalshi.com/trade-api/ws/v2) is documented "
             "in docs/VENUE_RESEARCH.md.")
 
     # ------------------------------------------------------------- orders
@@ -399,7 +401,7 @@ class KalshiAdapter(PredictionMarketAdapter):
             fok=False,  # not documented → treated unsupported
             gtc=True,
             verified=True,
-            source="Kalshi API docs (create-order), verified 2026-08-30",
+            source="Kalshi API docs (create-order), re-verified 2026-09-13; live observation 2026-08-30",
             verified_at=utcnow(),
         )
 
@@ -410,7 +412,7 @@ class KalshiAdapter(PredictionMarketAdapter):
             has_pricing_function=False,
             quote_validity_ms=None,
             verified=True,
-            source="Kalshi CLOB; order book verified live 2026-08-30",
+            source="Kalshi CLOB; docs re-verified 2026-09-13; last live observation 2026-08-30",
         )
 
     def get_api_status(self) -> APIStatus:

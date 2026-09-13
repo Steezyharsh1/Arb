@@ -2,11 +2,11 @@
 runs crash recovery on startup (§61), and routes every order through the
 LiveOrderFirewall via LiveExecutionEngine.
 
-v1 REALITY CHECK, printed at startup: the only INDEPENDENT venue pair is
-kalshi ↔ forecast_ex, and the ForecastEx adapter is API_DOCUMENTED_UNTESTED
-(no IBKR account). Therefore live cross-venue arbitrage is currently
-IMPOSSIBLE, and this engine will refuse to execute any opportunity —
-by design, not by accident.
+Current reality check: Phase 1 identified several independent DCMs, but Kalshi
+is still the only implemented adapter with prior live verification. Every other
+candidate lacks an owner-approved, live-tested adapter, and fee/Utah eligibility
+gates remain closed. Live cross-venue arbitrage is therefore impossible and this
+engine remains monitor-only by design.
 """
 from __future__ import annotations
 
@@ -90,10 +90,11 @@ class LiveEngine:
         if len(verified) < 2:
             self.console.print(
                 "[yellow]Fewer than two live-capable INDEPENDENT venues.\n"
-                "Cross-venue guaranteed arbitrage is IMPOSSIBLE right now "
-                "(kalshi↔forecast_ex is the only independent pair and the "
-                "ForecastEx adapter requires an IBKR account — see "
-                "docs/VENUE_RESEARCH.md). Live mode will scan and report "
+                "Cross-venue guaranteed arbitrage is IMPOSSIBLE right now: "
+                "Phase 1 candidates still need owner selection, an implemented "
+                "and live-tested adapter, exact fees, and Utah eligibility "
+                "evidence (see docs/VENUE_RESEARCH.md). Live mode will scan "
+                "and report "
                 "but cannot and will not execute two-leg cross-venue "
                 "trades.[/yellow]")
 

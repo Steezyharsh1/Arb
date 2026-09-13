@@ -1,7 +1,7 @@
 # TESTING
 
 ```bash
-pytest                        # 107 tests (configured in pyproject.toml)
+pytest                        # full suite (configured in pyproject.toml)
 python -m pytest tests/       # equivalent
 ```
 
@@ -28,11 +28,12 @@ package, `pyproject.toml` console script / dependency wiring, `.gitignore`
 coverage, and a credentials-free `.env.example`.
 
 **Unit** (`test_units.py`): book walking, staleness, Kalshi
-`orderbook_fp` parsing (ask synthesis from NO bids), quadratic/fixed
-fees, missing-fee errors, independence matrix, deterministic matcher
-rejections, LLM schema validation (malformed/contradiction/bounds),
-risk limits, settlement lockup, order-type metadata, normalization,
-venue aliases.
+`orderbook_fp` parsing (ask synthesis from NO bids), isolated synthetic
+formula math, production fee-context failures, ForecastEx $1.00 pairing and
+separate per-side fees, route-qualified provenance, shared-DCO independence,
+Utah category/event-text sports restrictions, deterministic matcher rejections,
+LLM schema validation, risk limits, settlement lockup, metadata, normalization,
+and aliases.
 
 **Safety** (`test_safety.py`): paper engine holds no adapters; adapter
 refuses orders outside live; mode-mismatch rejection; confirmation
@@ -52,9 +53,13 @@ payout; profitable path yields TRADE; reproducibility (identical inputs
 pairs never evaluated; graph candidates; full matching pipeline with a
 mock LLM (approve) and without one (REVIEW only).
 
-## Integration testing done live (no credentials)
+## Integration-testing record
 
-- `--status`, `--readiness`, `--mode collect --cycles 1` (500 real Kalshi markets, 40
-  books recorded), `--mode paper --cycles 1`, `--mode historical`
-  (fails safely with no data), kill-switch blocking live startup, and
-  the paper+LiveExecutionEngine startup refusal.
+On 2026-08-30, a prior run exercised `--mode collect --cycles 1` against the
+Kalshi compatibility host (500 markets and 40 non-empty books), paper mode,
+historical no-data behavior, kill-switch refusal, and startup isolation.
+
+On 2026-09-13, Phase 1 re-verified Kalshi/Polymarket US/Gemini documentation,
+but fresh sandbox HTTP smoke tests ended in a TLS EOF before any HTTP response.
+Those fresh network results are **UNAVAILABLE**, not successful live tests.
+`--status` and the full suite remain local verification gates.

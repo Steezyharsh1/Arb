@@ -64,14 +64,21 @@ class TestKalshiBookParsing:
 
 
 class TestFees:
-    def test_kalshi_quadratic(self, fee_calc):
-        # 100 contracts @ 0.50: 0.07*100*0.25 = 1.75
-        fee = fee_calc.trade_fee("kalshi", Decimal("0.50"), Decimal("100"))
-        assert fee == Decimal("1.75")
+    def test_kalshi_context_incomplete_fails_closed(self, fee_calc):
+        with pytest.raises(FeeDataError, match="FEE_DATA_INCOMPLETE"):
+            fee_calc.trade_fee("kalshi", Decimal("0.50"), Decimal("100"))
+        schedule = fee_calc.schedules["kalshi"]
+        assert schedule.trade_calculation_status == "INCOMPLETE"
+        assert "series" in schedule.fee_context
+        assert "access_route" in schedule.fee_context
 
-    def test_kalshi_fee_lower_at_extremes(self, fee_calc):
-        mid = fee_calc.trade_fee("kalshi", Decimal("0.50"), Decimal("100"))
-        edge = fee_calc.trade_fee("kalshi", Decimal("0.10"), Decimal("100"))
+    def test_quadratic_formula_fixture(self, complete_fee_calc):
+        # Synthetic complete schedule: 0.07*100*0.50*(1-0.50) = 1.75.
+        mid = complete_fee_calc.trade_fee(
+            "kalshi", Decimal("0.50"), Decimal("100"))
+        edge = complete_fee_calc.trade_fee(
+            "kalshi", Decimal("0.10"), Decimal("100"))
+        assert mid == Decimal("1.75")
         assert edge < mid
 
     def test_forecastex_per_contract(self, fee_calc):
@@ -85,6 +92,30 @@ class TestFees:
         with pytest.raises(FeeDataError):
             fee_calc.trade_fee("unknown_venue", Decimal("0.50"), Decimal("10"))
 
+    def test_production_schedules_record_verification_dimensions(self, fee_calc):
+        for schedule in fee_calc.schedules.values():
+            assert schedule.source
+            assert schedule.verified_at.isoformat() == "2026-09-13"
+            assert schedule.verification_status in {
+                "VERIFIED", "UNVERIFIED", "UNKNOWN"
+            }
+            assert schedule.live_test_status in {
+                "VERIFIED", "UNVERIFIED", "UNAVAILABLE", "UNKNOWN"
+            }
+            assert schedule.fee_context
+
+    def test_omitted_evidence_and_status_default_to_blocking(self):
+        from prediction_arb.fees.calculator import FeeCalculator
+        calc = FeeCalculator.from_config({"schedules": [{
+            "venue": "unsafe_default",
+            "version": "v1",
+            "effective_date": "2020-01-01",
+            "verified_at": "2026-09-13",
+            "fees": [{"fee_type": "fixed", "fixed_amount": "0.01"}],
+        }]})
+        with pytest.raises(FeeDataError, match="FEE_DATA_INCOMPLETE"):
+            calc.trade_fee("unsafe_default", Decimal("0.50"), Decimal("1"))
+
 
 class TestIndependence:
     def test_matrix(self):
@@ -96,6 +127,48 @@ class TestIndependence:
         assert is_independent("kalshi", "kalshi") == Independence.SAME_VENUE
         assert is_independent("kalshi", "nope") == Independence.UNKNOWN
 
+    def test_route_qualified_frontends(self):
+        from prediction_arb.provenance.independence import is_independent
+        assert is_independent("kalshi", "ibkr_kalshi") == Independence.SAME_VENUE
+        assert is_independent("kalshi", "coinbase") == Independence.SAME_VENUE
+        assert is_independent("kalshi", "robinhood_kalshi") == Independence.SAME_VENUE
+        assert is_independent("kalshi", "robinhood_rothera") == Independence.INDEPENDENT
+        for generic_frontend in ("ibkr", "robinhood", "fanduel", "draftkings"):
+            assert is_independent("kalshi", generic_frontend) == Independence.UNKNOWN
+        assert is_independent("cdna", "og") == Independence.SAME_VENUE
+        assert is_independent("railbird", "dkex") == Independence.SAME_VENUE
+        assert is_independent("ludlow", "novig") == Independence.SAME_VENUE
+
+    def test_registry_records_keep_evidence_and_known_clearing_ids(self):
+        from prediction_arb.provenance.clearing_registry import CLEARING_REGISTRY
+        from prediction_arb.provenance.exchange_registry import EXCHANGE_REGISTRY
+        for record in EXCHANGE_REGISTRY.values():
+            assert record.verified_at == "2026-09-13"
+            assert record.source
+            assert all(source.strip().startswith("https://")
+                       for source in record.source.split(";"))
+            if record.clearing_entity:
+                assert record.clearing_entity in CLEARING_REGISTRY
+
+    def test_legacy_provenance_lookup_remains_compatible(self):
+        from prediction_arb.provenance.exchange_registry import (
+            all_venues, get_provenance,
+        )
+        record = get_provenance("kalshi")
+        assert record is not None
+        assert record.matching_engine == "kalshi_clob"
+        assert record.confidence == "HIGH"
+        assert "kalshi" in all_venues()
+
+    def test_shared_third_party_dco_does_not_collapse_dcms(self):
+        from prediction_arb.provenance.exchange_registry import get_exchange
+        from prediction_arb.provenance.independence import is_independent
+        polymarket = get_exchange("polymarket_us")
+        gemini_qc = get_exchange("gemini_qc")
+        assert polymarket is not None and gemini_qc is not None
+        assert polymarket.clearing_entity == gemini_qc.clearing_entity
+        assert is_independent("polymarket_us", "gemini_qc") == Independence.INDEPENDENT
+
     def test_unknown_never_eligible(self):
         from prediction_arb.provenance.independence import (
             eligible_for_guaranteed_arb,
@@ -103,6 +176,45 @@ class TestIndependence:
         assert not eligible_for_guaranteed_arb(Independence.UNKNOWN)
         assert not eligible_for_guaranteed_arb(Independence.LIKELY_INDEPENDENT)
         assert eligible_for_guaranteed_arb(Independence.INDEPENDENT)
+
+
+class TestUtahEligibility:
+    def test_sports_restricted_for_every_venue(self):
+        from prediction_arb.compliance.jurisdiction import (
+            EligibilityStatus, get_eligibility,
+        )
+        for venue in ("kalshi", "forecast_ex", "polymarket_us", "dkex", "unknown"):
+            record = get_eligibility("US-UT", venue, "Sports")
+            assert record.status == EligibilityStatus.RESTRICTED
+            assert record.verified_at == "2026-09-13"
+            assert record.source.startswith("https://")
+
+    def test_sports_ticker_and_event_text_are_restricted(self):
+        from prediction_arb.compliance.eligibility import check_contract_eligibility
+        from prediction_arb.compliance.jurisdiction import EligibilityStatus
+        contract = make_contract(
+            venue="kalshi", category="miscellaneous",
+            event="NFL game winner: Utah team vs opponent")
+        decision = check_contract_eligibility(contract, "US-UT", Mode.PAPER)
+        assert not decision.allowed
+        assert decision.status == EligibilityStatus.RESTRICTED
+
+    def test_utah_non_sports_remains_unknown(self):
+        from prediction_arb.compliance.jurisdiction import (
+            EligibilityStatus, get_eligibility,
+        )
+        record = get_eligibility(
+            "US-UT", "kalshi", "Economics replacement rate forecast")
+        assert record.status == EligibilityStatus.UNKNOWN
+        assert record.verified_at == "2026-09-13"
+
+    def test_over_under_event_text_is_sports(self):
+        from prediction_arb.compliance.jurisdiction import (
+            EligibilityStatus, get_eligibility,
+        )
+        record = get_eligibility(
+            "US-UT", "unknown", "Over/under 45.5 total points")
+        assert record.status == EligibilityStatus.RESTRICTED
 
 
 class TestDeterministicMatcher:
@@ -248,6 +360,8 @@ class TestNormalization:
     def test_venue_aliases(self):
         from prediction_arb.normalization.venues import canonical_venue
         assert canonical_venue("ForecastEx") == "forecast_ex"
-        assert canonical_venue("IBKR") == "forecast_ex"
+        assert canonical_venue("IBKR") == "ibkr"
+        assert canonical_venue("ForecastTrader") == "ibkr"
+        assert canonical_venue("IBKR ForecastEx") == "ibkr_forecastex"
         assert canonical_venue("Futu") == "moomoo"
         assert canonical_venue("???") is None

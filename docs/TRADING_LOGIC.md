@@ -20,11 +20,14 @@ yes_walk_cost(q) + no_walk_cost(q)
   < payout × q
 ```
 
-- Kalshi taker fee: `ceil_cents(0.07 × C × P × (1−P))` (versioned in
-  config/fees.yaml with source + verified date).
-- ForecastEx: $0.01/contract structural fee (YES+NO pairs at $1.01).
-- Missing fee schedule → `FEE_DATA_INCOMPLETE` → status BLOCK. Never
-  assumed zero.
+- Kalshi's standard taker *model* is `0.07 × M × C × P × (1−P)`, but
+  series/event overrides and account/fill rounding state are contextual.
+  The production Kalshi schedule is therefore `INCOMPLETE` and blocks; the
+  model is not used as a venue-wide execution estimate.
+- ForecastEx: opposite bids pair at **$1.00** and a separate **$0.01 per
+  executed side** fee applies.
+- Missing or context-incomplete schedule → `FEE_DATA_INCOMPLETE` → BLOCK.
+  Never assumed zero and never replaced by an execution-facing estimate.
 - Unknown settlement lockup → BLOCK, never zero.
 - Slippage is *inside* the walked cost (real levels consumed); it is
   additionally reported as WAP−best×qty for transparency, not
@@ -39,15 +42,17 @@ limits. Whole contracts only.
 
 ## Kalshi order-book semantics (important)
 
-Kalshi's book contains YES bids and NO bids (both resting bids). The
-executable YES ask is synthesized: `ask = 1 − NO_bid`. Verified against
-the live `orderbook_fp` format 2026-08-30.
+Kalshi's documented `orderbook_fp` contains YES bids and NO bids. The
+executable YES ask is synthesized as `1.00 − NO_bid`. The format was
+re-verified in official documentation on 2026-09-13; the fresh sandbox
+network smoke test was UNAVAILABLE and is not described as a live test.
 
 ## ForecastEx microstructure
 
-PAIRED_BID: no asks exist; YES bid + NO bid execute when they sum to
-$1.01. The synthetic YES ask = 1.01 − best NO bid. Encoded in the
-adapter's microstructure metadata; the fee engine carries the $0.01.
+PAIRED_BID: opposite YES and NO bids execute when they sum to **$1.00**.
+The synthetic YES ask is `1.00 − best NO bid`. ForecastEx separately
+charges $0.01 to each executed side. The adapter metadata records this but
+the adapter remains an untested structured stub.
 
 ## Status ladder
 

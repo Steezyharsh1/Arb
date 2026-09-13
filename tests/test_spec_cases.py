@@ -28,11 +28,11 @@ class TestCase1FeesEatGross:
     """YES=$0.45 + NO=$0.54 → gross $0.01/contract; Kalshi quadratic fees
     exceed that → NO TRADE."""
 
-    def test_no_trade_when_fees_exceed_gross(self, fee_calc):
+    def test_no_trade_when_fees_exceed_gross(self, complete_fee_calc):
         yes_c, no_c = _kalshi_forecastex_pair()
         yes_book = make_book("kalshi", yes_c.contract_id, asks=[("0.45", "100")])
         no_book = make_book("forecast_ex", no_c.contract_id, asks=[("0.54", "100")])
-        op = evaluate_two_leg(yes_c, no_c, yes_book, no_book, fee_calc,
+        op = evaluate_two_leg(yes_c, no_c, yes_book, no_book, complete_fee_calc,
                               Mode.PAPER,
                               independence=Independence.INDEPENDENT)
         assert op is not None
@@ -45,11 +45,11 @@ class TestCase1FeesEatGross:
 class TestCase2ExecutableQuantityOnly:
     """Only 5 YES available; request 100 → engine sizes to 5."""
 
-    def test_sizes_to_displayed_liquidity(self, fee_calc):
+    def test_sizes_to_displayed_liquidity(self, complete_fee_calc):
         yes_c, no_c = _kalshi_forecastex_pair()
         yes_book = make_book("kalshi", yes_c.contract_id, asks=[("0.40", "5")])
         no_book = make_book("forecast_ex", no_c.contract_id, asks=[("0.50", "1000")])
-        op = evaluate_two_leg(yes_c, no_c, yes_book, no_book, fee_calc,
+        op = evaluate_two_leg(yes_c, no_c, yes_book, no_book, complete_fee_calc,
                               Mode.PAPER,
                               independence=Independence.INDEPENDENT,
                               max_quantity=Decimal("100"))
@@ -64,12 +64,12 @@ class TestCase3SameUnderlyingExchange:
         assert is_independent("kalshi", "webull") in (
             Independence.SAME_VENUE, Independence.LIKELY_SAME_VENUE)
 
-    def test_opportunity_blocked(self, fee_calc):
+    def test_opportunity_blocked(self, complete_fee_calc):
         yes_c = make_contract(venue="kalshi", contract_id="K1")
         no_c = make_contract(venue="webull", contract_id="K1")
         yes_book = make_book("kalshi", "K1", asks=[("0.40", "100")])
         no_book = make_book("webull", "K1", asks=[("0.50", "100")])
-        op = evaluate_two_leg(yes_c, no_c, yes_book, no_book, fee_calc,
+        op = evaluate_two_leg(yes_c, no_c, yes_book, no_book, complete_fee_calc,
                               Mode.PAPER)
         assert op is None or op.status == OpportunityStatus.BLOCK
 
@@ -80,11 +80,11 @@ class TestCase4UnknownRelationship:
     def test_unknown_is_never_independent(self):
         assert is_independent("kalshi", "mystery_venue") == Independence.UNKNOWN
 
-    def test_unknown_blocks_trade(self, fee_calc):
+    def test_unknown_blocks_trade(self, complete_fee_calc):
         yes_c, no_c = _kalshi_forecastex_pair()
         yes_book = make_book("kalshi", yes_c.contract_id, asks=[("0.40", "100")])
         no_book = make_book("forecast_ex", no_c.contract_id, asks=[("0.50", "100")])
-        op = evaluate_two_leg(yes_c, no_c, yes_book, no_book, fee_calc,
+        op = evaluate_two_leg(yes_c, no_c, yes_book, no_book, complete_fee_calc,
                               Mode.PAPER, independence=Independence.UNKNOWN)
         assert op is not None
         assert op.status == OpportunityStatus.BLOCK
@@ -114,7 +114,7 @@ class TestCase5LLMOverruled:
 class TestCase6FeesPlusSlippageExceedSpread:
     """Displayed 2% edge, real costs 2.2% → NO TRADE."""
 
-    def test_walked_costs_kill_thin_edge(self, fee_calc):
+    def test_walked_costs_kill_thin_edge(self, complete_fee_calc):
         yes_c, no_c = _kalshi_forecastex_pair()
         # displayed best prices sum to 0.98 (2% edge) but only 1 contract
         # at touch; depth is at prices that erase the edge
@@ -122,7 +122,7 @@ class TestCase6FeesPlusSlippageExceedSpread:
                              asks=[("0.44", "1"), ("0.49", "99")])
         no_book = make_book("forecast_ex", no_c.contract_id,
                             asks=[("0.54", "1"), ("0.56", "99")])
-        op = evaluate_two_leg(yes_c, no_c, yes_book, no_book, fee_calc,
+        op = evaluate_two_leg(yes_c, no_c, yes_book, no_book, complete_fee_calc,
                               Mode.PAPER,
                               independence=Independence.INDEPENDENT,
                               max_quantity=Decimal("100"))
@@ -138,7 +138,7 @@ class TestCase6FeesPlusSlippageExceedSpread:
 class TestCase7PartialFillRecovery:
     """One leg fills, second doesn't → predefined recovery runs."""
 
-    def test_partial_fill_handler_runs(self, fee_calc):
+    def test_partial_fill_handler_runs(self, complete_fee_calc):
         from prediction_arb.execution.coordinator import ExecutionCoordinator
         from prediction_arb.execution.partial_fills import PartialFillHandler
         from prediction_arb.execution.simulated import PaperExecutionEngine
@@ -158,7 +158,7 @@ class TestCase7PartialFillRecovery:
         engine = PaperExecutionEngine(
             starting_cash={"kalshi": Decimal("1000"),
                            "forecast_ex": Decimal("1000")},
-            fee_calc=fee_calc,
+            fee_calc=complete_fee_calc,
             book_lookup=lambda v, c: books.get((v, c)))
 
         limits = RiskLimits.from_config({})
@@ -169,7 +169,7 @@ class TestCase7PartialFillRecovery:
         op = evaluate_two_leg(
             yes_c, no_c, yes_book,
             make_book("forecast_ex", no_c.contract_id, asks=[("0.50", "50")]),
-            fee_calc, Mode.PAPER,
+            complete_fee_calc, Mode.PAPER,
             independence=Independence.INDEPENDENT,
             max_quantity=Decimal("20"),
             minimum_net_profit=Decimal("0.01"),

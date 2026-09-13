@@ -1,6 +1,6 @@
 """Moomoo adapter — STUB, status NO_API_AVAILABLE.
 
-Research finding (docs/VENUE_RESEARCH.md, verified 2026-08-30):
+Research finding (docs/VENUE_RESEARCH.md, re-verified 2026-09-13):
   1. Moomoo event contracts launched June 2026 in partnership with
      Kalshi: Moomoo Financial Inc. is the FCM; the venue is Kalshi's
      exchange (same order book as the Kalshi adapter reads directly).
@@ -23,6 +23,6 @@ class MoomooAdapter(StubAdapter):
     venue = "moomoo"
     api_status = APIStatus.NO_API_AVAILABLE
     reason = ("Futu OpenAPI/OpenD has no documented event-contract "
-              "endpoints (checked 2026-08-30); Moomoo event contracts are "
+              "endpoints (re-checked 2026-09-13); Moomoo event contracts are "
               "also Kalshi-routed (SAME_VENUE), so even with an API there "
               "is no independent liquidity to arbitrage.")
