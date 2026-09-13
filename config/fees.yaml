@@ -1,0 +1,48 @@
+# Versioned, timestamped fee schedules (§24). Sources recorded.
+# DO NOT edit rates without updating version/effective_date/source.
+schema_version: 1
+
+schedules:
+  - venue: kalshi
+    version: "2026-02"
+    effective_date: "2026-02-01"
+    expiration_date: null
+    verified_at: "2026-08-30"
+    source: "https://kalshi.com/docs/fee-schedule"
+    currency: USD
+    fees:
+      - fee_type: taker_quadratic
+        # fee = ceil_cents(multiplier * C * P * (1-P))
+        multiplier: "0.07"
+        applies_to: taker
+      - fee_type: maker_quadratic
+        # $0 on most markets; some markets use 0.0175. We conservatively
+        # apply the nonzero maker multiplier to ALL maker fills.
+        multiplier: "0.0175"
+        applies_to: maker
+      - fee_type: settlement
+        fixed_amount: "0.00"
+        applies_to: settlement
+
+  - venue: forecast_ex
+    version: "2026-08"
+    effective_date: "2024-08-01"
+    expiration_date: null
+    verified_at: "2026-08-30"
+    source: "https://forecastex.com / IBKR ForecastTrader product pages"
+    currency: USD
+    fees:
+      - fee_type: per_contract
+        # structural $0.01: YES bid + NO bid pair at $1.01, payout $1.00
+        fixed_amount: "0.01"
+        applies_to: taker
+      - fee_type: per_contract_maker
+        fixed_amount: "0.00"
+        applies_to: maker
+      - fee_type: settlement
+        fixed_amount: "0.00"
+        applies_to: settlement
+
+# Venues with NO fee schedule on file are FEE_DATA_INCOMPLETE and are
+# blocked from execution by the fee engine. webull / moomoo intentionally
+# have no schedule (their broker-layer fees on Kalshi routing are UNKNOWN).

@@ -1,0 +1,8 @@
+schema_version: 1
+mode: historical
+execution_engine: HistoricalExecutionEngine
+database: prediction_arb_historical
+allow_live_orders: false
+env_file: .env.historical
+data_dir: data/historical
+requires_trading_credentials: false

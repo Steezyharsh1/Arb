@@ -1,0 +1,10 @@
+schema_version: 1
+mode: live
+execution_engine: LiveExecutionEngine
+database: prediction_arb_live
+allow_live_orders: true
+env_file: .env.live
+data_dir: data/live
+requires_trading_credentials: true
+# Live mode additionally requires the interactive confirmation phrase
+# "I UNDERSTAND LIVE TRADING" at startup (§47). No flag bypasses it.

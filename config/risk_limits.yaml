@@ -1,0 +1,16 @@
+schema_version: 1
+# Hard risk limits (§70). The risk engine refuses new trades when any is hit.
+limits:
+  max_total_capital: 1000
+  max_capital_per_venue: 500
+  max_capital_per_event: 200
+  max_capital_per_trade: 100
+  max_unhedged_exposure: 25
+  max_daily_loss: 50
+  max_open_positions: 20
+  max_concurrent_orders: 4
+partial_fill:
+  max_unhedged_seconds: 30
+  max_unhedged_contracts: 100
+  max_unhedged_dollars: 25
+  max_emergency_loss: 10

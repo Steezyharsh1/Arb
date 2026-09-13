@@ -1,0 +1,29 @@
+schema_version: 1
+
+venues:
+  kalshi:
+    enabled: true
+    adapter: kalshi
+    rest_base: "https://api.elections.kalshi.com/trade-api/v2"
+    ws_url: "wss://api.elections.kalshi.com/trade-api/ws/v2"
+    demo_rest_base: "https://demo-api.kalshi.co/trade-api/v2"
+    rate_limit_reads_per_sec: 8     # stay under published ~10/s
+    rate_limit_writes_per_sec: 3    # stay under published ~5/s
+
+  webull:
+    enabled: false        # SAME_VENUE route into Kalshi — no independent
+                          # arbitrage value; disabled by default (see
+                          # docs/VENUE_RESEARCH.md)
+    adapter: webull
+
+  moomoo:
+    enabled: false        # SAME_VENUE + no verified event-contract API
+    adapter: moomoo
+
+  forecast_ex:
+    enabled: true         # independent venue; adapter is a documented-but-
+                          # untested stub until an IBKR account is available.
+                          # Enabled so its status is surfaced, but it reports
+                          # API_DOCUMENTED_UNTESTED and cannot trade.
+    adapter: forecast_ex
+    cp_gateway_base: "https://localhost:5000/v1/api"   # IBKR Client Portal GW
