@@ -30,6 +30,27 @@ venues:
     rate_limit_writes_per_sec: 3    # stay under published Basic ~10 req/s write
     rate_limit_headroom: 0.8        # budget 80% of the discovered tier
 
+  polymarket_us:
+    enabled: true
+    adapter: polymarket_us
+    # Phase 3 (2026-09-13): QCX LLC d/b/a Polymarket US — a CFTC-designated
+    # DCM independent of Kalshi (docs/VENUE_RESEARCH.md V2 + P1-P7).
+    #
+    # Unlike Kalshi, market data lives on a SEPARATE PUBLIC host that needs
+    # no credentials, so discovery and order books work out of the box.
+    # The authenticated host is only needed for portfolio/orders and the
+    # WebSocket. Order placement is NOT implemented (Phase 3 gate + the
+    # venue's fee schedule is still INCOMPLETE in config/fees.yaml).
+    public_base: "https://gateway.polymarket.us"   # markets/books, no key (P1)
+    authed_base: "https://api.polymarket.us"       # portfolio/orders/WS (P1)
+    ws_url: "wss://api.polymarket.us/v1/ws/markets"
+    # Published limits (P5): 20 req/s public per IP, 20 req/s authed per key.
+    # These configured budgets stay well under them; rate_limit_headroom is
+    # a hard ceiling applied on top (§13: never circumvent limits).
+    rate_limit_reads_per_sec: 8
+    rate_limit_writes_per_sec: 3
+    rate_limit_headroom: 0.8
+
   webull:
     enabled: false        # SAME_VENUE route into Kalshi — no independent
                           # arbitrage value; disabled by default (see

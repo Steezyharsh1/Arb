@@ -73,6 +73,34 @@ mock HTTP transport + a scripted **local WebSocket server**):
   never silent apply**, clean-close reconnect with resubscribe/rebase,
   and terminal handling of WS error code 9 (auth).
 
+**Polymarket US Phase 3** (`test_polymarket_us.py`, 2026-09-13 — all
+offline: mock HTTP transport + a scripted **local WebSocket server**):
+* public market data — discovery and books succeed with **no
+  credentials**, every request goes to the public gateway host and
+  carries no auth header;
+* books are genuinely two-sided (real `offers`, nothing synthesized as
+  `1 − bid`), levels sorted best-first, malformed and non-tradeable
+  levels dropped;
+* market-state gating — each of the six non-`OPEN` states yields **no
+  book** (parameterized), so a halted market can never be sized against;
+* per-market rules — `orderPriceMinTickSize` / `minimumTradeQty` carried
+  from the payload, coarsest-safe fallback when absent, closed/archived
+  markets skipped, sports signals preserved for the Utah gate;
+* Ed25519 signing verified against a generated keypair over
+  `timestamp + METHOD + path`, authenticated calls hit the authed host,
+  malformed/short secret keys rejected clearly;
+* rate limits — budgets clamped below the published 20 req/s ceiling,
+  `429` surfaced for backoff rather than swallowed;
+* safety posture — order placement refused even with
+  `allow_order_placement=True` in live mode, API status never upgraded
+  from documentation, independence from Kalshi, official-host guard;
+* WebSocket feed against the local server — handshake signature over
+  `/v1/ws/markets`, documented subscribe frame, **full-snapshot
+  replacement** (stale levels vanish), non-tradeable streamed books
+  dropped, heartbeats counted, subscription errors fail fast, auth
+  errors terminal, clean-close reconnect + resubscribe, unsubscribe
+  stops delivery.
+
 **Paper streaming** (`test_paper_streaming.py`, 2026-09-13 — all offline,
 fake adapters): a streamed contract is no longer REST-polled and pushed
 books land in the live cache; a streaming failure falls back to polling

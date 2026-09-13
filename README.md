@@ -22,9 +22,16 @@ Consumer apps still require contract-qualified routing:
 | FanDuel contract | CME or OG/CDNA | UNKNOWN until route identified |
 | DraftKings contract | CME, CDNA, or proprietary DKeX/Railbird | UNKNOWN until route identified |
 
-The conditional adapter shortlist is **Polymarket US**, **Gemini**, then
-**IBKR ForecastEx/CME** (especially if the owner already has IBKR). This is now
-at the owner-selection checkpoint; no new adapter has been started.
+The conditional adapter shortlist was **Polymarket US**, **Gemini**, then
+**IBKR ForecastEx/CME**. The owner selected **Polymarket US** on 2026-09-13
+and its adapter is now implemented (Phase 3): public discovery and
+two-sided order books work with **no API key**, and the venue registers as
+INDEPENDENT of Kalshi. It stays `API_DOCUMENTED_UNTESTED` — and collect
+mode skips it — until observed-payload evidence is captured with
+`python scripts/polymarket_us_smoke.py` from a machine that can reach the
+venue. Only three of the researched DCMs expose a usable public API at
+all; Railbird/DKeX, Ludlow/Novig, Rothera, and CDNA have none, and
+reaching them would require scraping, which is prohibited (§13).
 
 Utah sports contracts are **RESTRICTED** across venues; Utah non-sports
 eligibility is **UNKNOWN**. Context-incomplete fees fail closed. Full claim-level
@@ -44,6 +51,10 @@ python -m prediction_arb.main --status
 # collect public Kalshi data (recommended hosts + legacy fallback;
 # with a Kalshi API key in .env.paper it uses bulk books + WS streaming)
 python -m prediction_arb.main --mode collect
+
+# Polymarket US read-only smoke test + evidence capture (no API key, no
+# account, no orders) — promotes the venue out of API_DOCUMENTED_UNTESTED
+python scripts/polymarket_us_smoke.py
 
 # paper trading (default mode): real data, simulated execution
 python -m prediction_arb.main --mode paper

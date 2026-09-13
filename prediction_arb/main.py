@@ -37,6 +37,7 @@ from prediction_arb.adapters.base import PredictionMarketAdapter
 from prediction_arb.adapters.forecast_ex import ForecastExAdapter
 from prediction_arb.adapters.kalshi import KalshiAdapter
 from prediction_arb.adapters.moomoo import MoomooAdapter
+from prediction_arb.adapters.polymarket_us import PolymarketUSAdapter
 from prediction_arb.adapters.webull import WebullAdapter
 from prediction_arb.core.config import AppConfig, load_config
 from prediction_arb.core.logging import setup_logging
@@ -73,6 +74,25 @@ def build_adapters(config: AppConfig) -> dict[str, PredictionMarketAdapter]:
             rest_base_fallbacks=list(k.get("rest_base_fallbacks") or []),
             ws_url_fallbacks=list(k.get("ws_url_fallbacks") or []),
             # The ONLY place order placement is enabled, and only in live:
+            allow_order_placement=(config.mode == Mode.LIVE))
+    if vcfg.get("polymarket_us", {}).get("enabled"):
+        p = vcfg["polymarket_us"]
+        adapters["polymarket_us"] = PolymarketUSAdapter(
+            public_base=p.get("public_base",
+                              "https://gateway.polymarket.us"),
+            authed_base=p.get("authed_base", "https://api.polymarket.us"),
+            # Market data needs NO credentials; a key only unlocks the
+            # WebSocket and portfolio surfaces.
+            key_id=config.env.get("POLYMARKET_KEY_ID")
+            or config.env.get("POLYMARKET_LIVE_KEY_ID"),
+            secret_key=config.env.get("POLYMARKET_SECRET_KEY")
+            or config.env.get("POLYMARKET_LIVE_SECRET_KEY"),
+            reads_per_sec=float(p.get("rate_limit_reads_per_sec", 8)),
+            writes_per_sec=float(p.get("rate_limit_writes_per_sec", 3)),
+            ws_url=p.get("ws_url"),
+            rate_limit_headroom=float(p.get("rate_limit_headroom", 0.8)),
+            # Order placement is not implemented for this venue at all;
+            # the adapter refuses regardless of this flag.
             allow_order_placement=(config.mode == Mode.LIVE))
     if vcfg.get("webull", {}).get("enabled"):
         adapters["webull"] = WebullAdapter()
