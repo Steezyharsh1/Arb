@@ -61,10 +61,57 @@ Owner agreement is required before Phase 2/3 adapter work.
 | K8 | Actual fill fees use six-decimal model-fee rounding plus account-balance precision, a per-order rounding accumulator, and rebates. Direct-member and non-direct-member precision differ. | VERIFIED / DOC | https://docs.kalshi.com/getting_started/fee_rounding | 2026-09-13 |
 | K9 | A fresh unauthenticated HTTP smoke test did not reach an HTTP response; the sandbox terminated TLS with EOF. This does **not** establish a Kalshi outage or validate the current payload. | UNAVAILABLE / LIVE | `https://external-api.kalshi.com/trade-api/v2/exchange/status` (attempted) | 2026-09-13 |
 
-**Code consequence:** `config/venues.yaml` still uses compatibility hosts. Moving
-to the recommended hosts and implementing sequenced streaming remains Phase 2.
-The parser already handles fixed-point bid books, but this Phase 1 run does not
-claim a fresh live payload.
+**Code consequence (updated 2026-09-13, Phase 2):** `config/venues.yaml` now
+uses the recommended `external-api` hosts from K1/K2 with the legacy shared
+hosts kept as documented fallbacks; the adapter fails over on 5xx/transport
+errors, streams order books over the authenticated WebSocket with
+seq-gap-triggered recovery (K4), supports the authenticated bulk
+`GET /markets/orderbooks` (K3), and clamps its request budgets below the
+discovered account tier (K5). The parser handles both REST
+(`yes_dollars`/`no_dollars`) and WebSocket (`*_fp`) fixed-point bid books and
+drops malformed/non-tradeable levels. This still does **not** claim a fresh
+live payload: the sandbox cannot reach Kalshi (K9, UNAVAILABLE), and all Phase
+2 tests run against mock/local servers. Live verification of the new hosts,
+streaming session, bulk endpoint, and tier discovery requires the owner's
+machine and API key (H2) — tracked in the Phase 2 exit criteria in
+`docs/ROADMAP.md`.
+
+## 2b. Polymarket US API ledger (Phase 3, added 2026-09-13)
+
+Wire-level facts for the Phase 3 adapter. Sources are docs.polymarket.us,
+re-verified 2026-09-13. Venue *identity* evidence stays in row V2 below.
+
+| ID | Claim | Status / test | Source | Verified |
+|---|---|---|---|---|
+| P1 | The API is split across two hosts. **Public** `https://gateway.polymarket.us` serves markets, events, series, order books, BBO, and settlement with **no API key** (`GET /v1/markets`, `GET /v1/markets/{slug}/book`, `GET /v1/markets/{slug}/bbo`). **Authenticated** `https://api.polymarket.us` serves orders, portfolio, account, and both WebSockets. | VERIFIED / DOC | https://docs.polymarket.us/api-reference/introduction ; https://docs.polymarket.us/api-reference/market/overview | 2026-09-13 |
+| P2 | Authenticated requests use **Ed25519** signatures with headers `X-PM-Access-Key` / `X-PM-Timestamp` / `X-PM-Signature`. The signed message is `timestamp + METHOD + path`; the secret's first 32 decoded bytes are the Ed25519 seed; timestamps must be within **30 seconds** of server time. | VERIFIED / DOC | https://docs.polymarket.us/api-reference/authentication | 2026-09-13 |
+| P3 | `orderPriceMinTickSize` and `minimumTradeQty` are **per-market** and the documentation explicitly instructs integrators **not** to infer tick size or minimum quantity from product type, symbol, or slug. Quantities may be fractional. | VERIFIED / DOC | https://docs.polymarket.us/api-reference/market/overview | 2026-09-13 |
+| P4 | Books carry a `state` enum. Only `MARKET_STATE_OPEN` is trading; `PREOPEN`, `SUSPENDED`, `HALTED`, `EXPIRED`, `TERMINATED`, and `MATCH_AND_CLOSE_AUCTION` are returned but are not executable. | VERIFIED / DOC | https://docs.polymarket.us/api-reference/markets/get-market-book ; https://docs.polymarket.us/concepts/market-data | 2026-09-13 |
+| P5 | Rate limits are **20 requests/second** for authenticated endpoints (per API key) and 20 requests/second public (per IP). `429` carries no `Retry-After`; the documented remedy is to stop, wait ≥1 s, and back off exponentially. A separate 5-second **latency stopgap** rejects unprocessed inbound orders with the message `Global Rate Limit Exceeded`; that message is explicitly **not** a rate limit and must not trigger throttling. | VERIFIED / DOC | https://docs.polymarket.us/api-reference/rate-limits | 2026-09-13 |
+| P6 | The markets WebSocket is `wss://api.polymarket.us/v1/ws/markets` and **requires API-key authentication in the handshake** even for public market data. Subscribe with `{"subscribe":{"request_id","subscription_type","market_slugs"}}`; `subscription_type` 1 = `MARKET_DATA` (full book), 2 = `MARKET_DATA_LITE`, 3 = `TRADE`. Responses carry a **complete** `market_data` book (`bids`/`offers`), not incremental deltas, so there is no sequence number to gap-check. Server sends `{"heartbeat":{}}`; errors arrive as `{"request_id", "error"}`; max **100 markets per subscription**. | VERIFIED / DOC | https://docs.polymarket.us/api-reference/websocket/overview ; https://docs.polymarket.us/api-reference/websocket/markets | 2026-09-13 |
+| P7 | A fresh unauthenticated HTTP smoke test against `gateway.polymarket.us` did not reach an HTTP response; the sandbox terminated TLS with EOF. This does **not** establish an outage and does **not** validate the current payload. | UNAVAILABLE / LIVE | `https://gateway.polymarket.us/v1/markets` (attempted) | 2026-09-13 |
+| P8 | Trading fees are `Θ × C × p × (1-p)` with taker `Θ = 0.06` and maker rebate `Θ = -0.0125`, effective 2026-07-01. All fees are rounded to the nearest cent with **banker's rounding**, and when an aggressive order fills against multiple resting orders the **total** commission is capped at the banker's rounding of the cumulative exact fee (the adjustment can only reduce a fill's charge). Monthly taker-volume rebate tiers (10/25/50% above $250k/$1M/$10M) apply on the prior calendar month. | VERIFIED / DOC | https://docs.polymarket.us/fees | 2026-09-13 |
+
+**Code consequence (Phase 3, 2026-09-13):** `prediction_arb/adapters/polymarket_us.py`
+reads discovery and books from the **public** gateway with no credentials
+(P1), so paper/collect work without a key; the Ed25519 signer (P2) is used
+only for the WebSocket and portfolio surfaces. Per-market tick size and
+minimum quantity are carried onto every `NormalizedContract` rather than
+inferred (P3). `parse_order_book` returns **None** for any market whose
+state is not `MARKET_STATE_OPEN` (P4), so a halted book can never be sized
+against. Request budgets are clamped to 80% of the published 20 req/s
+ceiling and `429` is surfaced for backoff, never swallowed (P5, §13).
+`polymarket_us_ws.py` implements the full-snapshot markets stream with
+reconnect/resubscribe and terminal auth handling; it deliberately contains
+**no** sequence-gap machinery because the protocol sends complete books,
+not deltas (P6) — inventing one would fabricate a guarantee the venue does
+not provide. Fees remain `INCOMPLETE — BLOCK` in `config/fees.yaml`
+because the cumulative aggressive-order cap needs per-order fill state
+(P8), and **order placement is not implemented at all**. `api_status`
+stays `API_DOCUMENTED_UNTESTED` and collect mode skips the venue until the
+owner captures observed-payload evidence with
+`scripts/polymarket_us_smoke.py` (P7 stands: this sandbox cannot reach the
+venue).
 
 ## 3. Direct exchange / DCM evidence ledger
 

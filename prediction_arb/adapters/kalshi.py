@@ -1,20 +1,41 @@
 """Kalshi adapter — the one fully implemented adapter in v1.
 
-Last observed live 2026-08-30 on the officially supported compatibility host
-https://api.elections.kalshi.com/trade-api/v2. Official documentation was
-re-verified 2026-09-13; a fresh sandbox smoke test was UNAVAILABLE (TLS EOF),
-so it is not represented as a new live test. Documented public endpoints include
-GET /markets, /markets/{ticker}, /markets/{ticker}/orderbook, /series/{series},
-and /exchange/status. The documented `orderbook_fp` dollar-string format is:
-        {"orderbook_fp": {"yes_dollars": [["0.16","44.54"], ...],
-                          "no_dollars":  [["0.62","95.00"], ...]}}
-    Both sides are resting BIDS. The executable YES ask at quantity q is
-    synthesized from NO bids: ask_price = 1 - no_bid_price.
+Phase 2 (2026-09-13) refresh, per docs/VENUE_RESEARCH.md rows K1-K5
+(VERIFIED / DOC / 2026-09-13, re-checked against docs.kalshi.com):
 
-Authenticated endpoints (portfolio, orders) implement Kalshi's documented
-RSA-PSS signing scheme. They are exercised only in live mode via the
-firewall; in paper/collect modes credentials may be absent and every
-account method raises a descriptive error rather than fabricating data.
+* **Hosts.** The recommended production REST base is
+  ``https://external-api.kalshi.com/trade-api/v2`` and the recommended
+  WebSocket is ``wss://external-api-ws.kalshi.com/trade-api/ws/v2``.
+  The legacy shared hosts (``api.elections.kalshi.com``,
+  ``demo-api.kalshi.co``) remain supported compatibility hosts and are
+  configured as automatic fallbacks. Requests fail over to the next
+  configured base on HTTP 5xx or transport failures (DNS/TLS/timeout);
+  4xx responses never rotate hosts (the request reached a healthy host).
+* **Order books.** The public single-book endpoint stays
+  ``GET /markets/{ticker}/orderbook`` (fixed-point dollar strings;
+  fractional quantities; bid-only — YES asks are synthesized as
+  ``1 - no_bid``). The authenticated bulk endpoint
+  ``GET /markets/orderbooks`` (up to 100 tickers per request) is used
+  by collect mode when credentials are available.
+* **Streaming.** ``subscribe_order_book`` implements the authenticated
+  WebSocket protocol (see ``kalshi_ws.py``): sequenced snapshot/delta
+  updates, gap-triggered recovery, reconnect with backoff.
+* **Rate limits.** Authenticated limits are separate read/write token
+  buckets (K5). When credentials are configured the adapter discovers
+  the account's tier (``GET /account/limits``) and endpoint costs
+  (``GET /account/endpoint_costs``) and clamps its local request budgets
+  BELOW the published budget (with configurable headroom) — it never
+  circumvents limits (§13).
+
+Last observed live 2026-08-30 (then on the legacy compatibility host);
+official documentation re-verified 2026-09-13. A fresh sandbox smoke
+test was UNAVAILABLE (TLS EOF), so nothing here claims a new live test.
+
+Authenticated endpoints (portfolio, orders, WS, bulk books, limits)
+implement Kalshi's documented RSA-PSS signing scheme. They are exercised
+only in live mode via the firewall; in paper/collect modes credentials
+may be absent and every account method raises a descriptive error rather
+than fabricating data.
 """
 from __future__ import annotations
 
@@ -22,13 +43,15 @@ import asyncio
 import base64
 import time
 import uuid
-from datetime import timedelta
-from decimal import Decimal
+from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 import httpx
 
 from ..core.clock import parse_iso_utc, utcnow
+from ..core.logging import get_logger
 from ..core.types import (
     APIStatus,
     MarketMicrostructure,
@@ -44,50 +67,128 @@ from ..core.types import (
     Side,
 )
 from .base import OrderBookCallback, PredictionMarketAdapter
+from .kalshi_ws import (
+    KalshiWebSocketFeed,
+    KalshiWSAuthError,
+    KalshiWSUnavailable,
+)
 from .ratelimit import RetryPolicy, TokenBucket
+
+log = get_logger("adapters.kalshi")
 
 _RETRYABLE = (httpx.TransportError, httpx.ReadTimeout)
 
+DEFAULT_ENDPOINT_COST_TOKENS = 10  # K5: default cost for listed endpoints
+BULK_ORDERBOOK_MAX_TICKERS = 100   # documented max per request
+
 
 class KalshiAuthError(Exception):
-    pass
+    """Credentials missing or rejected for an authenticated surface."""
+
+
+@dataclass(frozen=True)
+class KalshiRateLimits:
+    """Account rate-limit tier as reported by GET /account/limits (K5)."""
+    usage_tier: str
+    read_refill_rate: float      # tokens/second
+    read_bucket_capacity: float
+    write_refill_rate: float     # tokens/second
+    write_bucket_capacity: float
+    raw: dict[str, Any] = field(default_factory=dict, compare=False)
 
 
 class KalshiAdapter(PredictionMarketAdapter):
     venue = "kalshi"
+    supports_streaming = True
 
     def __init__(self, rest_base: str,
                  api_key_id: str | None = None,
                  private_key_pem: str | None = None,
                  reads_per_sec: float = 8.0,
                  writes_per_sec: float = 3.0,
-                 allow_order_placement: bool = False):
+                 allow_order_placement: bool = False,
+                 ws_url: str | None = None,
+                 rest_base_fallbacks: list[str] | None = None,
+                 ws_url_fallbacks: list[str] | None = None):
         self.rest_base = rest_base.rstrip("/")
+        self.rest_bases = _dedup_hosts([self.rest_base]
+                                       + [b.rstrip("/")
+                                          for b in (rest_base_fallbacks or [])
+                                          if b])
+        self.ws_url = ws_url
+        ws_candidates = ([ws_url.rstrip("/")] if ws_url else []) + \
+            [u.rstrip("/") for u in (ws_url_fallbacks or []) if u]
+        self.ws_urls = _dedup_hosts(ws_candidates)
         self.api_key_id = api_key_id
         self.private_key_pem = private_key_pem
         self.allow_order_placement = allow_order_placement
         self._client: Optional[httpx.AsyncClient] = None
         self._read_bucket = TokenBucket(reads_per_sec)
         self._write_bucket = TokenBucket(writes_per_sec)
+        self._configured_reads_per_sec = float(reads_per_sec)
+        self._configured_writes_per_sec = float(writes_per_sec)
         self._retry = RetryPolicy()
         self._private_key = None  # lazily loaded cryptography key object
-        self._ws_task: Optional[asyncio.Task] = None
+        self._base_index = 0
+        self._feed: Optional[KalshiWebSocketFeed] = None
+        self._streamed_markets: set[str] = set()
+        self.rate_limits: Optional[KalshiRateLimits] = None
+        self.endpoint_costs: dict[str, int] = {}
+        self.default_endpoint_cost = DEFAULT_ENDPOINT_COST_TOKENS
+
+    # ------------------------------------------------------------- props
+    @property
+    def has_credentials(self) -> bool:
+        return bool(self.api_key_id and self.private_key_pem)
+
+    @property
+    def active_rest_base(self) -> str:
+        return self.rest_bases[self._base_index % len(self.rest_bases)]
+
+    def effective_reads_per_sec(self) -> float:
+        return self._read_bucket.rate
+
+    def effective_writes_per_sec(self) -> float:
+        return self._write_bucket.rate
 
     # ------------------------------------------------------------- lifecycle
     async def connect(self) -> None:
-        self._client = httpx.AsyncClient(timeout=15.0)
-        # verify exchange reachability
-        r = await self._get("/exchange/status")
-        if not r.get("exchange_active", False):
-            raise ConnectionError("Kalshi exchange reports inactive")
+        # Idempotent: tests (and re-connects after an explicit disconnect)
+        # may supply their own client; disconnect() nulls it.
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=15.0)
+        # Probe /exchange/status on each configured base and stick to the
+        # first healthy one (failover is live from the very first request).
+        for step in range(len(self.rest_bases)):
+            i = (self._base_index + step) % len(self.rest_bases)
+            base = self.rest_bases[i]
+            try:
+                r = await self._probe_status(base)
+            except Exception as exc:
+                log.warning("kalshi: base %s unreachable: %s", base, exc)
+                continue
+            if r.get("exchange_active", False):
+                self._base_index = i
+                return
+            log.warning("kalshi: base %s reports exchange inactive", base)
+        raise ConnectionError(
+            "Kalshi exchange unreachable or inactive on all configured "
+            f"bases: {self.rest_bases}")
 
     async def disconnect(self) -> None:
-        if self._ws_task:
-            self._ws_task.cancel()
-            self._ws_task = None
+        if self._feed is not None:
+            await self._feed.close()
+            self._feed = None
+            self._streamed_markets.clear()
         if self._client:
             await self._client.aclose()
             self._client = None
+
+    async def _probe_status(self, base: str) -> dict[str, Any]:
+        assert self._client is not None
+        r = await self._client.get(base + "/exchange/status")
+        r.raise_for_status()
+        return r.json()
 
     # ------------------------------------------------------------- signing
     def _load_private_key(self):
@@ -97,12 +198,13 @@ class KalshiAdapter(PredictionMarketAdapter):
                     "Kalshi private key not configured. Authenticated "
                     "endpoints require KALSHI_API_KEY_ID and "
                     "KALSHI_PRIVATE_KEY_PEM in the mode env file.")
-            from cryptography.hazmat.primitives import hashes, serialization
+            from cryptography.hazmat.primitives import serialization
             self._private_key = serialization.load_pem_private_key(
                 self.private_key_pem.encode(), password=None)
         return self._private_key
 
-    def _auth_headers(self, method: str, path: str) -> dict[str, str]:
+    def _auth_headers(self, method: str, path: str,
+                      api_prefix: str = "/trade-api/v2") -> dict[str, str]:
         if not self.api_key_id:
             raise KalshiAuthError(
                 "Kalshi API key id not configured; cannot call "
@@ -111,7 +213,10 @@ class KalshiAdapter(PredictionMarketAdapter):
         from cryptography.hazmat.primitives.asymmetric import padding
         key = self._load_private_key()
         ts = str(int(time.time() * 1000))
-        msg = f"{ts}{method.upper()}/trade-api/v2{path}".encode()
+        # Sign the full request path from the API root, without query
+        # parameters (docs.kalshi.com "Request Signing"). For the
+        # WebSocket handshake the path is /trade-api/ws/v2 (K2).
+        msg = f"{ts}{method.upper()}{api_prefix}{path}".encode()
         sig = key.sign(
             msg,
             padding.PSS(mgf=padding.MGF1(hashes.SHA256()),
@@ -125,30 +230,112 @@ class KalshiAdapter(PredictionMarketAdapter):
         }
 
     # ------------------------------------------------------------- http
-    async def _get(self, path: str, params: dict[str, Any] | None = None,
-                   auth: bool = False) -> dict[str, Any]:
-        assert self._client is not None, "connect() first"
-        await self._read_bucket.acquire()
+    async def _do(self, method: str, base: str, path: str, *,
+                  params: dict[str, Any] | None,
+                  body: dict[str, Any] | None,
+                  headers: dict[str, str]) -> httpx.Response:
+        assert self._client is not None
+        url = base + path
+        if method == "GET":
+            return await self._client.get(url, params=params, headers=headers)
+        if method == "POST":
+            return await self._client.post(url, json=body, headers=headers)
+        if method == "DELETE":
+            return await self._client.delete(url, headers=headers)
+        raise ValueError(f"unsupported method {method}")
 
-        async def do() -> dict[str, Any]:
-            headers = self._auth_headers("GET", path) if auth else {}
-            resp = await self._client.get(self.rest_base + path,
-                                          params=params, headers=headers)
+    async def _request(self, method: str, path: str, *,
+                       params: dict[str, Any] | None = None,
+                       body: dict[str, Any] | None = None,
+                       auth: bool = False) -> dict[str, Any]:
+        """One pass across the configured bases with 5xx/transport
+        failover. 429 is account-wide (K5), so it never rotates hosts and
+        is surfaced as a transport error for the retry policy's backoff."""
+        assert self._client is not None, "connect() first"
+        bucket = self._read_bucket if method == "GET" else self._write_bucket
+        await bucket.acquire()
+        headers = self._auth_headers(method, path) if auth else {}
+        idx = self._base_index
+        n = len(self.rest_bases)
+        last_exc: Optional[BaseException] = None
+        last_resp: Optional[httpx.Response] = None
+        for step in range(n):
+            i = (idx + step) % n
+            base = self.rest_bases[i]
+            try:
+                resp = await self._do(method, base, path,
+                                      params=params, body=body,
+                                      headers=headers)
+            except _RETRYABLE as exc:
+                last_exc = exc
+                if step == n - 1:
+                    break
+                self._base_index = (i + 1) % n
+                log.warning("kalshi: transport failure on %s (%s); "
+                            "rotating to %s", urlparse(base).netloc,
+                            type(exc).__name__,
+                            self.rest_bases[self._base_index])
+                continue
             if resp.status_code == 429:
-                raise httpx.TransportError("rate limited (429)")
+                # Rate-limited: back off (retry policy), stay on this host.
+                raise httpx.TransportError(
+                    f"rate limited (429) from {urlparse(base).netloc}")
+            if 500 <= resp.status_code < 600:
+                last_resp = resp
+                if step == n - 1:
+                    break
+                self._base_index = (i + 1) % n
+                log.warning("kalshi: HTTP %s from %s; rotating to %s",
+                            resp.status_code, urlparse(base).netloc,
+                            self.rest_bases[self._base_index])
+                continue
+            # 2xx or 4xx: the host answered — keep it sticky.
+            self._base_index = i
             resp.raise_for_status()
             return resp.json()
+        if last_resp is not None:
+            last_resp.raise_for_status()
+        assert last_exc is not None
+        raise last_exc
 
-        return await self._retry.run(do, _RETRYABLE)
+    async def _get(self, path: str, params: dict[str, Any] | None = None,
+                   auth: bool = False) -> dict[str, Any]:
+        return await self._retry.run(
+            lambda: self._request("GET", path, params=params, auth=auth),
+            _RETRYABLE)
 
     async def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        return await self._retry.run(
+            lambda: self._request("POST", path, body=body, auth=True),
+            _RETRYABLE)
+
+    async def _delete(self, path: str) -> int:
+        return await self._retry.run(lambda: self._raw_delete(path),
+                                     _RETRYABLE)
+
+    async def _raw_delete(self, path: str) -> int:
+        """DELETE returns a status code, not a JSON body (cancel order)."""
         assert self._client is not None, "connect() first"
         await self._write_bucket.acquire()
-        headers = self._auth_headers("POST", path)
-        resp = await self._client.post(self.rest_base + path, json=body,
-                                       headers=headers)
-        resp.raise_for_status()
-        return resp.json()
+        headers = self._auth_headers("DELETE", path)
+        idx = self._base_index
+        n = len(self.rest_bases)
+        for step in range(n):
+            i = (idx + step) % n
+            base = self.rest_bases[i]
+            try:
+                resp = await self._client.delete(base + path, headers=headers)
+            except _RETRYABLE:
+                if step == n - 1:
+                    raise
+                self._base_index = (i + 1) % n
+                continue
+            if 500 <= resp.status_code < 600 and step < n - 1:
+                self._base_index = (i + 1) % n
+                continue
+            self._base_index = i
+            return resp.status_code
+        raise httpx.TransportError("kalshi: DELETE failed on all bases")
 
     # ------------------------------------------------------------- account
     async def get_account(self) -> dict[str, Any]:
@@ -165,6 +352,70 @@ class KalshiAdapter(PredictionMarketAdapter):
     async def get_positions(self) -> list[dict[str, Any]]:
         data = await self._get("/portfolio/positions", auth=True)
         return data.get("market_positions", [])
+
+    # --------------------------------------------------------- rate limits
+    async def get_rate_limits(self) -> KalshiRateLimits:
+        """GET /account/limits (authenticated) — the account's effective
+        tier and token budgets (K5)."""
+        data = await self._get("/account/limits", auth=True)
+        read = data.get("read") or {}
+        write = data.get("write") or {}
+        limits = KalshiRateLimits(
+            usage_tier=str(data.get("usage_tier", "unknown")).lower(),
+            read_refill_rate=float(read.get("refill_rate", 0) or 0),
+            read_bucket_capacity=float(read.get("bucket_capacity", 0) or 0),
+            write_refill_rate=float(write.get("refill_rate", 0) or 0),
+            write_bucket_capacity=float(write.get("bucket_capacity", 0) or 0),
+            raw=data)
+        self.rate_limits = limits
+        return limits
+
+    async def get_endpoint_costs(self) -> dict[str, int]:
+        """GET /account/endpoint_costs — authoritative non-default
+        endpoint costs (K5). Returns {"METHOD /path": cost}; endpoints not
+        listed use ``default_endpoint_cost``."""
+        data = await self._get("/account/endpoint_costs", auth=False)
+        self.default_endpoint_cost = int(data.get("default_cost",
+                                                  DEFAULT_ENDPOINT_COST_TOKENS)
+                                         or DEFAULT_ENDPOINT_COST_TOKENS)
+        costs: dict[str, int] = {}
+        for row in data.get("endpoint_costs") or []:
+            method = str(row.get("method", "")).upper()
+            path = str(row.get("path", ""))
+            cost = row.get("cost")
+            if method and path and cost is not None:
+                costs[f"{method} {path}"] = int(cost)
+        self.endpoint_costs = costs
+        return costs
+
+    def endpoint_cost(self, method: str, path: str) -> int:
+        return self.endpoint_costs.get(f"{method.upper()} {path}",
+                                       self.default_endpoint_cost)
+
+    def apply_rate_limits(self, limits: KalshiRateLimits,
+                          headroom: float = 0.8) -> None:
+        """Clamp local request budgets so sustained traffic stays under
+        the discovered tier (K5 + §13: never circumvent limits).
+
+        Per-second request budget for an endpoint = refill_rate /
+        endpoint_cost. We budget ``headroom`` (default 80%) of that and
+        only ever LOWER a bucket — configured values remain the ceiling
+        and the published tier remains the hard bound."""
+        self.rate_limits = limits
+        if not 0.0 < headroom <= 1.0:
+            raise ValueError("headroom must be in (0, 1]")
+        read_rps = _budget_rps(limits.read_refill_rate,
+                               self.default_endpoint_cost, headroom)
+        write_rps = _budget_rps(limits.write_refill_rate,
+                                self.default_endpoint_cost, headroom)
+        if read_rps is not None:
+            self._read_bucket.rate = min(self._read_bucket.rate, read_rps)
+            self._read_bucket.capacity = max(1, int(read_rps * 2))
+            self._read_bucket.tokens = float(self._read_bucket.capacity)
+        if write_rps is not None:
+            self._write_bucket.rate = min(self._write_bucket.rate, write_rps)
+            self._write_bucket.capacity = max(1, int(write_rps * 2))
+            self._write_bucket.tokens = float(self._write_bucket.capacity)
 
     # --------------------------------------------------------- market data
     async def get_markets(self, limit: int = 200,
@@ -256,6 +507,7 @@ class KalshiAdapter(PredictionMarketAdapter):
         )
 
     async def get_order_book(self, market_id: str) -> Optional[OrderBook]:
+        """Public single-market book (no auth required)."""
         try:
             data = await self._get(f"/markets/{market_id}/orderbook",
                                    params={"depth": 32})
@@ -265,28 +517,75 @@ class KalshiAdapter(PredictionMarketAdapter):
             raise
         return self.parse_order_book(market_id, data)
 
-    def parse_order_book(self, market_id: str,
-                         data: dict[str, Any]) -> OrderBook:
-        """Parse Kalshi's current `orderbook_fp` format.
+    async def get_order_books(self,
+                              market_ids: list[str]) -> dict[str, OrderBook]:
+        """Authenticated bulk books: GET /markets/orderbooks, up to 100
+        tickers per request (K3/doc 2026-09-13). Returns
+        ``{ticker: OrderBook}``; tickers absent from the response (closed
+        or unknown) are simply not in the result.
 
-        yes_dollars = resting YES bids; no_dollars = resting NO bids.
-        YES asks are synthesized: a NO bid at p is willingness to sell YES
-        at (1 - p). Book is expressed from the YES perspective.
+        Requires credentials — the endpoint is authenticated. Without a
+        key, raise KalshiAuthError; callers fall back to the public
+        per-ticker endpoint (collect mode does this automatically)."""
+        if not self.has_credentials:
+            raise KalshiAuthError(
+                "GET /markets/orderbooks requires an API key. Configure "
+                "KALSHI_API_KEY_ID and KALSHI_PRIVATE_KEY_PEM, or use the "
+                "public get_order_book() per ticker.")
+        out: dict[str, OrderBook] = {}
+        for chunk in _chunks(market_ids, BULK_ORDERBOOK_MAX_TICKERS):
+            data = await self._get("/markets/orderbooks",
+                                   params={"tickers": chunk}, auth=True)
+            for ob in data.get("orderbooks") or []:
+                ticker = ob.get("ticker")
+                if ticker:
+                    out[ticker] = self.parse_order_book(ticker, ob)
+        return out
+
+    def parse_order_book(self, market_id: str,
+                         data: dict[str, Any],
+                         sequence_number: int | None = None) -> OrderBook:
+        """Parse Kalshi's fixed-point order-book payload (K3).
+
+        ``orderbook_fp.yes_dollars`` = resting YES bids;
+        ``orderbook_fp.no_dollars`` = resting NO bids (both sides are
+        bids; prices are dollar strings, quantities fractional). The
+        WebSocket snapshot uses the ``*_fp`` key names — both are
+        accepted. The executable YES ask at a NO bid p is synthesized as
+        ``1 - p``. Malformed or non-tradeable levels (price outside
+        (0,1), non-positive quantity) are dropped and logged, never
+        guessed at.
         """
         ob = data.get("orderbook_fp") or data.get("orderbook") or {}
-        yes_raw = ob.get("yes_dollars") or []
-        no_raw = ob.get("no_dollars") or []
+        yes_raw = ob.get("yes_dollars") or ob.get("yes_dollars_fp") or []
+        no_raw = ob.get("no_dollars") or ob.get("no_dollars_fp") or []
 
-        def lv(pair: list[Any]) -> PriceLevel:
-            return PriceLevel(price=Decimal(str(pair[0])),
-                              quantity=Decimal(str(pair[1])))
+        def levels(pairs: Any, what: str) -> list[PriceLevel]:
+            out: list[PriceLevel] = []
+            for pair in pairs if isinstance(pairs, list) else []:
+                if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+                    log.warning("kalshi: skipping malformed %s level %r",
+                                what, pair)
+                    continue
+                try:
+                    price = Decimal(str(pair[0]))
+                    qty = Decimal(str(pair[1]))
+                except (InvalidOperation, ValueError, TypeError):
+                    log.warning("kalshi: skipping malformed %s level %r",
+                                what, pair)
+                    continue
+                if not (Decimal(0) < price < Decimal(1)) or qty <= 0:
+                    log.warning("kalshi: skipping non-tradeable %s level %r",
+                                what, pair)
+                    continue
+                out.append(PriceLevel(price=price, quantity=qty))
+            return out
 
-        yes_bids = sorted((lv(p) for p in yes_raw), key=lambda l: -l.price)
-        no_bids = sorted((lv(p) for p in no_raw), key=lambda l: -l.price)
-        yes_asks = sorted(
-            (PriceLevel(price=Decimal("1") - l.price, quantity=l.quantity)
-             for l in no_bids),
-            key=lambda l: l.price)
+        yes_bids = sorted(levels(yes_raw, "yes"), key=lambda l: -l.price)
+        no_bids = sorted(levels(no_raw, "no"), key=lambda l: -l.price)
+        # NO bids sorted descending → synthesized YES asks ascending.
+        yes_asks = [PriceLevel(price=Decimal("1") - l.price, quantity=l.quantity)
+                    for l in no_bids]
 
         return OrderBook(
             venue=self.venue,
@@ -294,27 +593,52 @@ class KalshiAdapter(PredictionMarketAdapter):
             bids=yes_bids,
             asks=yes_asks,
             timestamp=utcnow(),
-            sequence_number=None,
+            sequence_number=sequence_number,
             microstructure_type=MicrostructureType.CLOB,
             raw=data,
         )
 
+    # ------------------------------------------------------------- streaming
     async def subscribe_order_book(self, market_id: str,
                                    callback: OrderBookCallback) -> None:
-        """Kalshi WebSocket requires authentication even for market data.
-        v1 uses REST polling when no API key is configured."""
-        if not (self.api_key_id and self.private_key_pem):
+        """Stream the market's order book via the authenticated WebSocket
+        (K2/K4). The callback is awaited with a fresh OrderBook on every
+        snapshot/delta; it is guaranteed to have fired at least once
+        (initial snapshot) when this returns.
+
+        Requires KALSHI_API_KEY_ID + KALSHI_PRIVATE_KEY_PEM — Kalshi WS
+        needs authentication even for market data (re-verified in docs
+        2026-09-13). Without a key, use REST polling (get_order_book)."""
+        if not self.has_credentials:
             raise KalshiAuthError(
                 "Kalshi WebSocket requires an API key even for market data "
                 "(re-verified in docs 2026-09-13). Configure KALSHI_API_KEY_ID "
                 "and KALSHI_PRIVATE_KEY_PEM, or use REST polling "
                 "(get_order_book) which needs no credentials.")
-        raise NotImplementedError(
-            "Kalshi WebSocket subscription is scheduled for the streaming "
-            "milestone; v1 uses REST polling. The wire format "
-            "(orderbook_snapshot + orderbook_delta on the recommended "
-            "wss://external-api-ws.kalshi.com/trade-api/ws/v2) is documented "
-            "in docs/VENUE_RESEARCH.md.")
+        if not self.ws_urls:
+            raise KalshiWSUnavailable(
+                "No ws_url configured for kalshi in config/venues.yaml; "
+                "cannot stream order books.")
+        if self._feed is None:
+            self._feed = KalshiWebSocketFeed(
+                venue=self.venue,
+                ws_urls=self.ws_urls,
+                auth_headers=lambda: self._auth_headers(
+                    "GET", "", api_prefix="/trade-api/ws/v2"))
+        await self._feed.subscribe(market_id, callback)
+        self._streamed_markets.add(market_id)
+
+    async def unsubscribe_order_book(self, market_id: str) -> None:
+        if self._feed is not None and market_id in self._streamed_markets:
+            await self._feed.unsubscribe(market_id)
+        self._streamed_markets.discard(market_id)
+
+    def streaming_stats(self) -> dict[str, Any]:
+        if self._feed is None:
+            return {"connected": False, "markets": [], "stats": None}
+        return {"connected": self._feed.connected,
+                "markets": self._feed.markets(),
+                "stats": self._feed.stats.__dict__}
 
     # ------------------------------------------------------------- orders
     async def get_open_orders(self) -> list[dict[str, Any]]:
@@ -356,12 +680,8 @@ class KalshiAdapter(PredictionMarketAdapter):
         )
 
     async def cancel_order(self, order_id: str) -> bool:
-        assert self._client is not None
-        await self._write_bucket.acquire()
-        headers = self._auth_headers("DELETE", f"/portfolio/orders/{order_id}")
-        resp = await self._client.delete(
-            f"{self.rest_base}/portfolio/orders/{order_id}", headers=headers)
-        return resp.status_code in (200, 204)
+        status_code = await self._delete(f"/portfolio/orders/{order_id}")
+        return status_code in (200, 204)
 
     async def cancel_all_orders(self) -> int:
         orders = await self.get_open_orders()
@@ -417,6 +737,29 @@ class KalshiAdapter(PredictionMarketAdapter):
 
     def get_api_status(self) -> APIStatus:
         return APIStatus.VERIFIED
+
+
+def _dedup_hosts(hosts: list[str]) -> list[str]:
+    out: list[str] = []
+    for h in hosts:
+        if h and h not in out:
+            out.append(h)
+    return out or [""]
+
+
+def _chunks(seq: list[str], size: int):
+    for i in range(0, len(seq), size):
+        yield seq[i:i + size]
+
+
+def _budget_rps(refill_rate_tokens: float, cost_tokens: int,
+                headroom: float) -> Optional[float]:
+    """Sustained requests/second under a token budget, with headroom.
+    Returns None when the tier reports no usable budget (fail closed:
+    keep the configured, documented-conservative value)."""
+    if refill_rate_tokens <= 0 or cost_tokens <= 0:
+        return None
+    return max(0.1, refill_rate_tokens * headroom / cost_tokens)
 
 
 def _map_status(s: Any) -> OrderStatus:

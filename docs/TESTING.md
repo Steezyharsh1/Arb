@@ -53,6 +53,62 @@ payout; profitable path yields TRADE; reproducibility (identical inputs
 pairs never evaluated; graph candidates; full matching pipeline with a
 mock LLM (approve) and without one (REVIEW only).
 
+**Kalshi Phase 2** (`test_kalshi_phase2.py`, 2026-09-13 — all offline:
+mock HTTP transport + a scripted **local WebSocket server**):
+* host failover — 5xx rotation to the fallback base, 404/429 never
+  rotate, DNS/transport failure rotation, all-bases-5xx raises, sticky
+  host kept, connect-time probing of every base, refusal when all dead;
+* bulk `GET /markets/orderbooks` — auth required, 100-ticker batching,
+  auth headers present, parsed books;
+* rate-limit discovery — `GET /account/limits` tier parsing,
+  `GET /account/endpoint_costs` cost map + default cost, budget
+  clamping that only ever LOWERS the configured read/write budgets
+  (headroom 80%), zero-budget tier keeps configured values;
+* parser hardening — WebSocket `*_fp` key names, sequence passthrough,
+  malformed / non-tradeable levels dropped and logged;
+* WebSocket feed against the local server — handshake signature over the
+  host-independent `GET /trade-api/ws/v2` path (verified with a
+  generated RSA key), snapshot + in-order delta application with ask
+  synthesis, sid-based unsubscribe, **sequence gap ⇒ recovery snapshot,
+  never silent apply**, clean-close reconnect with resubscribe/rebase,
+  and terminal handling of WS error code 9 (auth).
+
+**Polymarket US Phase 3** (`test_polymarket_us.py`, 2026-09-13 — all
+offline: mock HTTP transport + a scripted **local WebSocket server**):
+* public market data — discovery and books succeed with **no
+  credentials**, every request goes to the public gateway host and
+  carries no auth header;
+* books are genuinely two-sided (real `offers`, nothing synthesized as
+  `1 − bid`), levels sorted best-first, malformed and non-tradeable
+  levels dropped;
+* market-state gating — each of the six non-`OPEN` states yields **no
+  book** (parameterized), so a halted market can never be sized against;
+* per-market rules — `orderPriceMinTickSize` / `minimumTradeQty` carried
+  from the payload, coarsest-safe fallback when absent, closed/archived
+  markets skipped, sports signals preserved for the Utah gate;
+* Ed25519 signing verified against a generated keypair over
+  `timestamp + METHOD + path`, authenticated calls hit the authed host,
+  malformed/short secret keys rejected clearly;
+* rate limits — budgets clamped below the published 20 req/s ceiling,
+  `429` surfaced for backoff rather than swallowed;
+* safety posture — order placement refused even with
+  `allow_order_placement=True` in live mode, API status never upgraded
+  from documentation, independence from Kalshi, official-host guard;
+* WebSocket feed against the local server — handshake signature over
+  `/v1/ws/markets`, documented subscribe frame, **full-snapshot
+  replacement** (stale levels vanish), non-tradeable streamed books
+  dropped, heartbeats counted, subscription errors fail fast, auth
+  errors terminal, clean-close reconnect + resubscribe, unsubscribe
+  stops delivery.
+
+**Paper streaming** (`test_paper_streaming.py`, 2026-09-13 — all offline,
+fake adapters): a streamed contract is no longer REST-polled and pushed
+books land in the live cache; a streaming failure falls back to polling
+exactly once per venue per run (never a per-cycle retry storm); with no
+credentials the engine polls only; and a market that leaves discovery is
+unsubscribed and evicted from the book cache (even when discovery
+returns nothing at all).
+
 ## Integration-testing record
 
 On 2026-08-30, a prior run exercised `--mode collect --cycles 1` against the

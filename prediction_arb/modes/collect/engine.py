@@ -30,6 +30,9 @@ class CollectEngine:
         self.max_markets = max_markets_per_venue
         self.max_books = max_books_per_cycle
         self.health = HealthMonitor()
+        # Venues where the bulk endpoint failed at least once (e.g. no API
+        # key) — we remember the fallback and stop warning every cycle.
+        self._bulk_failed: set[str] = set()
 
     async def run(self, cycles: int | None = None) -> None:
         n = 0
@@ -72,13 +75,10 @@ class CollectEngine:
                     outcome_type=m.outcome_type.value,
                     category=m.category, status="open")
 
+            tickers = [m.market_id for m in markets[: self.max_books]]
+            books = await self._fetch_books(adapter, venue, tickers)
             books_saved = 0
-            for m in markets[: self.max_books]:
-                try:
-                    book = await adapter.get_order_book(m.market_id)
-                except Exception as exc:
-                    await self.health.record_error(venue, str(exc))
-                    continue
+            for book in books:
                 if book is None or (not book.bids and not book.asks):
                     continue
                 self.repo.save_orderbook_snapshot(book)
@@ -86,3 +86,36 @@ class CollectEngine:
             self.console.print(
                 f"[cycle {cycle}] {venue}: {books_saved} non-empty order "
                 f"books recorded")
+
+    async def _fetch_books(self, adapter: PredictionMarketAdapter,
+                           venue: str,
+                           tickers: list[str]) -> list:
+        """Prefer the authenticated bulk endpoint (GET /markets/orderbooks,
+        ≤100 tickers/request) when the adapter offers it AND has
+        credentials — one batched request instead of N per-ticker polls.
+        Anything that goes wrong (no key, 5xx, auth) falls back to the
+        public per-ticker endpoint, so unauthenticated collection keeps
+        working."""
+        bulk = getattr(adapter, "get_order_books", None)
+        if callable(bulk) and tickers and venue not in self._bulk_failed:
+            try:
+                books = await bulk(tickers)
+                await self.health.record_success(venue)
+                return list(books.values())
+            except Exception as exc:
+                self._bulk_failed.add(venue)
+                log.warning(
+                    f"{venue}: bulk orderbook fetch failed "
+                    f"({exc.__class__.__name__}: {exc}); falling back to "
+                    f"per-ticker polling for the rest of this run")
+        out = []
+        for t in tickers:
+            try:
+                book = await adapter.get_order_book(t)
+            except Exception as exc:
+                await self.health.record_error(venue, str(exc))
+                continue
+            if book is None or (not book.bids and not book.asks):
+                continue
+            out.append(book)
+        return out

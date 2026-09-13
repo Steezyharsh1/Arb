@@ -21,8 +21,23 @@ PROHIBITED_ACTIONS: tuple[str, ...] = (
 def assert_endpoint_is_official(url: str) -> None:
     """Raise if a URL is not one of the documented official API hosts."""
     official_hosts = (
-        "api.elections.kalshi.com", "api.kalshi.com", "demo-api.kalshi.co",
-        "api.webull.com", "localhost", "127.0.0.1",  # IBKR CP gateway is local
+        # Kalshi (docs.kalshi.com/getting_started/api_environments,
+        # VERIFIED / DOC / 2026-09-13): recommended dedicated Trade API
+        # hosts plus the legacy shared compatibility hosts.
+        "external-api.kalshi.com",
+        "external-api-ws.kalshi.com",
+        "external-api.demo.kalshi.co",
+        "external-api-ws.demo.kalshi.co",
+        "api.elections.kalshi.com",
+        "api.kalshi.com",
+        "demo-api.kalshi.co",
+        # Polymarket US / QCX (docs.polymarket.us/api-reference/introduction,
+        # VERIFIED / DOC / 2026-09-13, evidence row P1): the public market-data
+        # gateway and the authenticated trading/WebSocket host.
+        "gateway.polymarket.us",
+        "api.polymarket.us",
+        "api.webull.com",
+        "localhost", "127.0.0.1",  # IBKR CP gateway is local
     )
     from urllib.parse import urlparse
     host = urlparse(url).hostname or ""

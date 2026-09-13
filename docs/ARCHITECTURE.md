@@ -44,8 +44,16 @@
 2. `modes/shared.run_matching` — event grouping → deterministic filter
    → LLM (conservative no-match if unconfigured) → rules validator →
    match certificate (persisted).
-3. `_fetch_books` — REST order books; Kalshi `orderbook_fp` normalized
-   to YES-perspective bids/asks (asks synthesized from NO bids).
+3. Books — streamed first if possible, polled otherwise. When
+   credentials exist, `_ensure_streaming` subscribes each eligible
+   market to the venue's WebSocket feed once (Kalshi: `orderbook_delta`,
+   sequenced snapshot/deltas, gap-triggered recovery — see
+   `prediction_arb/adapters/kalshi_ws.py`); books then update the live
+   cache in real time (sub-second staleness). `_fetch_books` polls REST
+   only for markets that are NOT streamed; both paths normalize Kalshi
+   `orderbook_fp` to YES-perspective bids/asks (asks synthesized from NO
+   bids). Without credentials (or on any streaming failure) everything
+   is polled, exactly as in v1.
 4. `modes/shared.run_arbitrage_scan` → `arbitrage/optimizer.search_event`
    — all independent (YES-venue, NO-venue) orderings per event, only
    pairs with APPROVED certificates.

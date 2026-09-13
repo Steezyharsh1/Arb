@@ -160,7 +160,8 @@ blob; the data-retention policy (H5); confirming SPEC §33 and §68 (`[I]`).
 - **Checkpoint:** present this shortlist and obtain the owner's selection. Do
   not begin M2 or M3 adapter work first.
 
-### M2 — Kalshi refresh (Phase 2, defects D5) · **WAIT FOR OWNER CHECKPOINT**
+### M2 — Kalshi refresh (Phase 2, defects D5) · **CODE COMPLETE 2026-09-13 (owner directed Phase 2 to proceed)**
+_Status note (2026-09-13): the owner directed Phase 2 (Kalshi refresh) to proceed. Host migration, 5xx/transport failover, `orderbook_fp` re-verification, `subscribe_order_book` WebSocket streaming with seq-gap recovery, bulk `GET /markets/orderbooks`, and tier-aware rate-limit clamping are implemented with 22 offline tests. Remaining exit items: 24h collect run + streaming verification on the owner's machine with the H2 API key — see Phase 2 in `docs/ROADMAP.md`._
 - Move `config/venues.yaml` to the recommended hosts
   (`https://external-api.kalshi.com/trade-api/v2`,
   `wss://external-api-ws.kalshi.com/trade-api/ws/v2`, demo

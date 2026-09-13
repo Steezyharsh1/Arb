@@ -24,10 +24,10 @@ Status tags used throughout:
 
 | Check | Result |
 |---|---|
-| `pytest` | **118 passed** (~0.9s): Phase 0's 107 plus 11 Phase 1 fee/provenance/compliance regression tests |
+| `pytest` | **185 passed** (~17s): Phase 0's 107 + 11 Phase 1 fee/provenance/compliance + 26 Phase 2 tests — 22 Kalshi host-failover/bulk/WS-streaming/rate-limit + 4 paper-streaming integration + 41 Phase 3 Polymarket US tests (all offline) |
 | `python -m prediction_arb.main --status` | Works: kalshi=VERIFIED, forecast_ex=API_DOCUMENTED_UNTESTED; independence matrix correct |
 | `python -m prediction_arb.main --readiness` | 13,801 snapshots recorded; **0 opportunities ever analyzed**; live NOT RECOMMENDED |
-| Live-capable venues | **1** (Kalshi). Cross-venue arbitrage is therefore impossible today |
+| Live-capable venues | **1** (Kalshi). Polymarket US is implemented and INDEPENDENT, but stays API_DOCUMENTED_UNTESTED until the owner captures observed-payload evidence (P7) |
 | `data/paper/…sqlite3` | 21,892 markets (all Kalshi, mostly sports), 13,801 book snapshots spanning 2026-08-30 → 2026-09-05, tagged `mode=collect` |
 | `data/historical/…sqlite3` | **Empty** (0 rows in every table) |
 | `reports/historical/…json` | `{"frames": 0, "opportunities": 0}` |
@@ -47,8 +47,8 @@ wiring, and exact contextual fee/eligibility data remain independent blockers.
 |---|---|---|---|
 | 0 | Repo hygiene, packaging, runnability, spec reconstruction | **DONE 2026-09-13** | Fresh clone → `pip install -e ".[dev]"` → full suite passes → CLI runs, no manual hacks |
 | 1 | Venue & API research refresh (2026) | **DONE 2026-09-13 — OWNER CHECKPOINT** | Owner selects Polymarket US, Gemini, or IBKR route before adapter work |
-| 2 | Kalshi adapter refresh + streaming | PARTIAL/BROKEN (D5) | 24h collect run with ≥99% cycle success; WebSocket streaming in paper |
-| 3 | **Second independent venue adapter** | NOT STARTED — BLOCKED AT OWNER CHECKPOINT | Real books from the owner-selected venue proven INDEPENDENT of Kalshi, in paper mode |
+| 2 | Kalshi adapter refresh + streaming | PARTIAL — code complete 2026-09-13 (D5 fixed in code); 24h run pending | 24h collect run with ≥99% cycle success; WebSocket streaming in paper |
+| 3 | **Second independent venue adapter** | PARTIAL — Polymarket US route chosen + adapter code complete 2026-09-13; live promotion pending | Real books from the owner-selected venue proven INDEPENDENT of Kalshi, in paper mode |
 | 4 | Data lineage, replay, backtest metrics | BROKEN (D3, D4) | `--mode historical --date …` replays recorded data and reports metrics |
 | 5 | Matching that can actually match | BROKEN (D6, D9) | APPROVED certificates produced from real cross-venue data |
 | 6 | Paper validation & realism | PARTIAL (D11, D12) | Multi-week paper run with realistic fill/staleness modelling |
@@ -171,34 +171,163 @@ selects one. Utah sports remains disabled regardless of selection.
 
 ---
 
-### Phase 2 — Kalshi adapter refresh + streaming  ·  PARTIAL/BROKEN
+### Phase 2 — Kalshi adapter refresh + streaming  ·  PARTIAL (code complete 2026-09-13; operational exit pending)
 
-**Paused at the Phase 1 owner checkpoint; do not start adapter work yet.**
+The Phase 1 owner checkpoint gated *second-venue* (Phase 3) adapter work;
+the owner directed Phase 2 (Kalshi refresh) to proceed on 2026-09-13.
 
-- Switch `config/venues.yaml` to the recommended hosts, keep the legacy
-  host as a documented fallback, and add host-failover on 5xx.
-- Re-verify `orderbook_fp` parsing against the new host (dollar-string
-  levels, fractional quantities, YES-ask synthesis from NO bids).
-- Implement `subscribe_order_book` (currently raises
-  `NotImplementedError`) — WebSocket auth is required even for market
-  data, so this needs the user's Kalshi API key (H2).
-- Consider `GET /markets/orderbooks` (bulk, up to 100 tickers,
-  **requires auth**) to replace per-ticker polling; polling 500 markets
-  at 8 req/s takes ~60s per cycle, which is why book staleness (D11)
-  matters so much.
-- Discover the authenticated account's published rate-limit tier, preserve
-  separate read/write token buckets and endpoint costs, and budget below it;
-  never circumvent limits (`prediction_arb/compliance/restrictions.py`).
+Implemented and test-covered (26 new tests — 22 in
+`tests/test_kalshi_phase2.py` and 4 in `tests/test_paper_streaming.py`,
+all offline — mock HTTP transport + scripted local WebSocket server):
+
+- **Hosts + failover (D5).** `config/venues.yaml` now points at the
+  recommended dedicated Trade API hosts
+  (`https://external-api.kalshi.com/trade-api/v2`,
+  `wss://external-api-ws.kalshi.com/trade-api/ws/v2`, plus the
+  `external-api.*.kalshi.co` demo pair); the legacy `api.elections` /
+  `demo-api` hosts remain configured as documented compatibility
+  fallbacks. The adapter rotates to the next base on HTTP 5xx and
+  transport failures (DNS/TLS/timeout) — the exact D5 failure modes —
+  keeps 4xx sticky, and `connect()` probes all bases before starting.
+  New hosts added to the official-host ledger in
+  `prediction_arb/compliance/restrictions.py`.
+- **`orderbook_fp` re-verified (K3).** Dollar-string prices, fractional
+  quantities, YES-ask synthesis from NO bids, and the WebSocket
+  `*_fp` key variants all parse through one hardened parser that drops
+  (and logs) malformed / non-tradeable levels instead of guessing.
+- **Streaming (K2/K4).** `subscribe_order_book` is implemented:
+  authenticated WS handshake (RSA-PSS over the host-independent path
+  `GET /trade-api/ws/v2`), `orderbook_delta` subscription, sequenced
+  snapshot/delta application, **gap/out-of-order ⇒ recovery, never
+  silent apply** (fresh snapshot via `update_subscription get_snapshot`,
+  resubscribe fallback), reconnect with exponential backoff, terminal
+  handling of auth (code 9) and subscription-terminal (10/25) errors.
+  Paper mode now streams books into its live book cache as events
+  (sub-second staleness) when credentials exist, with automatic
+  per-venue fallback to REST polling; collect mode uses the
+  authenticated **bulk** endpoint `GET /markets/orderbooks` (≤100
+  tickers/request) when a key is configured, falling back to the public
+  per-ticker endpoint otherwise. Everything degrades to the old
+  unauthenticated polling path when no key is present.
+- **Rate limits (K5).** Separate read/write buckets kept; on startup
+  with credentials the adapter discovers the account tier
+  (`GET /account/limits`) and non-default endpoint costs
+  (`GET /account/endpoint_costs`) and clamps its local request budgets
+  to `rate_limit_headroom` (default 80%) of the published budget —
+  only ever lowering, never circumventing (§13). Without credentials the
+  documented-conservative configured budgets (8/3 req/s, under the Basic
+  tier) apply unchanged.
+
+Still open (exit criterion — requires the owner's machine + key):
+
+1. **H2:** Kalshi API key in `.env.paper` (needed to exercise WS, bulk
+   books, and tier discovery against the real venue — and to verify the
+   handshake signature against a live session).
+2. A 24-hour `--mode collect` run with ≥99% successful cycles and no
+   unhandled 5xx, plus a paper session confirming sub-second streaming
+   staleness. Feed counters (`snapshots`, `deltas_applied`,
+   `sequence_gaps`, `reconnects`) are exposed via
+   `adapter.streaming_stats()` for that evidence.
+3. K9 stands: no fresh live endpoint validation from this sandbox
+   (TLS EOF); nothing here is labelled live-tested.
 
 Exit: a 24-hour `--mode collect` run with ≥99% successful cycles and no
 unhandled 5xx; streaming books in paper mode with sub-second staleness.
 
 ---
 
-### Phase 3 — Second independent venue adapter  ·  OWNER CHECKPOINT
+### Phase 3 — Second independent venue adapter  ·  IN PROGRESS
 
-**Do not begin this phase until the owner chooses the route.** Phase 1 ranks
-Polymarket US direct first, Gemini direct second, and IBKR ForecastEx+CME third.
+**Route selected by the owner on 2026-09-13: Polymarket US direct**
+(Phase 1 rank 1, 13.5/25). The owner's stated goal is breadth — connect
+to as many independent books as possible — and the agreed sequencing is
+**one venue at a time**, because (a) only three of the eight researched
+DCMs expose a usable public API at all (Polymarket US, Gemini, IBKR's
+ForecastEx/CME routes; Railbird/DKeX, Ludlow/Novig, Rothera, and CDNA
+have no verified public trading API, and reaching them would require
+scraping, which §13 prohibits), and (b) pair count is not the binding
+constraint — **D6** is. Until candidate generation can group differently
+worded events across venues, an Nth venue adds integration surface but
+still yields zero analyzed opportunities.
+
+#### Completion record — adapter code (2026-09-13)
+
+Implemented and test-covered (41 offline tests in
+`tests/test_polymarket_us.py`: mock HTTP transport + a scripted local
+WebSocket server). Evidence rows P1-P8 in `docs/VENUE_RESEARCH.md`.
+
+- **Public market data needs no credentials (P1).** Discovery and order
+  books come from `https://gateway.polymarket.us`, so paper/collect read
+  this venue with an empty env file. The authenticated host
+  (`https://api.polymarket.us`, Ed25519 signing per P2) is used only for
+  the WebSocket and portfolio surfaces. This is a genuine structural
+  difference from Kalshi, whose WS *and* bulk books both require a key.
+- **True two-sided CLOB.** `bids` and `offers` are both real resting
+  orders; nothing is synthesized. Contrast Kalshi (bid-only, YES ask =
+  `1 − NO bid`) and ForecastEx (paired bid at $1.00).
+- **Market state is enforced (P4).** `parse_order_book` returns `None`
+  for any state other than `MARKET_STATE_OPEN`, so a halted, pre-open,
+  or auction book can never be sized against by the arbitrage engine.
+- **Per-market trading rules (P3).** `orderPriceMinTickSize` and
+  `minimumTradeQty` are carried onto every `NormalizedContract`; the
+  docs explicitly forbid inferring them from product type or slug.
+  Missing values fall back to the *coarsest safe* grid (0.01 / 1), never
+  a finer invented one.
+- **Sports category preserved (§35).** Polymarket US carries heavy
+  sports inventory, which is **RESTRICTED in Utah** (R1/R2). Any
+  `sportsMarketType` / `gameId` signal maps to category `sports` so the
+  eligibility gate fires.
+- **Rate limits (P5).** Budgets are clamped to 80% of the published
+  20 req/s ceiling and only ever lowered; `429` is surfaced for backoff,
+  never swallowed (§13).
+- **Streaming (P6).** `polymarket_us_ws.py` implements the markets
+  WebSocket with reconnect/resubscribe, heartbeat accounting, and
+  terminal auth handling. It contains **no sequence-gap machinery on
+  purpose**: the venue pushes complete replacement books rather than
+  deltas, so there is no incremental state to corrupt and no `seq` to
+  check. Adding one would fabricate a guarantee the protocol does not
+  offer.
+- **Orders are not implemented.** `place_order` raises. Phase 3 requires
+  books before orders, and the venue's fee schedule is still
+  `INCOMPLETE` in `config/fees.yaml` — the cumulative aggressive-order
+  cap plus banker's rounding need per-order fill state the
+  `FeeCalculator` does not carry (P8).
+
+**Status: API_DOCUMENTED_UNTESTED, and collect mode deliberately skips
+the venue.** This sandbox cannot reach Polymarket US (P7, TLS EOF), so
+nothing here is live-tested and the status is NOT upgraded from
+documentation. To promote it, run on a machine that can reach the venue:
+
+```bash
+python scripts/polymarket_us_smoke.py          # read-only, no credentials
+```
+
+It performs public reads, checks provenance/tick/state handling, and
+writes sanitized observed-payload evidence to
+`reports/evidence/polymarket_us_<UTC>.json` (git-ignored). Paste that
+into this section, then flip `get_api_status()` to `VERIFIED` — at which
+point collect mode starts recording the venue and cross-venue matching
+has real two-venue data for the first time.
+
+#### Remaining Phase 3 gates
+
+1. **Utah/account eligibility** for Polymarket US non-sports categories,
+   resolved through an authorized workflow. Never geo-bypass. Sports
+   stays RESTRICTED regardless of venue.
+2. **Observed-payload evidence** via the smoke script above (gate 2).
+3. **Exact fee context** — the cumulative aggressive-order cap and
+   banker's rounding must be modelled before any execution use (P8).
+4. **≥1 real Kalshi cross-listing** persisted as APPROVED or REVIEW,
+   never forced. This is blocked behind **D6** (candidate generation)
+   and **D9** (no LLM client), which is why Phase 5 should follow
+   immediately rather than adding venue #3.
+
+---
+
+#### Original route guidance (retained for reference)
+
+Phase 1 ranked Polymarket US direct first, Gemini direct second, and IBKR
+ForecastEx+CME third.
 The rank is conditional because authenticated liquidity and Utah non-sports
 account eligibility were not available for live verification.
 
@@ -353,7 +482,7 @@ collection), and log rotation.
 | D2 | ~~No `.gitignore`; artifacts tracked~~ **FIXED 2026-09-13**: `.gitignore` + `.gitattributes` added, 60 `.pyc` + both DBs + `logs/` + `reports/` untracked (files kept on disk), `reconnect.py` → `scripts/ibkr_gateway_session.py` with safe TLS handling. *Caveat: the 17 MB blob remains in git **history**; purging it needs a history rewrite (owner's call)* | `git ls-files \| grep -c pycache` → 0; CI step guards against regressions | 0 |
 | D3 | Collect data is invisible to historical replay | collect → `data/paper/…` (tagged `mode=collect`); historical → `data/historical/…` (0 rows); report shows `frames: 0` | 4 |
 | D4 | Recorded markets lose the metadata matching needs | `MarketRow` has no settlement/rules/threshold/payout/version columns; `_reconstruct_contract` sets `settlement_time=None`, `resolution_source=""` → `deterministic_match` rejects on both | 4 |
-| D5 | Kalshi on legacy host, intermittent failures, no failover | `config/venues.yaml` → `api.elections.kalshi.com`; collect log: 18 DNS failures + 14 HTTP 500s | 2 |
+| D5 | ~~Kalshi on legacy host, intermittent failures, no failover~~ **FIXED IN CODE 2026-09-13**: recommended `external-api` hosts configured, legacy hosts kept as fallbacks, 5xx/transport failover + connect-time probing, bulk books, WS streaming, tier-aware budget clamping (26 tests). *Operational verification (24h run on the owner's machine) still pending — see Phase 2 section* | Was: `config/venues.yaml` → `api.elections.kalshi.com`; collect log: 18 DNS failures + 14 HTTP 500s | 2 |
 | D6 | Cross-venue candidate generation cannot produce candidates | `normalized_event_key` = exact canonical title + settlement date | 5 |
 | D7 | ~~Venue research stale~~ **FIXED 2026-09-13**: evidence ledger now covers direct DCMs, aliases, multi-route frontends, fees, Utah/CFTC context, and ranked candidates; old “only one independent pair” premise removed | `docs/VENUE_RESEARCH.md`; provenance/fee/compliance registries; focused tests | 1 |
 | D8 | ~~Spec document missing~~ **FIXED 2026-09-13**: `docs/SPEC.md` reconstructs all 73 cited sections from code/docs/tests/config evidence, with `[I]` flags on the two thin ones (§33, §68) and an appendix of the 22 numbers that have no surviving citation | Was: 73 distinct `§` sections cited at 224 sites with no spec file. Now: `grep -c "^### §" docs/SPEC.md` → 73 | 0 |
@@ -439,14 +568,29 @@ If `pytest` fails with `ModuleNotFoundError: No module named
 5. Sessions expire. Re-run the authentication flow when they do;
    `scripts/ibkr_gateway_session.py` provides a guarded local session check.
 
-**H4 — Choose the Phase 2/3 route before any adapter work**
-1. Review the Phase 1 ranking and evidence gaps in `docs/VENUE_RESEARCH.md`.
-2. Select one: Polymarket US (recommended), Gemini (fallback), or IBKR
-   ForecastEx+CME (gateway-based alternative).
-3. First verify the selected product and non-sports category are available to
-   the owner's Utah account. Do not bypass geographic or product restrictions.
-4. Keep credentials local; never paste them into chat or commit them. Account,
-   API-key, and live-read validation happens only after this explicit choice.
+**H4 — ~~Choose the Phase 2/3 route~~ DONE 2026-09-13: Polymarket US**
+The owner selected the Polymarket US direct route. Remaining owner-side
+steps for that route:
+1. Verify the selected product and non-sports categories are available to
+   the owner's Utah account. Do not bypass geographic or product
+   restrictions. Utah **sports** stays RESTRICTED at every venue (R1/R2).
+2. Run the read-only evidence capture from a machine that can reach the
+   venue — **no credentials or account needed**, it uses the public
+   gateway:
+   ```bash
+   python scripts/polymarket_us_smoke.py
+   ```
+   Exit code 0 = all checks passed. It writes sanitized observed-payload
+   evidence to `reports/evidence/polymarket_us_<UTC>.json` (git-ignored).
+3. Paste that evidence into the Phase 3 completion record, then the
+   adapter's `get_api_status()` can be promoted from
+   `API_DOCUMENTED_UNTESTED` to `VERIFIED` — which is what makes collect
+   mode start recording the venue.
+4. *(Optional, streaming only.)* Create an API key at
+   polymarket.us/developer and put `POLYMARKET_KEY_ID` /
+   `POLYMARKET_SECRET_KEY` in `.env.paper`. Requires the iOS app plus
+   identity verification. Books work without it. Keep credentials local;
+   never paste them into chat or commit them.
 
 **H5 — Decide the data policy**
 Recorded market data is already 17 MB for one day of collection. Decide

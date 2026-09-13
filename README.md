@@ -22,9 +22,16 @@ Consumer apps still require contract-qualified routing:
 | FanDuel contract | CME or OG/CDNA | UNKNOWN until route identified |
 | DraftKings contract | CME, CDNA, or proprietary DKeX/Railbird | UNKNOWN until route identified |
 
-The conditional adapter shortlist is **Polymarket US**, **Gemini**, then
-**IBKR ForecastEx/CME** (especially if the owner already has IBKR). This is now
-at the owner-selection checkpoint; no new adapter has been started.
+The conditional adapter shortlist was **Polymarket US**, **Gemini**, then
+**IBKR ForecastEx/CME**. The owner selected **Polymarket US** on 2026-09-13
+and its adapter is now implemented (Phase 3): public discovery and
+two-sided order books work with **no API key**, and the venue registers as
+INDEPENDENT of Kalshi. It stays `API_DOCUMENTED_UNTESTED` — and collect
+mode skips it — until observed-payload evidence is captured with
+`python scripts/polymarket_us_smoke.py` from a machine that can reach the
+venue. Only three of the researched DCMs expose a usable public API at
+all; Railbird/DKeX, Ludlow/Novig, Rothera, and CDNA have none, and
+reaching them would require scraping, which is prohibited (§13).
 
 Utah sports contracts are **RESTRICTED** across venues; Utah non-sports
 eligibility is **UNKNOWN**. Context-incomplete fees fail closed. Full claim-level
@@ -41,8 +48,13 @@ pytest                                               # run the full safety suite
 # safest first step — inspect provenance/readiness; sends no orders
 python -m prediction_arb.main --status
 
-# collect public Kalshi data (compatibility host until Phase 2 migration)
+# collect public Kalshi data (recommended hosts + legacy fallback;
+# with a Kalshi API key in .env.paper it uses bulk books + WS streaming)
 python -m prediction_arb.main --mode collect
+
+# Polymarket US read-only smoke test + evidence capture (no API key, no
+# account, no orders) — promotes the venue out of API_DOCUMENTED_UNTESTED
+python scripts/polymarket_us_smoke.py
 
 # paper trading (default mode): real data, simulated execution
 python -m prediction_arb.main --mode paper
@@ -67,6 +79,15 @@ interactively; no flag bypasses it. With only one live-capable venue,
 live mode is monitor-only by construction.
 
 ## What works today
+- The Kalshi adapter runs on the recommended `external-api` hosts with the
+  legacy hosts as automatic fallbacks (5xx/transport failover, connect-time
+  probing). Public REST works without credentials; with a key it adds
+  authenticated **bulk order books** (`GET /markets/orderbooks`, ≤100
+  tickers/request) in collect mode, **WebSocket streaming**
+  (`orderbook_delta` with sequenced snapshots/deltas, gap-triggered
+  recovery, reconnect backoff) in paper mode, and startup discovery of the
+  account's rate-limit tier with budget clamping below the published limits.
+  All of it degrades to public polling when no key is configured.
 - The Kalshi parser handles documented fixed-point bid books and synthesizes
   complementary asks. Official hosts, formats, sequencing, limits, and fees
   were documentation-verified on 2026-09-13; a fresh sandbox network smoke

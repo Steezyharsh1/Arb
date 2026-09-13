@@ -62,6 +62,15 @@ class PaperEngine:
                 "paper_starting_cash") or {}).items()
         }
         self._latest_books: dict[tuple[str, str], OrderBook] = {}
+        # (venue, contract_id) pairs actively streamed via the venue's
+        # WebSocket feed (Phase 2). Streaming books arrive as events and
+        # update _latest_books in real time (sub-second staleness) instead
+        # of waiting for the next poll. Without credentials this set stays
+        # empty and everything is polled, exactly as before.
+        self._streaming: set[tuple[str, str]] = set()
+        # Venues whose streaming failed at least once this run — we stop
+        # retrying them (one bounded failure, then polling for the rest).
+        self._streaming_failed_venues: set[str] = set()
         self.execution = PaperExecutionEngine(
             starting_cash=starting,
             fee_calc=fee_calc,
@@ -91,16 +100,24 @@ class PaperEngine:
 
     async def _cycle(self, cycle: int, arb: dict, scan: dict) -> None:
         contracts = await self._discover()
+        await self._reap_vanished(contracts)
         if not contracts:
             self.console.print(f"[cycle {cycle}] no active-venue markets")
             return
 
         approved, match_result = await run_matching(contracts, self.llm)
+        await self._ensure_streaming(contracts)
         books = await self._fetch_books(contracts)
-        self._latest_books = books
+        # Merge: streamed books (updated in real time by WS callbacks) stay
+        # authoritative; polling only fills in what is not streamed.
+        for key, book in books.items():
+            if key not in self._streaming:
+                self._latest_books[key] = book
 
+        # Scan over the MERGED book cache: streamed books are fresher than
+        # the poll batch (they update between cycles).
         ops = await run_arbitrage_scan(
-            contracts, books, approved, self.fee_calc, Mode.PAPER,
+            contracts, self._latest_books, approved, self.fee_calc, Mode.PAPER,
             minimum_net_profit=Decimal(str(arb.get("minimum_net_profit", 2))),
             minimum_net_return=Decimal(str(arb.get("minimum_net_return", 0.005))),
             maximum_settlement_delay_days=Decimal(str(
@@ -151,10 +168,72 @@ class PaperEngine:
                     out.append(m)
         return out
 
+    async def _ensure_streaming(self, contracts: list[NormalizedContract]) -> None:
+        """Open (once per market) WebSocket book subscriptions on adapters
+        that support streaming AND have credentials. Failures fall back to
+        REST polling for that market — streaming is an optimization, never
+        a requirement (UNKNOWN never means yes)."""
+        for c in contracts:
+            key = (c.venue, c.contract_id)
+            if key in self._streaming:
+                continue
+            if c.venue in self._streaming_failed_venues:
+                continue  # already fell back to polling this run
+            adapter = self.adapters.get(c.venue)
+            if adapter is None:
+                continue
+            if not getattr(adapter, "supports_streaming", False):
+                continue
+            if adapter.get_api_status() != APIStatus.VERIFIED:
+                continue
+            if not getattr(adapter, "has_credentials", False):
+                continue  # no key → polling only
+            try:
+                await adapter.subscribe_order_book(
+                    c.market_id,
+                    lambda book, k=key: self._on_streamed_book(k, book))
+                self._streaming.add(key)
+                self.console.print(
+                    f"[cyan]{c.venue}[/cyan]: streaming orderbook for "
+                    f"{c.market_id} via WebSocket (sub-second updates)")
+            except Exception as exc:
+                self._streaming_failed_venues.add(c.venue)
+                log.warning("streaming unavailable for %s/%s (%s: %s); "
+                            "falling back to REST polling for this venue",
+                            c.venue, c.market_id,
+                            type(exc).__name__, exc)
+
+    async def _on_streamed_book(self, key: tuple[str, str],
+                                book: OrderBook) -> None:
+        """WebSocket callback: a fresh book for a streamed market."""
+        self._latest_books[key] = book
+        await self.health.record_success(key[0])
+
+    async def _reap_vanished(self, contracts: list[NormalizedContract]) -> None:
+        """Drop books and release WS subscriptions for markets that fell
+        out of discovery (including when discovery is empty this cycle),
+        so the scan never sees a vanished market's stale book."""
+        live = {(c.venue, c.contract_id) for c in contracts}
+        for key in [k for k in self._latest_books if k not in live]:
+            self._latest_books.pop(key, None)
+        for key in [k for k in self._streaming if k not in live]:
+            adapter = self.adapters.get(key[0])
+            if adapter is not None:
+                try:
+                    await adapter.unsubscribe_order_book(key[1])
+                except Exception as exc:
+                    log.warning("unsubscribe %s/%s failed: %s",
+                                key[0], key[1], exc)
+            self._streaming.discard(key)
+
     async def _fetch_books(self, contracts: list[NormalizedContract]
                            ) -> dict[tuple[str, str], OrderBook]:
+        """Poll books for everything NOT actively streamed."""
         books: dict[tuple[str, str], OrderBook] = {}
         for c in contracts:
+            key = (c.venue, c.contract_id)
+            if key in self._streaming:
+                continue  # WS feed updates _latest_books directly
             adapter = self.adapters.get(c.venue)
             if adapter is None or adapter.get_api_status() != APIStatus.VERIFIED:
                 continue
@@ -164,7 +243,7 @@ class PaperEngine:
                 await self.health.record_error(c.venue, str(exc))
                 continue
             if book is not None:
-                books[(c.venue, c.contract_id)] = book
+                books[key] = book
         return books
 
     async def _maybe_execute(self, op: Opportunity) -> None:

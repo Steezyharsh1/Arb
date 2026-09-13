@@ -37,6 +37,7 @@ from prediction_arb.adapters.base import PredictionMarketAdapter
 from prediction_arb.adapters.forecast_ex import ForecastExAdapter
 from prediction_arb.adapters.kalshi import KalshiAdapter
 from prediction_arb.adapters.moomoo import MoomooAdapter
+from prediction_arb.adapters.polymarket_us import PolymarketUSAdapter
 from prediction_arb.adapters.webull import WebullAdapter
 from prediction_arb.core.config import AppConfig, load_config
 from prediction_arb.core.logging import setup_logging
@@ -69,7 +70,29 @@ def build_adapters(config: AppConfig) -> dict[str, PredictionMarketAdapter]:
             or config.env.get("KALSHI_LIVE_PRIVATE_KEY_PEM"),
             reads_per_sec=float(k.get("rate_limit_reads_per_sec", 8)),
             writes_per_sec=float(k.get("rate_limit_writes_per_sec", 3)),
+            ws_url=k.get("ws_url"),
+            rest_base_fallbacks=list(k.get("rest_base_fallbacks") or []),
+            ws_url_fallbacks=list(k.get("ws_url_fallbacks") or []),
             # The ONLY place order placement is enabled, and only in live:
+            allow_order_placement=(config.mode == Mode.LIVE))
+    if vcfg.get("polymarket_us", {}).get("enabled"):
+        p = vcfg["polymarket_us"]
+        adapters["polymarket_us"] = PolymarketUSAdapter(
+            public_base=p.get("public_base",
+                              "https://gateway.polymarket.us"),
+            authed_base=p.get("authed_base", "https://api.polymarket.us"),
+            # Market data needs NO credentials; a key only unlocks the
+            # WebSocket and portfolio surfaces.
+            key_id=config.env.get("POLYMARKET_KEY_ID")
+            or config.env.get("POLYMARKET_LIVE_KEY_ID"),
+            secret_key=config.env.get("POLYMARKET_SECRET_KEY")
+            or config.env.get("POLYMARKET_LIVE_SECRET_KEY"),
+            reads_per_sec=float(p.get("rate_limit_reads_per_sec", 8)),
+            writes_per_sec=float(p.get("rate_limit_writes_per_sec", 3)),
+            ws_url=p.get("ws_url"),
+            rate_limit_headroom=float(p.get("rate_limit_headroom", 0.8)),
+            # Order placement is not implemented for this venue at all;
+            # the adapter refuses regardless of this flag.
             allow_order_placement=(config.mode == Mode.LIVE))
     if vcfg.get("webull", {}).get("enabled"):
         adapters["webull"] = WebullAdapter()
@@ -95,6 +118,47 @@ async def disconnect_all(adapters: dict[str, PredictionMarketAdapter]) -> None:
             await adapter.disconnect()
         except Exception:
             pass
+
+
+async def maybe_calibrate_kalshi_rate_limits(
+        adapters: dict[str, PredictionMarketAdapter],
+        config: AppConfig) -> None:
+    """Phase 2 (K5): with credentials, discover the account's real
+    rate-limit tier and endpoint costs, and clamp the local read/write
+    budgets below the published budget (headroom from config).
+
+    Best-effort: a failure here NEVER blocks startup — the adapter keeps
+    its configured, documented-conservative budgets. Without credentials
+    (public market data only) there is nothing to calibrate."""
+    kalshi = adapters.get("kalshi")
+    if kalshi is None or not getattr(kalshi, "has_credentials", False):
+        return
+    headroom = float(config.venues.get("kalshi", {}).get(
+        "rate_limit_headroom", 0.8))
+    try:
+        limits = await kalshi.get_rate_limits()
+    except Exception as exc:
+        console.print(f"[yellow]kalshi: tier discovery unavailable "
+                      f"({exc.__class__.__name__}: {exc}); keeping "
+                      f"configured budgets[/yellow]")
+        return
+    try:
+        costs = await kalshi.get_endpoint_costs()
+    except Exception as exc:
+        costs = {}
+        console.print(f"[yellow]kalshi: endpoint-cost discovery unavailable "
+                      f"({exc.__class__.__name__}: {exc})[/yellow]")
+    kalshi.apply_rate_limits(limits, headroom=headroom)
+    console.print(
+        f"[green]kalshi rate limits:[/green] tier={limits.usage_tier} "
+        f"read={limits.read_refill_rate:.0f} tok/s "
+        f"(bucket {limits.read_bucket_capacity:.0f}), "
+        f"write={limits.write_refill_rate:.0f} tok/s "
+        f"(bucket {limits.write_bucket_capacity:.0f}); "
+        f"{len(costs)} non-default endpoint costs; local budgets clamped "
+        f"to read={kalshi.effective_reads_per_sec():.2f} req/s, "
+        f"write={kalshi.effective_writes_per_sec():.2f} req/s "
+        f"(headroom={headroom})")
 
 
 def cmd_status(config: AppConfig) -> int:
@@ -163,6 +227,7 @@ async def async_main(args: argparse.Namespace, config: AppConfig) -> int:
     llm = LLMMatcher(client=None)   # no LLM configured in v1 → conservative
     adapters = build_adapters(config)
     await connect_all(adapters)
+    await maybe_calibrate_kalshi_rate_limits(adapters, config)
 
     try:
         if config.mode == Mode.COLLECT:
