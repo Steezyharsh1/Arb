@@ -133,8 +133,12 @@ async def maybe_calibrate_kalshi_rate_limits(
     kalshi = adapters.get("kalshi")
     if kalshi is None or not getattr(kalshi, "has_credentials", False):
         return
-    headroom = float(config.venues.get("kalshi", {}).get(
-        "rate_limit_headroom", 0.8))
+    # config.venues is the raw venues.yaml document; the per-venue entries
+    # live under its `venues:` key (same unwrap build_adapters does). Reading
+    # the top level silently yielded the hardcoded default and ignored the
+    # operator's configured headroom (defect D14).
+    kalshi_cfg = (config.venues.get("venues", {}) or {}).get("kalshi", {}) or {}
+    headroom = float(kalshi_cfg.get("rate_limit_headroom", 0.8))
     try:
         limits = await kalshi.get_rate_limits()
     except Exception as exc:

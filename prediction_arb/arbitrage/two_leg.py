@@ -29,8 +29,9 @@ from ..core.types import (
     OrderAction,
     OrderBook,
     Side,
+    WalkResult,
 )
-from ..fees.calculator import FeeCalculator
+from ..fees.calculator import FeeCalculator, FillSlice
 from ..normalization.settlement import (
     capital_lockup_days,
     settlement_delay_cost,
@@ -75,6 +76,24 @@ def find_max_profit_quantity(yes_book: OrderBook, no_book: OrderBook,
             ni += 1
             nrem = na[ni][1] if ni < len(na) else Decimal("0")
     return qty
+
+
+def _fill_slices(walk: WalkResult) -> list[FillSlice]:
+    """The levels a walk consumed, as the fill slices a venue bills on.
+
+    Fees are per fill, so the walked levels — not the weighted-average
+    price — are what a venue charges (defect D13). The single-slice
+    fallback only triggers if a walk ever reports filled quantity without
+    levels; ``walk_book`` always records them, so it is a guard, not a
+    path. An empty walk yields no slices, which fails closed downstream.
+    """
+    if walk.levels_consumed:
+        return [FillSlice(price=level.price, quantity=level.quantity)
+                for level in walk.levels_consumed]
+    if walk.filled_quantity > 0:
+        return [FillSlice(price=walk.weighted_average_price,
+                          quantity=walk.filled_quantity)]
+    return []
 
 
 def evaluate_two_leg(
@@ -133,17 +152,19 @@ def evaluate_two_leg(
 
     gross_cost = yes_walk.total_cost + no_walk.total_cost
 
-    # fees — taker on both legs (conservative)
+    # fees — taker on both legs (conservative). Charged PER FILL from the
+    # levels each walk actually consumed: a venue bills each fill of a
+    # walking order separately, rounds each fill, and may cap the order
+    # total. One fee at the walk's weighted-average price is not what the
+    # venue charges (defect D13).
     try:
         fees = (
-            fee_calc.trade_fee(yes_contract.venue,
-                               yes_walk.weighted_average_price, qty,
-                               is_taker=True,
-                               strict_freshness=strict_fee_freshness)
-            + fee_calc.trade_fee(no_contract.venue,
-                                 no_walk.weighted_average_price, qty,
-                                 is_taker=True,
-                                 strict_freshness=strict_fee_freshness)
+            fee_calc.trade_fee_fills(
+                yes_contract.venue, _fill_slices(yes_walk), is_taker=True,
+                strict_freshness=strict_fee_freshness).total
+            + fee_calc.trade_fee_fills(
+                no_contract.venue, _fill_slices(no_walk), is_taker=True,
+                strict_freshness=strict_fee_freshness).total
             + fee_calc.settlement_fee(yes_contract.venue, qty,
                                       strict_freshness=strict_fee_freshness)
             + fee_calc.settlement_fee(no_contract.venue, qty,

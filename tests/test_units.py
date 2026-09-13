@@ -365,3 +365,76 @@ class TestNormalization:
         assert canonical_venue("IBKR ForecastEx") == "ibkr_forecastex"
         assert canonical_venue("Futu") == "moomoo"
         assert canonical_venue("???") is None
+
+
+class TestRateLimitCalibration:
+    """Defect D14: the configured rate-limit headroom must actually be read.
+
+    ``config.venues`` is the raw ``venues.yaml`` document, so per-venue
+    settings live under its ``venues:`` key. Reading the top level silently
+    fell back to the hardcoded default and ignored whatever the operator
+    configured — which only stays harmless while the two values happen to
+    match.
+    """
+
+    class _FakeKalshi:
+        def __init__(self):
+            self.has_credentials = True
+            self.headroom_seen = None
+
+        async def get_rate_limits(self):
+            from prediction_arb.adapters.kalshi import KalshiRateLimits
+            return KalshiRateLimits(
+                usage_tier="basic", read_refill_rate=200.0,
+                read_bucket_capacity=200.0, write_refill_rate=100.0,
+                write_bucket_capacity=100.0)
+
+        async def get_endpoint_costs(self):
+            return {}
+
+        def apply_rate_limits(self, limits, headroom=0.8):
+            self.headroom_seen = headroom
+
+        def effective_reads_per_sec(self):
+            return 8.0
+
+        def effective_writes_per_sec(self):
+            return 3.0
+
+    def _config_with_headroom(self, headroom):
+        import dataclasses
+
+        from prediction_arb.core.config import load_config
+        base = load_config("paper")
+        venues = {"schema_version": 1,
+                  "venues": {"kalshi": {"rate_limit_headroom": headroom}}}
+        return dataclasses.replace(base, venues=venues)
+
+    def test_configured_headroom_is_passed_through(self):
+        import asyncio
+
+        from prediction_arb.main import maybe_calibrate_kalshi_rate_limits
+        adapter = self._FakeKalshi()
+        asyncio.run(maybe_calibrate_kalshi_rate_limits(
+            {"kalshi": adapter}, self._config_with_headroom(0.5)))
+        assert adapter.headroom_seen == 0.5
+
+    def test_missing_headroom_falls_back_to_the_safe_default(self):
+        import asyncio
+        import dataclasses
+
+        from prediction_arb.core.config import load_config
+        from prediction_arb.main import maybe_calibrate_kalshi_rate_limits
+        base = load_config("paper")
+        config = dataclasses.replace(
+            base, venues={"schema_version": 1, "venues": {"kalshi": {}}})
+        adapter = self._FakeKalshi()
+        asyncio.run(maybe_calibrate_kalshi_rate_limits(
+            {"kalshi": adapter}, config))
+        assert adapter.headroom_seen == 0.8
+
+    def test_production_config_headroom_is_below_one(self):
+        """§13: the shipped headroom must leave margin under the tier."""
+        from prediction_arb.core.config import load_config
+        kalshi = load_config("paper").venues["venues"]["kalshi"]
+        assert 0.0 < float(kalshi["rate_limit_headroom"]) < 1.0

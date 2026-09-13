@@ -56,6 +56,11 @@ python -m prediction_arb.main --mode collect
 # account, no orders) — promotes the venue out of API_DOCUMENTED_UNTESTED
 python scripts/polymarket_us_smoke.py
 
+# Kalshi read-only smoke test: both hosts + the orderbook_fp book format
+# (no API key needed; with a key it also checks tier, bulk books and the
+# WebSocket). This is Phase 2's owner-runnable verification step.
+python scripts/kalshi_smoke.py --with-stream 10
+
 # paper trading (default mode): real data, simulated execution
 python -m prediction_arb.main --mode paper
 
@@ -98,7 +103,16 @@ live mode is monitor-only by construction.
   now block rather than becoming estimates, so direct Kalshi opportunities
   remain blocked until contextual metadata is integrated.
 - Mode isolation, kill switch, crash-recovery intents, and all ten mandatory
-  spec cases are covered by the test suite (`pytest`).
+  spec cases are covered by the test suite (`pytest` — 224 passing, all
+  offline).
+- Fees are charged **per fill** from the levels a walk actually consumed,
+  with each venue's documented rounding, and Polymarket US's exact
+  `Θ × C × p × (1-p)` model — banker's rounding per fill plus the
+  cumulative aggressive-order cap that can only reduce a charge. The
+  implementation reproduces all 198 values of the venue's own published
+  100-lot fee table (`tests/test_polymarket_fees.py`). Volume rebates are
+  recorded as evidence and never applied, because they are a weekly payout
+  on prior-month volume rather than a per-trade discount.
 
 ## What is stubbed (honest NotImplementedError, clean interfaces)
 - ForecastEx/IBKR, Webull, and Moomoo adapters. Phase 1 researched additional

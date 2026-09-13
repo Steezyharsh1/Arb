@@ -24,7 +24,7 @@ from ..core.types import (
     OrderResult,
     OrderStatus,
 )
-from ..fees.calculator import FeeCalculator
+from ..fees.calculator import FeeCalculator, FillSlice
 from ..orderbooks.orderbook import walk_buy, walk_sell
 from .executor import ExecutionEngine
 
@@ -96,16 +96,25 @@ class _SimulatedExecutionEngine(ExecutionEngine):
                 filled = sum((l.quantity for l in ok_levels), Decimal("0"))
                 cost = sum((l.quantity * l.price for l in ok_levels),
                            Decimal("0"))
+                filled_levels = ok_levels
             else:
                 filled = walk.filled_quantity
                 cost = walk.total_cost
+                filled_levels = walk.levels_consumed
             if filled <= 0:
                 return self._reject(request, "no executable liquidity at limit")
 
             avg = cost / filled
             try:
-                fees = self.fee_calc.trade_fee(
-                    request.venue, avg, filled, is_taker=True)
+                # Per FILL, from the levels that actually filled — a venue
+                # bills each fill of a walking order separately, rounds each
+                # one, and may cap the order total. One fee priced at `avg`
+                # is not what the venue charges (defect D13).
+                fees = self.fee_calc.trade_fee_fills(
+                    request.venue,
+                    [FillSlice(price=l.price, quantity=l.quantity)
+                     for l in filled_levels],
+                    is_taker=True).total
             except FeeDataError as exc:
                 # Missing contextual fees block even simulated fills: otherwise
                 # paper results would silently overstate executable profit.

@@ -161,7 +161,7 @@ blob; the data-retention policy (H5); confirming SPEC §33 and §68 (`[I]`).
   not begin M2 or M3 adapter work first.
 
 ### M2 — Kalshi refresh (Phase 2, defects D5) · **CODE COMPLETE 2026-09-13 (owner directed Phase 2 to proceed)**
-_Status note (2026-09-13): the owner directed Phase 2 (Kalshi refresh) to proceed. Host migration, 5xx/transport failover, `orderbook_fp` re-verification, `subscribe_order_book` WebSocket streaming with seq-gap recovery, bulk `GET /markets/orderbooks`, and tier-aware rate-limit clamping are implemented with 22 offline tests. Remaining exit items: 24h collect run + streaming verification on the owner's machine with the H2 API key — see Phase 2 in `docs/ROADMAP.md`._
+_Status note (2026-09-13, second pass): host migration, 5xx/transport failover, `orderbook_fp` re-verification, `subscribe_order_book` WebSocket streaming with seq-gap recovery, bulk `GET /markets/orderbooks`, and tier-aware rate-limit clamping are implemented with 22 offline tests. The **verification script the M2 exit criterion asked for now exists**: `scripts/kalshi_smoke.py` (read-only, GET-only, both hosts + book-format invariants, optional key-gated tier/bulk/WebSocket checks, sanitized evidence file, 12 offline tests). It was run in the sandbox and correctly failed with TLS EOF on both bases (K9 stands). **D14 also fixed**: `main.py` read `rate_limit_headroom` from the wrong level of `venues.yaml`, so the configured value was silently ignored. Remaining exit items: the owner runs the smoke script + a 24h collect run with the H2 API key — see Phase 2 in `docs/ROADMAP.md`._
 - Move `config/venues.yaml` to the recommended hosts
   (`https://external-api.kalshi.com/trade-api/v2`,
   `wss://external-api-ws.kalshi.com/trade-api/ws/v2`, demo
@@ -173,7 +173,8 @@ _Status note (2026-09-13): the owner directed Phase 2 (Kalshi refresh) to procee
 - **Exit**: a collect run with no unhandled 5xx; a verification script
   the owner can run to confirm both hosts and the book format.
 
-### M3 — Second venue adapter (Phase 3) · **BLOCKED ON OWNER CHOICE**
+### M3 — Second venue adapter (Phase 3) · **ROUTE SELECTED (Polymarket US) — CODE + FEE MODEL COMPLETE; 3 GATES ARE OWNER-GATED**
+_Status note (2026-09-13, second pass): the owner selected Polymarket US. The adapter, WebSocket, provenance, and per-market tick/min-qty handling are implemented with 41 offline tests. **Exit gate 3 (exact fee context) is now CLOSED**: banker's rounding, the cumulative aggressive-order cap, and uncapped per-fill maker rebates are modelled exactly, verified by reproducing all 198 values of the venue's own published 100-lot fee table, and fees are now charged per fill from the walked levels (D13 fixed). Settlement fees stay `INCOMPLETE — BLOCK` (no settlement fee is published — documented-by-absence is not verification). Gates 1 (Utah/account eligibility, still UNKNOWN per new row R9), 2 (observed-payload evidence — `scripts/polymarket_us_smoke.py`, needs a machine that can reach the venue) and 4 (one real cross-listing, blocked behind D6/D9) all require the owner or Phase 5._
 - Implement only the selected Polymarket US, Gemini, or IBKR route. Begin with
   official reads, payload capture, contract-qualified provenance, dynamic fee
   context, and Utah/account eligibility validation; orders remain paper/sandbox
