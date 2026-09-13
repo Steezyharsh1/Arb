@@ -2,7 +2,7 @@
 
 User jurisdiction: **US-UT (Utah)**, configured in
 `config/settings.yaml: compliance.jurisdiction`. Nothing is hard-coded
-as "legal"; every eligibility entry in `compliance/jurisdiction.py`
+as "legal"; every eligibility entry in `prediction_arb/compliance/jurisdiction.py`
 carries status, effective date, source, and verification date.
 
 ## Current eligibility ledger (verified 2026-08-30)
@@ -22,8 +22,8 @@ toward classifying as sports (conservative).
 ## Hard rules encoded
 
 - UNKNOWN eligibility → `BLOCK LIVE TRADING`; paper/research continues
-  (§35). Implemented in `compliance/eligibility.py`.
-- `compliance/restrictions.py` enumerates prohibited actions (no
+  (§35). Implemented in `prediction_arb/compliance/eligibility.py`.
+- `prediction_arb/compliance/restrictions.py` enumerates prohibited actions (no
   scraping, no geo-bypass, no rate-limit circumvention, no ToS
   violations) and provides `assert_endpoint_is_official` used to keep
   adapters on documented hosts.

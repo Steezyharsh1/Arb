@@ -34,6 +34,6 @@ matcher_version, llm_model_version, llm_prompt_version.
 
 ## Prompt contract
 
-The prompt (in `matching/llm_matcher.py`, PROMPT_VERSION
+The prompt (in `prediction_arb/matching/llm_matcher.py`, PROMPT_VERSION
 `match-prompt-1.0.0`) instructs: when uncertain return false; false
 negatives preferred; no inference beyond provided fields; JSON only.

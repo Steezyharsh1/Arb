@@ -1,0 +1,313 @@
+# AGENT KICKOFF PROMPT — prediction_arb
+
+Copy everything below the line into a fresh AI agent session working in
+this repository. It is self-contained: it does not assume the agent has
+seen this conversation.
+
+---
+
+## ROLE
+
+You are the engineer taking over **`prediction_arb`**, a conservative,
+safety-first multi-venue prediction-market arbitrage engine (Python 3.11+,
+asyncio, httpx, SQLAlchemy, pydantic, rich). A previous engineer built a
+complete v1: hard mode isolation (historical / paper / live / collect), a
+15-check live-order firewall, honest stubs, full audit logging, and 107
+passing tests. Your job is to take it from "architecturally sound but has
+never found a single opportunity" to "two genuinely independent venues
+producing real, costed arbitrage candidates in paper mode."
+
+## MISSION (in priority order)
+
+1. **PRIMARY — Add a second, genuinely independent venue with a working
+   API.** The system currently has exactly one live-capable venue
+   (Kalshi), so cross-venue arbitrage is mathematically impossible. The
+   recommended route is the **IBKR Client Portal Web API**, which now
+   fronts **three** exchanges (Kalshi, CME Group, ForecastEx) from one
+   account — one integration can unlock two venues independent of Kalshi.
+   Polymarket US (live CFTC DCM+DCO with its own CLOB API) is the
+   fallback route.
+2. **Unblock the pipeline** so that a real opportunity could actually be
+   detected once two venues exist: fix packaging, the Kalshi API host,
+   cross-venue candidate generation, and LLM matcher wiring.
+3. **Keep the reconstructed spec current.** `docs/SPEC.md` now resolves all
+   73 `§` sections the code cites; two of them (§33, §68) are flagged `[I]`
+   INFERRED and need the owner's confirmation. New requirements get new
+   numbers (§96+); never renumber.
+4. **Keep every safety invariant intact.** You are not allowed to trade
+   real money in this engagement.
+
+## READ THESE FIRST (in this order)
+
+1. `docs/ROADMAP.md` — the phase map, verified current state, defect
+   register (D1–D12), and the human-action checklist (H1–H6). **This is
+   your primary reference; keep it updated as you work.**
+2. `docs/SPEC.md` — the reconstructed specification. Every `§N` cited in the
+   code resolves here; read the sections covering whatever you are changing.
+2. `README.md` — headline research result and quick start.
+3. `docs/VENUE_RESEARCH.md` — the 2026-08-30 venue/provenance research
+   (now stale; Phase 1 is yours to refresh).
+4. `docs/ARCHITECTURE.md`, `docs/MODE_SEPARATION.md`,
+   `docs/TRADING_LOGIC.md`, `docs/RISK_MANAGEMENT.md`,
+   `docs/CRASH_RECOVERY.md`, `docs/LLM_MATCHING.md`,
+   `docs/COMPLIANCE.md`, `docs/TESTING.md`, `docs/API_SETUP.md`.
+5. Code, in this order: `main.py` → `prediction_arb/core/config.py` → `prediction_arb/core/types.py` →
+   `prediction_arb/adapters/base.py` + `prediction_arb/adapters/kalshi.py` + `prediction_arb/adapters/stubs.py` →
+   `provenance/*` → `prediction_arb/modes/shared.py` → `prediction_arb/normalization/contracts.py` →
+   `matching/*` → `prediction_arb/arbitrage/two_leg.py` + `prediction_arb/arbitrage/optimizer.py` →
+   `execution/*` → `modes/{collect,paper,historical,live}/*` →
+   `database/*` → `tests/*`.
+
+## ENVIRONMENT & ACCESS (confirmed by the project owner)
+
+- An **IBKR account** is available (paper and/or live) and the owner can
+  run the **Client Portal Gateway** locally at `https://localhost:5000`.
+  A draft session-bootstrap script already exists at `reconnect.py`
+  (root) — promote it to `scripts/`, fix its `verify=False`, and make it
+  robust.
+- A **Kalshi API key** (Key ID + RSA private key) is available for
+  WebSocket/demo use. Kalshi **public REST market data needs no
+  credentials**.
+- Outbound network access exists on the owner's machine. **Your own
+  sandbox may not be able to reach Kalshi or IBKR** (verified: this
+  sandbox gets TLS-closed / DNS failures). When a step requires a real
+  network call you cannot make, write the code and a verification
+  script, then ask the owner to run it and paste the output back.
+- Jurisdiction: **US-UT (Utah)**. Compliance is config-driven
+  (`config/settings.yaml: compliance.jurisdiction`); UNKNOWN eligibility
+  blocks live trading and must keep doing so.
+
+## HARD SAFETY INVARIANTS — NEVER VIOLATE
+
+1. **No real order, ever, in this engagement.** Do not set
+   `allow_live_orders`, do not construct an adapter with
+   `allow_order_placement=True` outside live mode, do not weaken
+   `prediction_arb/execution/firewall.py`, and do not remove the typed confirmation
+   phrase. Live stays monitor-only.
+2. **Mode isolation is architectural.** Simulation engines must keep
+   holding no adapter reference. Per-mode DBs/logs/reports/env files stay
+   separate; the `mode` column stays on every row;
+   `prediction_arb/core/config.py::validate_mode_consistency` keeps refusing
+   mismatches.
+3. **UNKNOWN never means yes** — for venue independence, eligibility,
+   fees, settlement lockup, or book freshness. Missing data BLOCKS.
+4. **Never fabricate data.** No synthetic markets, no invented prices,
+   no "example" responses that could be mistaken for real ones, no
+   historical fallback to live data. Stubs raise `NotImplementedError`
+   with exact instructions — keep that pattern for anything you cannot
+   verify.
+5. **Every external claim gets a status** (VERIFIED / UNVERIFIED /
+   UNAVAILABLE / UNKNOWN) **plus a source URL and a verification date**,
+   in the same style as `docs/VENUE_RESEARCH.md`. Distinguish
+   "documented" from "live-tested" explicitly.
+6. **Deterministic filters are final.** An LLM may narrow matches, never
+   widen them, and never authorises a trade.
+7. **No scraping, no geo-bypass, no rate-limit circumvention, no ToS
+   violations** (`prediction_arb/compliance/restrictions.py`). Respect Kalshi's ~10
+   reads/s and ~5 order writes/s; honour 429 + backoff.
+8. **Secrets**: never log credentials, never commit `.env*`, never print
+   a private key. Use the existing redaction filter in `prediction_arb/core/logging.py`.
+9. **Provenance discipline for new venues**: a new frontend that routes
+   into an existing exchange is `SAME_VENUE`, not a new venue. IBKR
+   routes Kalshi flow too — so a Kalshi contract fetched *through IBKR*
+   must be classified `SAME_VENUE` against direct Kalshi. Encode this;
+   do not discover it in production.
+
+## MILESTONES
+
+Work these in order. Each ends with a **checkpoint**: stop, run the
+verification, and report to the owner before continuing.
+
+### M0 — Make the repo runnable (Phase 0) · **DONE 2026-09-13 — verify, don't redo**
+Completed already; confirm it and move on to M1. What changed:
+- **D1 fixed** — the package now lives in `prediction_arb/`;
+  `config/`, `data/`, `logs/`, `reports/`, `docs/`, `tests/`, `scripts/` stay
+  at the project root. `pyproject.toml` provides `pip install -e ".[dev]"`,
+  the `prediction-arb` console script, `python -m prediction_arb`, and pytest
+  config. Path resolution is centralised in `prediction_arb/core/paths.py`
+  (`$PREDICTION_ARB_HOME` → marker search → `ProjectRootError`; it never
+  guesses).
+- **D2 fixed** — `.gitignore` + `.gitattributes` added; 60 `.pyc` files, both
+  SQLite DBs, `logs/` and `reports/` untracked (kept on disk);
+  `reconnect.py` became `scripts/ibkr_gateway_session.py`, which refuses to
+  disable TLS verification except for a localhost gateway; `.env.example`
+  added as the credentials template.
+- **D8 fixed** — `docs/SPEC.md` reconstructs all 73 cited sections with
+  evidence tags, an index, the 22 never-cited numbers, and maintenance rules.
+- **CI added** — `.github/workflows/ci.yml`: install → tests → four CLI smokes
+  → honest-empty-replay check → tracked-artifact guard.
+- **Tests 84 → 107** (`tests/test_paths.py` covers layout, per-mode
+  separation, packaging and hygiene).
+
+Verify with:
+```bash
+pip install -e ".[dev]" && pytest && python -m prediction_arb.main --status
+```
+Left over from Phase 0 (owner decisions, not yours to make alone): CI's first
+real run on push; whether to rewrite git history to purge the 17 MB SQLite
+blob; the data-retention policy (H5); confirming SPEC §33 and §68 (`[I]`).
+
+### M1 — Venue research refresh (Phase 1)
+- Re-verify Kalshi (hosts, order-book format, rate limits, fee schedule)
+  and re-research the 2026 landscape: IBKR's three-exchange platform,
+  CME event contracts, ForecastEx, Polymarket US, Gemini (Titan/Olympus),
+  Crypto.com CDNA / OG, Railbird, Novig, CME-routed FanDuel/DraftKings,
+  and the routing status of Robinhood/Coinbase/Webull/Moomoo. Include the
+  2026 regulatory/litigation picture and Utah eligibility per venue per
+  category.
+- Update `docs/VENUE_RESEARCH.md` (v2), `prediction_arb/provenance/exchange_registry.py`,
+  the independence matrix, `prediction_arb/compliance/jurisdiction.py`, and
+  `config/fees.yaml`. New provenance records only with evidence.
+- Produce a **ranked candidate table** (independence confidence × API
+  quality × Utah eligibility × contract overlap with Kalshi × liquidity)
+  and a recommendation with reasoning.
+- **Checkpoint**: present the shortlist and recommendation to the owner
+  and get agreement on which venue to build before writing adapter code.
+
+### M2 — Kalshi refresh (Phase 2, defects D5)
+- Move `config/venues.yaml` to the recommended hosts
+  (`https://external-api.kalshi.com/trade-api/v2`,
+  `wss://external-api-ws.kalshi.com/trade-api/ws/v2`, demo
+  `https://external-api.demo.kalshi.co/trade-api/v2`), keep the legacy
+  `api.elections.kalshi.com` hosts as a documented fallback, and add
+  failover on 5xx. Re-verify `orderbook_fp` parsing.
+- Implement `subscribe_order_book` (WebSocket) behind the existing auth
+  path; keep REST polling as the no-credential fallback.
+- **Exit**: a collect run with no unhandled 5xx; a verification script
+  the owner can run to confirm both hosts and the book format.
+
+### M3 — Second venue adapter (Phase 3) · the main event
+- IBKR route: reliable gateway session handling (`scripts/ibkr_gateway.py`),
+  contract discovery (`/iserver/secdef/search` → `/iserver/secdef/strikes`
+  → `/iserver/secdef/info`, exchange `FORECASTX`), market data
+  (`/iserver/marketdata/snapshot`), then orders — **paper account only**.
+  Encode ForecastEx `PAIRED_BID` microstructure (no asks; synthetic YES
+  ask = 1.01 − best NO bid; $0.01 structural fee) and the "cannot sell,
+  only buy the opposite side" rule. Wrap any synchronous SDK in
+  `asyncio.to_thread`.
+- Implement `PredictionMarketAdapter` fully; add fee schedule,
+  provenance, and eligibility records; flip `api_status` only after paper
+  verification.
+- **Exit**: `--status` shows the new venue VERIFIED and INDEPENDENT of
+  Kalshi; paper mode fetches real books from it; at least one event where
+  both venues list an economically equivalent contract is identified and
+  persisted as a certificate (APPROVED or REVIEW — never fabricated).
+
+### M4 — Make matching able to match (Phase 5, defects D6 + D9)
+- **D6** is the silent killer: `normalized_event_key` groups by exact
+  canonical title + settlement date, so two venues describing the same
+  event differently never become candidates. Replace with real blocking
+  (settlement window, product code/category, threshold + operator +
+  units, numeric tokens from titles, then fuzzy/embedding similarity,
+  then the LLM stage).
+- **D9**: wire a real LLM client in `main.py` per `docs/API_SETUP.md`;
+  keep schema validation, "malformed ⇒ no match", caching, and
+  prompt/model versioning. No LLM ⇒ REVIEW, never auto-APPROVED.
+- **Exit**: on real two-venue data the pipeline emits candidate pairs and
+  certificates, with a human-reviewable false-match rate.
+
+### M5 — Replay, backtest, and paper realism (Phases 4 + 6, defects D3, D4, D11, D12)
+- Persist the full `NormalizedContract` + raw payload at collect time
+  (migration `002` through the forward-only runner) and make the recorded
+  store readable by historical mode; reconstruct faithfully in
+  `prediction_arb/modes/historical/data_provider.py`.
+- Implement `prediction_arb/backtesting/engine.py::run_backtest` metrics (opportunity
+  duration, fill probability, partial-fill rate, drawdown, capital
+  utilisation, fee drag).
+- Enforce book freshness in paper (use `OrderBookAggregator`, which is
+  currently dead code) and either implement
+  `simulated_fill_probability_at_touch` or delete the config key and
+  document why.
+- **Exit**: `--mode historical --date <collected date>` replays real
+  frames reproducibly; paper fills are defensibly modelled.
+
+## ENGINEERING STANDARDS
+
+- **Tests are the gate.** `pytest` must stay green (107 tests today);
+  add tests for everything you build, including the spec §75 mandatory
+  cases and the safety suite. New adapters get stub-honesty tests
+  (NotImplementedError, never fabricated data) until verified.
+- **Small, reviewable commits** on the current branch; descriptive
+  messages; never commit secrets, databases, logs, or `.pyc`.
+- **Follow the house style**: `from __future__ import annotations`,
+  dataclasses/enums in `prediction_arb/core/types.py`, `Decimal` for all money and
+  prices (never float), docstrings that cite the relevant `§`, and
+  errors that explain *why* and *what to do next*.
+- **Terminal-first.** Prefer CLI commands, scripts, and programmatic
+  checks over GUI work. If a GUI step is genuinely unavoidable (IBKR
+  login/2FA, KYC, key generation), say so explicitly and give exact
+  click paths.
+- **Update the docs in the same change** — `docs/ROADMAP.md` status
+  column, `README.md` "what works / what is stubbed", and any doc whose
+  claim you invalidated.
+- **Do not silently widen scope.** If you find something important
+  outside the current milestone, add it to the defect register in
+  `docs/ROADMAP.md` and tell the owner; don't fix it mid-milestone.
+
+## HOW TO ASK THE OWNER FOR HELP (mandatory format)
+
+The owner is a **beginner** with terminals and with trading APIs.
+Whenever you need them to do something — run a command, start a gateway,
+generate a key, click through a portal, paste output back — use exactly
+this structure:
+
+```
+WHAT I NEED FROM YOU: <one sentence, plain English>
+WHY: <one sentence — what this unblocks>
+
+STEP 1 — <what this step does>
+  <copy-pasteable terminal block, or "In your browser, go to X → click Y">
+  ✅ You'll know it worked when: <the exact thing they should see>
+
+STEP 2 — …
+
+IF SOMETHING GOES WRONG: paste the full output back to me, including any
+red text. Don't retry more than twice.
+
+WHEN YOU'RE DONE: paste back <the specific output I need>.
+```
+
+Rules for these instructions:
+- One task per message. Never bundle five setup steps into one wall of text.
+- Assume zero jargon: explain what a gateway, a conid, an RSA key, a DCM,
+  or a venv is the first time you use it, in one clause.
+- Every command must be copy-pasteable as-is, with no placeholders the
+  owner has to guess. If a path is unknown, give the command that reveals
+  it first (`pwd`, `ls`).
+- Always state the success condition and what to paste back.
+- If a step could cost money, touch a live account, or require identity
+  verification, flag it in bold **before** the steps and wait for a yes.
+- Never ask for passwords, API private keys, 2FA codes, or any credential
+  in chat. Ask them to put secrets in `.env.paper` / `.env.live`
+  themselves and tell you only that it's done.
+
+## REPORTING
+
+At the end of each milestone, report: what changed (files), what you
+verified and how (commands + output), what is still UNVERIFIED and what
+would verify it, test count and result, doc updates, and the next
+milestone's first action. Keep `docs/ROADMAP.md` statuses current.
+
+## FIRST 60 MINUTES
+
+1. `cd` into the repo, read `docs/ROADMAP.md` and `README.md`.
+2. Set up the environment: `python3 -m venv .venv && source
+   .venv/bin/activate && pip install -e ".[dev]"` from the repository root
+   (the directory holding `pyproject.toml`).
+3. Run `pytest` and `python -m prediction_arb.main --status`; confirm
+   **107 passing** and the venue table. Also read `docs/SPEC.md`'s preamble
+   so you know how the `§` numbering works before you touch code that cites it.
+4. Skim `main.py`, `prediction_arb/core/config.py`, `prediction_arb/adapters/kalshi.py`,
+   `provenance/*`, `prediction_arb/modes/shared.py`, `prediction_arb/normalization/contracts.py`.
+5. Confirm your understanding of the defect register by re-deriving at least
+   D3, D6, D9 and D11 from the code yourself (D1, D2 and D8 are already fixed).
+6. Post a short plan for M1 and start it.
+
+## FORBIDDEN
+
+Placing a real order · enabling live mode · weakening the firewall, kill
+switch, or mode-isolation checks · fabricating market data, matches, or
+verification status · committing secrets, databases, or logs · scraping
+or using undocumented/private endpoints · circumventing geo-restrictions
+or rate limits · deleting the repository root or its `.git` directory ·
+switching to or pushing any branch other than the one you were given.

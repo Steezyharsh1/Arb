@@ -1,7 +1,8 @@
 # TESTING
 
 ```bash
-python -m pytest tests/          # 84 tests
+pytest                        # 107 tests (configured in pyproject.toml)
+python -m pytest tests/       # equivalent
 ```
 
 ## Coverage map
@@ -18,6 +19,13 @@ python -m pytest tests/          # 84 tests
 9. T+0 vs T+3 settlement delay costed (unknown → None, blocking) ✅
 10. paper config + LiveExecutionEngine → startup refused ✅
     (also verified against the real CLI)
+
+**Layout & packaging** (`test_paths.py`, Phase 0): project-root discovery
+(marker search, `$PREDICTION_ARB_HOME` override, loud failure instead of
+guessing), per-mode `data/`/`logs/`/`reports/` separation, global (not
+per-mode) kill-switch file, no runtime artifacts inside the importable
+package, `pyproject.toml` console script / dependency wiring, `.gitignore`
+coverage, and a credentials-free `.env.example`.
 
 **Unit** (`test_units.py`): book walking, staleness, Kalshi
 `orderbook_fp` parsing (ask synthesis from NO bids), quadratic/fixed
@@ -46,7 +54,7 @@ mock LLM (approve) and without one (REVIEW only).
 
 ## Integration testing done live (no credentials)
 
-- `--status`, `--mode collect --cycles 1` (500 real Kalshi markets, 40
+- `--status`, `--readiness`, `--mode collect --cycles 1` (500 real Kalshi markets, 40
   books recorded), `--mode paper --cycles 1`, `--mode historical`
   (fails safely with no data), kill-switch blocking live startup, and
   the paper+LiveExecutionEngine startup refusal.

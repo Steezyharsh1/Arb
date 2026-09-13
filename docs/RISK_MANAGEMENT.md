@@ -10,7 +10,7 @@ existing positions remain monitored.
 ## Partial-fill bounds (§32)
 
 max_unhedged_seconds / contracts / dollars, max_emergency_loss.
-Recovery procedure (execution/partial_fills.py):
+Recovery procedure (prediction_arb/execution/partial_fills.py):
 1. Chase the hedge leg with bounded price concession (total concession
    cost capped by max_emergency_loss).
 2. If chase fails, unwind the filled leg into its bids.
@@ -19,7 +19,7 @@ Recovery procedure (execution/partial_fills.py):
 
 ## Kill switch (§71)
 
-File-based (`data/KILL_SWITCH`), engaged by `python main.py --kill` or
+File-based (`data/KILL_SWITCH`), engaged by `python -m prediction_arb.main --kill` or
 programmatically (EmergencyManager). Blocks the firewall, blocks live
 startup, blocks new paper trades, and persists across restarts until
 `--unkill`.

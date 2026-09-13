@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: tests + CLI smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install (editable, with dev extras)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Test suite (units, safety, failure modes, spec §75 cases)
+        run: pytest
+
+      - name: CLI smoke — venue status (no network, no credentials)
+        run: python -m prediction_arb.main --status
+
+      - name: CLI smoke — `python -m prediction_arb` alias
+        run: python -m prediction_arb --status
+
+      - name: CLI smoke — installed console script
+        run: prediction-arb --status
+
+      # Historical mode must say "no data" honestly rather than fabricate
+      # history or fall back to live data (§55, §92).
+      - name: CLI smoke — empty historical replay stays honest
+        run: |
+          python -m prediction_arb.main --mode historical --date 2020-01-01 \
+            | tee /tmp/historical.out
+          grep -q "No recorded historical order-book data" /tmp/historical.out
+
+      - name: Repo hygiene — no build artifacts, databases or env files tracked
+        run: |
+          bad=$(git ls-files \
+                  | grep -E '(^|/)__pycache__/|\.pyc$|\.sqlite3$|(^|/)data/|(^|/)logs/|(^|/)reports/' || true)
+          # .env.example is a template and is deliberately tracked; any other
+          # .env* file is a secret and must never be.
+          bad="$bad$(git ls-files | grep -E '^\.env\.' | grep -v '^\.env\.example$' || true)"
+          if [ -n "$bad" ]; then
+            echo "::error::Runtime artifacts or secrets are tracked in git:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "OK: no artifacts, databases, logs or env files are tracked."
