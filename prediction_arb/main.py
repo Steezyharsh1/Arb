@@ -45,7 +45,10 @@ from prediction_arb.core.logging import setup_logging
 from prediction_arb.core.types import Mode, ModeIsolationError
 from prediction_arb.database.repository import Repository
 from prediction_arb.fees.venue_fees import load_fee_calculator
-from prediction_arb.matching.llm_matcher import LLMMatcher
+from prediction_arb.matching.llm_client import (
+    LLMConfigError,
+    build_llm_matcher,
+)
 from prediction_arb.monitoring.dashboard import (
     print_mode_banner,
     print_startup_summary,
@@ -229,7 +232,30 @@ async def async_main(args: argparse.Namespace, config: AppConfig) -> int:
     fee_calc = load_fee_calculator(
         config.fees,
         int(config.settings.get("fees", {}).get("max_schedule_age_days", 30)))
-    llm = LLMMatcher(client=None)   # no LLM configured in v1 → conservative
+    # D9: the LLM matcher is wired from the mode env file (§97). With no
+    # LLM configured this is still the conservative default — every
+    # ambiguous pair ends in REVIEW and nothing is auto-APPROVED (§19).
+    # Partial configuration refuses startup: a half-configured matcher
+    # must never be mistaken for a working one.
+    try:
+        llm, llm_model = build_llm_matcher(
+            config.env,
+            max_comparisons_per_cycle=int(config.settings.get(
+                "llm", {}).get("max_comparisons_per_cycle", 200)))
+    except LLMConfigError as exc:
+        console.print(f"[red]STARTUP REFUSED: {exc}[/red]")
+        return 2
+    if llm.client is None:
+        console.print(
+            "[yellow]LLM matching: not configured — every ambiguous pair "
+            "stays REVIEW and no cross-venue pair will be evaluated for "
+            "arbitrage. See docs/API_SETUP.md to enable it.[/yellow]")
+    else:
+        console.print(
+            f"[green]LLM matching enabled[/green]: model={llm_model} "
+            f"endpoint={config.env.get('LLM_API_BASE', '').strip()} "
+            f"(the key is never logged); per-cycle comparison budget="
+            f"{llm.max_comparisons_per_cycle}")
     adapters = build_adapters(config)
     await connect_all(adapters)
     await maybe_calibrate_kalshi_rate_limits(adapters, config)

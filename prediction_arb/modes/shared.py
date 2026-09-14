@@ -41,6 +41,9 @@ async def run_matching(contracts: list[NormalizedContract],
     contracts = [with_normalized_keys(c) for c in contracts]
     groups = group_by_event(contracts)
     result.events_grouped = len(groups)
+    # One budget window per scan cycle (§97): a cycle can spend at most
+    # `max_comparisons_per_cycle` NEW LLM calls; excess pairs stay REVIEW.
+    llm.begin_cycle()
 
     approved: dict[tuple[str, str], tuple[str, float]] = {}
     for _event, group in groups.items():

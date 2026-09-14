@@ -8,9 +8,17 @@ The LLM is UNTRUSTED input:
   * results are cached by (contract_version_a, contract_version_b) and
     only re-run when contract rules change (§87).
 
-v1 ships without a configured LLM endpoint. When no client is injected,
-the matcher returns match=False with reason NO_LLM_CONFIGURED — the
-conservative default (false negatives preferred, §19).
+When no client is injected, the matcher returns an invalid result with
+reason NO_LLM_CONFIGURED — the conservative default (false negatives
+preferred, §19): the pair goes to human REVIEW, never auto-APPROVED.
+A real client is wired from the mode env file via
+`matching/llm_client.py` (§97, docs/API_SETUP.md).
+
+A per-cycle comparison budget (`max_comparisons_per_cycle`, reset by
+`begin_cycle()` once per scan cycle) bounds how many NEW LLM calls a
+single cycle can spend; pairs beyond the budget stay un-cached and end
+in REVIEW rather than running an unbounded bill. Cache hits never
+consume budget.
 """
 from __future__ import annotations
 
@@ -133,10 +141,19 @@ def validate_llm_output(raw: str) -> LLMMatchResult:
 
 class LLMMatcher:
     def __init__(self, client: Optional[LLMClient] = None,
-                 model_version: str = "none"):
+                 model_version: str = "none",
+                 max_comparisons_per_cycle: Optional[int] = None):
         self.client = client
         self.model_version = model_version
+        self.max_comparisons_per_cycle = max_comparisons_per_cycle
+        self._cycle_comparisons = 0
         self._cache: dict[tuple[str, str], LLMMatchResult] = {}
+
+    def begin_cycle(self) -> None:
+        """Reset the per-cycle comparison budget. `run_matching` calls
+        this once per scan cycle so paper/historical cycles cannot spend
+        an unbounded number of LLM calls; cache hits never count."""
+        self._cycle_comparisons = 0
 
     def _cache_key(self, a: NormalizedContract,
                    b: NormalizedContract) -> tuple[str, str]:
@@ -156,8 +173,23 @@ class LLMMatcher:
                 reasoning_summary="",
                 model_version="none", valid=False,
                 error="NO_LLM_CONFIGURED: conservative default is no-match. "
-                      "Configure an LLM client to enable semantic matching.")
+                      "Configure an LLM client to enable semantic matching "
+                      "(LLM_API_BASE / LLM_API_KEY / LLM_MODEL in the mode "
+                      "env file — see docs/API_SETUP.md).")
+        elif (self.max_comparisons_per_cycle is not None
+                and self._cycle_comparisons >= self.max_comparisons_per_cycle):
+            # Fail closed, and deliberately do NOT cache: a later cycle
+            # with budget available must be able to look at this pair.
+            return LLMMatchResult(
+                match=False, confidence=0.0, reasoning_summary="",
+                model_version=self.model_version, valid=False,
+                error=f"LLM comparison budget exhausted for this cycle "
+                      f"({self.max_comparisons_per_cycle}); pair left for "
+                      f"human REVIEW (raise llm."
+                      f"max_comparisons_per_cycle in settings.yaml if this "
+                      f"is expected).")
         else:
+            self._cycle_comparisons += 1
             prompt = PROMPT_TEMPLATE.format(
                 contract_a=json.dumps(_contract_payload(a), indent=2),
                 contract_b=json.dumps(_contract_payload(b), indent=2))

@@ -40,6 +40,20 @@ Results cached by (venue:contract_id:contract_version) pair key;
 re-run only when a contract's rules change. Certificates record
 matcher_version, llm_model_version, llm_prompt_version.
 
+## Client wiring & budget (§97, added 2026-09-14)
+
+`matching/llm_client.py` builds the matcher from the mode env file —
+`LLM_API_BASE` / `LLM_API_KEY` / `LLM_MODEL` (any OpenAI-compatible
+`/chat/completions` endpoint; `LLM_TIMEOUT_SECONDS` optional). It is
+transport only: verdict logic, schema validation and caching stay here.
+No configuration ⇒ conservative no-LLM default. Partial configuration
+refuses startup. A per-cycle comparison budget
+(`llm.max_comparisons_per_cycle`, default 200, reset by `begin_cycle()`
+once per `run_matching` call) bounds new LLM calls per scan cycle; pairs
+beyond the budget fail closed to REVIEW and are deliberately not cached,
+so a later cycle can still consider them. Cache hits never consume
+budget.
+
 ## Prompt contract
 
 The prompt (in `prediction_arb/matching/llm_matcher.py`, PROMPT_VERSION

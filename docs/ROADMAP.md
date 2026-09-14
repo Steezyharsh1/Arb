@@ -24,7 +24,7 @@ Status tags used throughout:
 
 | Check | Result |
 |---|---|
-| `pytest` | **288 passed** (~25s), re-run 2026-09-14 after the D6 fix: the 264 from 2026-09-13 (Phase 0's 107 + 11 Phase 1 fee/provenance/compliance + 26 Phase 2 + 41 Phase 3 + 24 exact-fee-model + 12 smoke-script/D14 + 3 per-fill accuracy + 25 Phase 4 + 14 Phase 6) + **24 candidate-generation tests** (`tests/test_candidate_generation.py`: blocking families, grouping, end-to-end candidate→certificate→opportunity — mutation-verified). All offline: mock HTTP transports and a scripted local WebSocket server |
+| `pytest` | **311 passed** (~26s), re-run 2026-09-14 after the Phase 5 pass: the 264 from 2026-09-13 (Phase 0's 107 + 11 Phase 1 + 26 Phase 2 + 41 Phase 3 + 24 exact-fee-model + 12 smoke-script/D14 + 3 per-fill accuracy + 25 Phase 4 + 14 Phase 6) + **24 candidate-generation tests** (`tests/test_candidate_generation.py`: blocking families, grouping, D15 provenance gate, end-to-end candidate→certificate→opportunity — mutation-verified) + **20 LLM-client tests** (`tests/test_llm_client.py`: config paths, transport, budget — mutation-verified). All offline: mock HTTP transports and a scripted local WebSocket server |
 | `python -m prediction_arb.main --status` | Works: kalshi=VERIFIED, polymarket_us=API_DOCUMENTED_UNTESTED, forecast_ex=API_DOCUMENTED_UNTESTED; independence matrix correct (kalshi↔polymarket_us = INDEPENDENT) |
 | `python -m prediction_arb.main --readiness` | 0 snapshots recorded in a fresh clone; **0 opportunities ever analyzed**; live NOT RECOMMENDED. (The 13,801-snapshot figure below was from the previous engineer's working copy — the DB is git-ignored, so a fresh clone starts empty.) |
 | Live-capable venues | **1** (Kalshi). Polymarket US is implemented and INDEPENDENT, but stays API_DOCUMENTED_UNTESTED until the owner captures observed-payload evidence (P7) |
@@ -38,10 +38,13 @@ Status tags used throughout:
 **Bottom line:** the safety architecture and Phase 1 fail-closed research
 registries are tested. The opportunity pipeline still has never seen real
 two-venue data (neither venue is reachable from the agent sandbox), but the
-structural blockers inside the code are closing: D6 candidate generation now
-produces cross-venue candidates from differently-phrased titles (verified
-offline end-to-end), D9 matcher wiring is the remaining in-code blocker,
-and venue reachability/eligibility remain owner-gated.
+in-code blockers are now closed: D6 candidate generation produces
+cross-venue candidates from differently-phrased titles, D9 wires a real
+LLM matcher from the env file (no LLM ⇒ REVIEW, never auto-approve), and
+D15 keeps same-venue pairs out of APPROVED. What remains for the first
+real opportunity is owner-gated: venue reachability evidence (smoke
+scripts), the Kalshi key (H2) for collected data, and an LLM key (H7)
+for approval semantics.
 
 ---
 
@@ -54,7 +57,7 @@ and venue reachability/eligibility remain owner-gated.
 | 2 | Kalshi adapter refresh + streaming | PARTIAL — code complete + verification script delivered 2026-09-13 (D5, D14 fixed); **owner run pending** | 24h collect run with ≥99% cycle success; WebSocket streaming in paper |
 | 3 | **Second independent venue adapter** | PARTIAL — adapter + exact fee model complete 2026-09-13 (gate 3 CLOSED); **gates 1, 2, 4 are owner-gated** | Real books from the owner-selected venue proven INDEPENDENT of Kalshi, in paper mode |
 | 4 | Data lineage, replay, backtest metrics | CODE COMPLETE 2026-09-13 (D3, D4 fixed); **exit needs owner's real collected data** | `--mode historical --date …` replays recorded data and reports metrics |
-| 5 | Matching that can actually match | PARTIAL — D6 fixed 2026-09-14 (blocking, §96); **D9 (LLM wiring) open**; real-data exit owner-gated | APPROVED certificates produced from real cross-venue data |
+| 5 | Matching that can actually match | CODE COMPLETE 2026-09-14 (D6 blocking §96, D9 LLM wiring §97, D15 provenance gate); **exit needs owner's real two-venue data + LLM key (H7)** | APPROVED certificates produced from real cross-venue data |
 | 6 | Paper validation & realism | PARTIAL — D11, D12 fixed 2026-09-13; **owner's multi-week run pending** | Multi-week paper run with realistic fill/staleness modelling |
 | 7 | Compliance & legal re-verification | PARTIAL — 2026-09-13 Utah/CFTC snapshot complete | Owner/legal review and venue/category eligibility evidence before live |
 | 8 | Live readiness & first live path | NOT STARTED (HUMAN) | IBKR paper + Kalshi demo drills, then a capped live trade |
@@ -569,7 +572,7 @@ acceptance run.
 
 ---
 
-### Phase 5 — Matching that can actually match  ·  PARTIAL — D6 FIXED 2026-09-14; D9 (LLM wiring) next
+### Phase 5 — Matching that can actually match  ·  CODE COMPLETE 2026-09-14 (D6, D9, D15 fixed; exit needs owner's real two-venue data + LLM key)
 
 - ~~D6: `prediction_arb/normalization/contracts.py::normalized_event_key` groups by
   *exact canonical title + settlement date*. Two venues phrase the same
@@ -593,21 +596,45 @@ acceptance run.
   separate stage: content-word blocking is the deterministic fuzzy net
   here, and no embedding provider has been verified — the semantic stage
   is the (schema-validated) LLM, per §89.
-- D9: no LLM client is configured, so every ambiguous pair ends in
+- ~~D9: no LLM client is configured, so every ambiguous pair ends in
   REVIEW and `search_event` (which requires APPROVED certificates)
-  evaluates nothing. Wire a real client in `main.py` per
-  `docs/API_SETUP.md`, keep schema validation and
-  "malformed ⇒ no match", and add caching + prompt/model versioning.
+  evaluates nothing.~~ **FIXED IN CODE 2026-09-14.** `main.py` now builds
+  the matcher from the mode env file via `matching/llm_client.py` (§97):
+  any OpenAI-compatible `/chat/completions` endpoint
+  (`LLM_API_BASE` / `LLM_API_KEY` / `LLM_MODEL`, optional
+  `LLM_TIMEOUT_SECONDS`; docs/API_SETUP.md). The client is transport
+  only — schema validation (§88), "malformed ⇒ no match", outage ⇒
+  no-match, in-memory caching (§87) and prompt/model versioning on
+  certificates (§20) are unchanged, and no client is still the
+  conservative default (no LLM ⇒ REVIEW, never auto-APPROVED). Partial
+  configuration refuses startup (a half-configured matcher must never be
+  mistaken for a working one). Added a fail-closed per-cycle comparison
+  budget (`llm.max_comparisons_per_cycle`, default 200): pairs beyond it
+  stay REVIEW and are deliberately not cached; cache hits never consume
+  budget; `run_matching` resets the window each cycle. 20 tests in
+  `tests/test_llm_client.py`, **mutation-verified** (removing the
+  `begin_cycle()` reset fails the budget-cycle test; silently ignoring
+  partial config fails the refusal tests). The key is never logged
+  (verified: no key material in any artifact after live wiring checks).
+- ~~**D15**: `validate_match` could stamp a SAME_VENUE pair APPROVED~~
+  **FOUND + FIXED 2026-09-14** — see the defect register: only a
+  proven-INDEPENDENT relationship is APPROVED; everything else is REVIEW
+  (§33).
 - Keep Principle B intact: deterministic REJECT is final; the LLM can
   never authorise a trade.
 
 Exit: on real two-venue data the pipeline emits candidate pairs,
 certificates with statuses, and a measurable false-match rate reviewed
-by a human. The pipeline side is now exercised end-to-end offline
+by a human. The pipeline side is exercised end-to-end offline
 (`tests/test_candidate_generation.py::TestPipelineEmitsCandidates`:
 differently-phrased cross-venue pair → candidate → deterministic pass →
-APPROVED certificate → evaluated opportunity); the exit criterion itself
-still needs the owner's real two-venue data (Phase 2/3 owner gates).
+APPROVED certificate → evaluated opportunity). **Still owner-gated:**
+(a) an LLM key in `.env.paper` (H7) so matching can APPROVE rather than
+REVIEW; (b) real two-venue data — the Polymarket US smoke run + Kalshi
+key (H2) and a collect run, exactly the gates Phases 2/3 already list.
+Certificates persist per cycle in paper mode
+(`save_match_certificate`), which is what makes the false-match rate
+human-reviewable.
 
 ---
 
@@ -714,7 +741,7 @@ collection), and log rotation.
 | D6 | ~~Cross-venue candidate generation cannot produce candidates~~ **FIXED IN CODE 2026-09-14**: `group_by_event` now unions contracts over five deterministic blocking-key families (settlement 24h buckets ±1, category, threshold+operator+units, canonical numeric tokens, plural-folded content words) instead of exact canonical title + settlement date; recall-oriented by design, and the deterministic matcher stays the only authority (§18/§96). 24 tests in `tests/test_candidate_generation.py`, mutation-verified. *Exit evidence on real two-venue data remains owner-gated (Phases 2/3)* | Was: `normalized_event_key` = exact canonical title + settlement date → cross-venue pairs never candidates. Now: `tests/test_candidate_generation.py` (e.g. `test_differently_phrased_same_event_group_together`, `test_pipeline_finds_cross_venue_opportunity`) | 5 |
 | D7 | ~~Venue research stale~~ **FIXED 2026-09-13**: evidence ledger now covers direct DCMs, aliases, multi-route frontends, fees, Utah/CFTC context, and ranked candidates; old “only one independent pair” premise removed | `docs/VENUE_RESEARCH.md`; provenance/fee/compliance registries; focused tests | 1 |
 | D8 | ~~Spec document missing~~ **FIXED 2026-09-13**: `docs/SPEC.md` reconstructs all 73 cited sections from code/docs/tests/config evidence, with `[I]` flags on the two thin ones (§33, §68) and an appendix of the 22 numbers that have no surviving citation | Was: 73 distinct `§` sections cited at 224 sites with no spec file. Now: `grep -c "^### §" docs/SPEC.md` → 73 | 0 |
-| D9 | No LLM configured ⇒ no APPROVED certificates ⇒ nothing is ever evaluated | `main.py`: `LLMMatcher(client=None)`; `optimizer.search_event` skips pairs without approval | 5 |
+| D9 | ~~No LLM configured ⇒ no APPROVED certificates ⇒ nothing is ever evaluated~~ **FIXED IN CODE 2026-09-14**: `main.py` builds the matcher from the mode env file via `matching/llm_client.py` (§97 — OpenAI-compatible `/chat/completions`; `LLM_API_BASE`/`LLM_API_KEY`/`LLM_MODEL`/`LLM_TIMEOUT_SECONDS` in `.env.paper`). Transport only: schema validation (§88), outage/malformed ⇒ no-match, in-memory caching (§87) and model/prompt versioning unchanged; no config is still the conservative default (REVIEW, never auto-APPROVED); partial config refuses startup; fail-closed per-cycle comparison budget (`llm.max_comparisons_per_cycle`, default 200; excess pairs stay REVIEW and are not cached; `run_matching` resets the window). 20 tests in `tests/test_llm_client.py`, mutation-verified. *Operational verification on a real endpoint is owner-gated (H7)* | Was: `main.py`: `LLMMatcher(client=None)` hardcoded; `optimizer.search_event` skips pairs without approval. Now: wired + `tests/test_llm_client.py` (config paths, transport errors, budget; live wiring checks of the three startup paths — none/partial/full — run 2026-09-14) | 5 |
 | D10 | Live mode is monitor-only; readiness check hardcodes the venue count | `prediction_arb/modes/live/engine.py::run`; `main.py::cmd_readiness` (`False` literal) | 8 |
 | D11 | ~~No book-freshness enforcement in paper; `OrderBookAggregator` is dead code~~ **FIXED 2026-09-13**: the paper engine now holds an `OrderBookAggregator` and both the scan and the simulated execution engine read through it. The gate is the stricter of `execution.max_book_age_ms` and `arbitrage.maximum_book_age_ms`; excluded books are counted and printed rather than silently dropped. Streamed books get the same sequence guard and staleness accounting as polled ones | Was: aggregator referenced only in tests; `maximum_book_age_ms` enforced solely by the live firewall, so a paper book could age forever and still be traded against. Now: `tests/test_paper_realism.py::TestPaperFreshnessEndToEnd`, verified by mutation — reverting `fresh_snapshot()` → `snapshot()` fails `test_stale_polled_book_never_reaches_the_scan` | 6 |
 | D12 | ~~Configured fill probability is ignored~~ **FIXED 2026-09-13**: `fill_probability_at_touch` now scales the portion of an order executing at the touch (levels beyond the touch are taker fills and stay whole). Expected-fill rather than a coin flip, so paper remains reproducible, and it rounds down — rounding up would reintroduce the optimism being removed | Was: stored in `prediction_arb/execution/simulated.py` and never read, so every paper fill was 100% at the touch while `paper.yaml` said 0.9. Now: `tests/test_paper_realism.py::TestFillProbabilityAtTouch`, verified by mutation (replacing the check with `if False:` fails 4 tests, including one asserting `paper.yaml`'s 0.9 actually reaches the engine) | 6 |
@@ -823,23 +850,20 @@ steps for that route:
    identity verification. Books work without it. Keep credentials local;
    never paste them into chat or commit them.
 
-**H5 — Decide the data policy**
-Recorded market data is already 17 MB for one day of collection. Decide
-how long to retain it and whether any of it belongs in git (recommended:
-none; keep it local or in external storage).
-
-**H6 — Say the word before anything live**
-Nothing in Phases 0–7 places a real order. Live work starts only in
-Phase 8, only after paper/demo drills, and only with your typed
-confirmation phrase.
-_api_status()` can be promoted from
-   `API_DOCUMENTED_UNTESTED` to `VERIFIED` — which is what makes collect
-   mode start recording the venue.
-4. *(Optional, streaming only.)* Create an API key at
-   polymarket.us/developer and put `POLYMARKET_KEY_ID` /
-   `POLYMARKET_SECRET_KEY` in `.env.paper`. Requires the iOS app plus
-   identity verification. Books work without it. Keep credentials local;
-   never paste them into chat or commit them.
+**H7 — LLM API key (needed for Phase 5's exit: APPROVED certificates)**
+1. Choose any OpenAI-compatible provider (OpenAI, Groq, OpenRouter, or a
+   local server) and create an API key on that provider's site.
+2. Put the three values in `.env.paper` at the repo root (see
+   `docs/API_SETUP.md`; `.env.example` has a commented template):
+   ```
+   LLM_API_BASE=https://api.openai.com/v1
+   LLM_API_KEY=your-key
+   LLM_MODEL=gpt-4o-mini
+   ```
+3. Tell the agent it's done — never paste the key into chat. A paper run
+   will then print `LLM matching enabled` at startup instead of the yellow
+   `not configured` notice, and cross-venue pairs that pass the
+   deterministic filter can be APPROVED (budget-capped per cycle).
 
 **H5 — Decide the data policy**
 Recorded market data is already 17 MB for one day of collection. Decide

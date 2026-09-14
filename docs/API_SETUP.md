@@ -91,6 +91,48 @@ route/fee-optimization possibilities only, not independent arbitrage legs.
 
 ## LLM matcher
 
-No LLM client is configured by default, so ambiguous comparisons fail closed.
-If an owner later supplies a provider through local configuration, outputs remain
-schema-validated and malformed/contradictory results remain no-match.
+The semantic matcher compares two cross-venue contracts and decides
+"economically equivalent: yes/no". Without it the pipeline is structurally
+conservative but inert: candidate pairs are found (§96 blocking), the
+deterministic filter runs, and then **every ambiguous pair ends in REVIEW
+and `search_event` evaluates nothing** — no APPROVED certificate is ever
+produced, so no cross-venue opportunity can ever be found. Configuring the
+LLM is what turns candidate generation into approved matches (Phase 5).
+
+### Configuration (mode env file only)
+
+Add to `.env.paper` (never `.env.live`, never chat, never git):
+
+```
+LLM_API_BASE=https://api.openai.com/v1
+LLM_API_KEY=sk-your-key-here
+LLM_MODEL=gpt-4o-mini
+```
+
+- Any OpenAI-compatible `/chat/completions` endpoint works (OpenAI, Groq,
+  OpenRouter, Gemini's OpenAI-compatible endpoint, or a local server).
+  `LLM_TIMEOUT_SECONDS` (default 60) is optional.
+- Setting **none** of these is fine and safe: matching stays conservative
+  (everything ambiguous → REVIEW).
+- Setting **some but not all** of BASE/KEY/MODEL **refuses startup** on
+  purpose, so a half-configured matcher can never be mistaken for a
+  working one. A wrong value (bad URL, non-numeric timeout) also refuses.
+
+### What the LLM is allowed to do (unchanged by wiring)
+
+- It only sees pairs that already passed the deterministic filter (§18);
+  a deterministic REJECT is final.
+- Its output is schema-validated (§88): malformed JSON, missing fields,
+  wrong types, out-of-range confidence, or a contradiction
+  (`match=true` with any identity field false) all mean NO MATCH.
+- An outage or HTTP error means NO MATCH (the pair goes to REVIEW).
+- It can never authorise a trade (§89); APPROVED certificates additionally
+  require a proven-INDEPENDENT venue relationship (§33).
+- Results are cached per (venue:contract_id:contract_version) pair and
+  never re-run for unchanged contracts within a run (§87); certificates
+  record the model and prompt versions. A per-cycle budget
+  (`llm.max_comparisons_per_cycle` in `config/settings.yaml`, default 200)
+  bounds how many NEW comparisons a single scan cycle may spend — pairs
+  beyond it stay REVIEW instead of running an unbounded bill. The key is
+  never logged (the redaction filter drops any log field matching
+  key/secret/token/password/credential/private).

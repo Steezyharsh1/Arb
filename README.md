@@ -104,6 +104,14 @@ live mode is monitor-only by construction.
   two venues actually becomes a candidate pair. Blocking only proposes
   candidates — the deterministic matcher still rejects on any hard
   mismatch, and its REJECT is final.
+- **The LLM matcher is now wired** (optional, owner-supplied key): put
+  `LLM_API_BASE` / `LLM_API_KEY` / `LLM_MODEL` in `.env.paper` and any
+  OpenAI-compatible endpoint can approve cross-venue matches — with
+  schema validation (malformed/contradictory output ⇒ no match), outage
+  ⇒ no-match, per-cycle cost budget, and model/prompt versions recorded
+  on every certificate. With **no** key configured everything still runs,
+  but every ambiguous pair ends in REVIEW and nothing is ever evaluated
+  for arbitrage — never auto-APPROVED.
 - Full paper/collect pipeline: discovery → normalization → blocking-based
   candidate generation → deterministic + LLM-gated matching → certificates
   → order-book walking → fee/slippage/settlement costing → risk checks →
@@ -138,7 +146,7 @@ live mode is monitor-only by construction.
   Books that fail the freshness gate are counted and reported, never
   silently dropped.
 - Mode isolation, kill switch, crash-recovery intents, and all ten mandatory
-  spec cases are covered by the test suite (`pytest` — 288 passing, all
+  spec cases are covered by the test suite (`pytest` — 311 passing, all
   offline).
 - Fees are charged **per fill** from the levels a walk actually consumed,
   with each venue's documented rounding, and Polymarket US's exact
