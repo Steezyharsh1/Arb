@@ -197,11 +197,12 @@ Blocking only proposes — the deterministic matcher (§18) remains the sole
 authority and a REJECT stays final; verified by 24 tests in
 `tests/test_candidate_generation.py`, mutation-checked by reverting the
 fix (6 tests fail). The end-to-end chain (candidate → deterministic pass →
-certificate → optimizer) is exercised offline with a stub LLM. Still open:
-D9 (real LLM client wiring) and the owner-gated exit evidence on real
-two-venue data. New finding **D15** registered: `validate_match` can stamp
-a SAME_VENUE pair APPROVED (search_event still refuses to evaluate it) —
-see the defect register._
+certificate → optimizer) is exercised offline with a stub LLM. New finding
+**D15** (found while re-deriving the pipeline): `validate_match` could stamp
+a SAME_VENUE pair APPROVED — **fixed in the same session** as its own
+commit: only a proven-INDEPENDENT relationship is APPROVED, everything else
+is REVIEW (§33); mutation-verified. Still open: D9 (real LLM client
+wiring) and the owner-gated exit evidence on real two-venue data._
 - **D6** is the silent killer: `normalized_event_key` groups by exact
   canonical title + settlement date, so two venues describing the same
   event differently never become candidates. Replace with real blocking

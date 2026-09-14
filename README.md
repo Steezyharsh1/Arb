@@ -97,9 +97,17 @@ live mode is monitor-only by construction.
   complementary asks. Official hosts, formats, sequencing, limits, and fees
   were documentation-verified on 2026-09-13; a fresh sandbox network smoke
   test was **UNAVAILABLE**, not reported as live-tested.
-- Full paper/collect pipeline: discovery → normalization → deterministic +
-  LLM-gated matching → certificates → order-book walking → fee/slippage/
-  settlement costing → risk checks → simulated execution. Incomplete fees
+- Cross-venue **candidate generation now works**: contracts are grouped by
+  deterministic blocking (settlement-window buckets, category, threshold +
+  operator + units, numeric tokens and content words of the titles) instead
+  of exact title text, so the same real-world event phrased differently on
+  two venues actually becomes a candidate pair. Blocking only proposes
+  candidates — the deterministic matcher still rejects on any hard
+  mismatch, and its REJECT is final.
+- Full paper/collect pipeline: discovery → normalization → blocking-based
+  candidate generation → deterministic + LLM-gated matching → certificates
+  → order-book walking → fee/slippage/settlement costing → risk checks →
+  simulated execution. Incomplete fees
   now block rather than becoming estimates, so direct Kalshi opportunities
   remain blocked until contextual metadata is integrated.
 - Collect mode now records the **full** normalized contract — settlement
@@ -189,5 +197,9 @@ MODE_SEPARATION, CRASH_RECOVERY.
   adapter references; the Kalshi adapter refuses order placement unless
   constructed for live mode; the firewall re-verifies 15 conditions per
   order; UNKNOWN never means yes.
+- Match certificates are APPROVED only for pairs whose venue relationship
+  is **proven INDEPENDENT** — same-venue frontends (e.g. Kalshi contracts
+  reached through Webull) and any unresolved relationship end in REVIEW
+  for human handling, never in an APPROVED certificate.
 - Nothing here is financial or legal advice. Verify venue terms, fees,
   and Utah eligibility yourself before funding live trading.

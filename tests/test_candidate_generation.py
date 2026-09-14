@@ -201,6 +201,65 @@ class TestGrouping:
         assert as_member_sets(forward) == as_member_sets(backward)
 
 
+class TestSameVenueNeverApproved:
+    """D15: the certificate gate must never stamp APPROVED on a pair whose
+    venue relationship is not proven INDEPENDENT.
+
+    Kalshi contracts reached through Webull are the SAME VENUE (§33 requires
+    an INDEPENDENT relationship before any trade). `search_event` already
+    refuses to evaluate non-INDEPENDENT pairs; this pins the certificate
+    side, because a persisted APPROVED same-venue certificate would poison
+    the human false-match review."""
+
+    def _same_venue_pair(self):
+        # Distinct titles so the pair exercises real blocking, identical
+        # economics so the deterministic filter passes.
+        a = make_contract(venue="kalshi", contract_id="K1",
+                          event="Will the Fed hold rates at 4.25% in September?",
+                          underlying="kalshi_dcm")
+        b = make_contract(venue="webull", contract_id="W1",
+                          event="Fed rate decision September: holds at 4.25 percent",
+                          underlying="kalshi_dcm")
+        return a, b
+
+    def _stub_llm(self):
+        async def client(prompt: str) -> str:
+            return _llm_verdict(match=True, confidence=0.999)
+        return LLMMatcher(client=client, model_version="stub-1")
+
+    def test_same_venue_with_perfect_llm_verdict_is_review_not_approved(self):
+        from prediction_arb.matching.deterministic_matcher import (
+            deterministic_match,
+        )
+        from prediction_arb.matching.rules_validator import validate_match
+        a, b = self._same_venue_pair()
+        det = deterministic_match(a, b)
+        assert det.passed                      # economics identical
+        llm = asyncio.run(self._stub_llm().compare(a, b))
+        outcome = validate_match(a, b, det, llm)
+        assert outcome.status == "REVIEW"
+        assert any("not proven INDEPENDENT" in r for r in outcome.reasons)
+
+    def test_same_venue_certificate_via_pipeline_is_review(self):
+        a, b = self._same_venue_pair()
+        approved, result = asyncio.run(
+            run_matching([a, b], self._stub_llm()))
+        assert approved == {}
+        assert all(c.status == "REVIEW" for c in result.certificates)
+
+    def test_unknown_relationship_stays_review(self):
+        from prediction_arb.matching.deterministic_matcher import (
+            deterministic_match,
+        )
+        from prediction_arb.matching.rules_validator import validate_match
+        a = make_contract(venue="kalshi", event=POLY_TITLE)
+        b = make_contract(venue="mystery_venue", event=POLY_TITLE,
+                          underlying="???")
+        det = deterministic_match(a, b)
+        llm = asyncio.run(self._stub_llm().compare(a, b))
+        assert validate_match(a, b, det, llm).status == "REVIEW"
+
+
 class TestPipelineEmitsCandidates:
     """End-to-end: blocking → deterministic filter → LLM → certificate →
     optimizer. This is the chain D6 silently severed."""

@@ -181,7 +181,10 @@ confidence ⇒ no match. False negatives are preferred over false positives.
 recording both contract identities and versions, deterministic check results,
 LLM verdict and confidence, final status (APPROVED / REJECTED / REVIEW),
 independence classification, and the matcher/LLM-model/prompt versions. Only
-APPROVED certificates may reach the arbitrage search.
+APPROVED certificates may reach the arbitrage search. A certificate MUST be
+APPROVED only when the venue relationship is proven INDEPENDENT (§33):
+same-venue frontends and unresolved relationships are REVIEW, never
+APPROVED (2026-09-14, defect D15).
 **Evidence.** `prediction_arb/matching/match_certificates.py`,
 `matching/rules_validator.py`, `database/repository.py`
 (`save_match_certificate`), `arbitrage/optimizer.py`.

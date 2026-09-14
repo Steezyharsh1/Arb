@@ -36,9 +36,12 @@ Status tags used throughout:
 | Outbound network from this sandbox | Venues unreachable (TLS closed on `external-api.kalshi.com`, `api.elections.kalshi.com`, `gateway.polymarket.us`, `api.polymarket.us`) — venue calls must be verified on the owner's machine. **Documentation hosts ARE reachable through the research tooling**, which is how rows P8–P12 and R9 were re-verified |
 
 **Bottom line:** the safety architecture and Phase 1 fail-closed research
-registries are tested, but the opportunity pipeline has never produced a
-candidate. A second implemented venue, D6 candidate generation, D9 matcher
-wiring, and exact contextual fee/eligibility data remain independent blockers.
+registries are tested. The opportunity pipeline still has never seen real
+two-venue data (neither venue is reachable from the agent sandbox), but the
+structural blockers inside the code are closing: D6 candidate generation now
+produces cross-venue candidates from differently-phrased titles (verified
+offline end-to-end), D9 matcher wiring is the remaining in-code blocker,
+and venue reachability/eligibility remain owner-gated.
 
 ---
 
@@ -717,6 +720,7 @@ collection), and log rotation.
 | D12 | ~~Configured fill probability is ignored~~ **FIXED 2026-09-13**: `fill_probability_at_touch` now scales the portion of an order executing at the touch (levels beyond the touch are taker fills and stay whole). Expected-fill rather than a coin flip, so paper remains reproducible, and it rounds down — rounding up would reintroduce the optimism being removed | Was: stored in `prediction_arb/execution/simulated.py` and never read, so every paper fill was 100% at the touch while `paper.yaml` said 0.9. Now: `tests/test_paper_realism.py::TestFillProbabilityAtTouch`, verified by mutation (replacing the check with `if False:` fails 4 tests, including one asserting `paper.yaml`'s 0.9 actually reaches the engine) | 6 |
 | D13 | ~~Trade fees priced at a walk's weighted-average price instead of per fill~~ **FIXED 2026-09-13**: `FeeCalculator.trade_fee_fills()` charges each walked level, applies the venue's documented rounding, and honours an order-total cap; `two_leg.py` and `execution/simulated.py` now pass the real `levels_consumed`. The old shortcut is not what any venue bills: it overstates a concave taker charge and would understate a maker credit, and it ignores the cumulative cap entirely | Was: `two_leg.py:139` → `trade_fee(venue, yes_walk.weighted_average_price, qty)`. Now: per-fill; `tests/test_polymarket_fees.py::TestPerFillAccuracy` proves the engine charges walked levels and that the two numbers differ | 3 |
 | D14 | ~~Configured rate-limit headroom silently ignored~~ **FIXED 2026-09-13**: `main.py` read `rate_limit_headroom` from the top level of `venues.yaml` instead of under its `venues:` key, so the hardcoded `0.8` default always won. Harmless only while config and default matched; an operator tightening headroom would have had no effect | Was: `config.venues.get("kalshi", {})` → `{}`. Now unwrapped like `build_adapters`; `tests/test_units.py::TestRateLimitCalibration` (verified by mutation: reverting the fix fails the test with `headroom=0.8`) | 2 |
+| D15 | ~~`validate_match` can issue an APPROVED certificate for a SAME_VENUE pair~~ **FOUND + FIXED 2026-09-14** (found while re-deriving the matching pipeline for D6; fixed as its own reviewable commit): the provenance gate now routes every relationship that is not proven `INDEPENDENT` — SAME_VENUE, LIKELY_SAME_VENUE, LIKELY_INDEPENDENT, UNKNOWN — to REVIEW, never APPROVED (§33 requires an INDEPENDENT relationship for any trade). `search_event` already refused to evaluate non-INDEPENDENT pairs, so no fake trade could execute; the fix closes the certificate side, which would otherwise poison the human false-match review. 3 tests in `tests/test_candidate_generation.py::TestSameVenueNeverApproved`, mutation-verified (reverting the gate fails the 2 same-venue tests) | Was: only `Independence.UNKNOWN` was downgraded to REVIEW in `matching/rules_validator.py`; kalshi↔webull (SAME_VENUE via `provenance/independence.py`) with a deterministic pass + a good LLM verdict reproduced `APPROVED`. Now: `TestSameVenueNeverApproved` | 5 |
 
 ---
 
