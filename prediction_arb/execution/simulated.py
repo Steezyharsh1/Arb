@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 from typing import Any, Callable, Optional
 
 from ..core.types import (
@@ -23,6 +23,7 @@ from ..core.types import (
     OrderRequest,
     OrderResult,
     OrderStatus,
+    PriceLevel,
 )
 from ..fees.calculator import FeeCalculator, FillSlice
 from ..orderbooks.orderbook import walk_buy, walk_sell
@@ -101,6 +102,39 @@ class _SimulatedExecutionEngine(ExecutionEngine):
                 filled = walk.filled_quantity
                 cost = walk.total_cost
                 filled_levels = walk.levels_consumed
+
+            # D12: queue risk at the touch. The portion of an order that
+            # executes AT the best displayed price competes with resting
+            # orders ahead of it, so it does not fill reliably. Levels
+            # consumed *beyond* the touch are taker executions against
+            # displayed liquidity and fill in full.
+            #
+            # This is an expected-fill model, not a coin flip, so paper
+            # stays reproducible run to run. Before this, `paper.yaml`'s
+            # 0.9 was read, stored, and ignored — every paper fill was
+            # 100% at the touch, which flattered the strategy.
+            if self.fill_probability_at_touch < 1.0:
+                touch = (book.best_ask() if request.action.value == "buy"
+                         else book.best_bid())
+                if touch is not None:
+                    scaled: list[PriceLevel] = []
+                    for level in filled_levels:
+                        if level.price != touch.price:
+                            scaled.append(level)
+                            continue
+                        prob = Decimal(str(self.fill_probability_at_touch))
+                        # Round DOWN: rounding up would overstate the fill,
+                        # which is the exact error this fix removes.
+                        qty = (level.quantity * prob).quantize(
+                            level.quantity, rounding=ROUND_DOWN)
+                        if qty > 0:
+                            scaled.append(PriceLevel(level.price, qty))
+                    filled_levels = scaled
+                    filled = sum((l.quantity for l in filled_levels),
+                                 Decimal("0"))
+                    cost = sum((l.quantity * l.price for l in filled_levels),
+                               Decimal("0"))
+
             if filled <= 0:
                 return self._reject(request, "no executable liquidity at limit")
 

@@ -121,8 +121,16 @@ live mode is monitor-only by construction.
   result carries its assumptions in plain text — the equity curve assumes
   every executable opportunity filled, so it is an upper bound, never a
   forecast.
+- Paper mode no longer flatters the strategy. Order books pass a real
+  staleness gate before they are scanned **or** filled against, and the
+  configured `simulated_fill_probability_at_touch` actually scales the
+  at-touch portion of a fill. Both defects previously pushed results in the
+  optimistic direction — the dangerous one, since a strategy that validates
+  in paper and then fails live is worse than one that never validated.
+  Books that fail the freshness gate are counted and reported, never
+  silently dropped.
 - Mode isolation, kill switch, crash-recovery intents, and all ten mandatory
-  spec cases are covered by the test suite (`pytest` — 250 passing, all
+  spec cases are covered by the test suite (`pytest` — 264 passing, all
   offline).
 - Fees are charged **per fill** from the levels a walk actually consumed,
   with each venue's documented rounding, and Polymarket US's exact
@@ -140,9 +148,9 @@ live mode is monitor-only by construction.
   email/webhook alerts (§3 v1 scope).
 - Backtest *metrics* are implemented, but backtest *execution* is not:
   replay measures opportunities, it does not simulate fills against them
-  (`HistoricalExecutionEngine` stays unwired — that is Phase 6 / D12).
-  The phase exit criterion also needs real collected data, which requires
-  an owner-run collect session on a network-reachable machine.
+  (`HistoricalExecutionEngine` stays unwired on purpose). The phase exit
+  criterion also needs real collected data, which requires an owner-run
+  collect session on a network-reachable machine.
 
 ## Repository layout
 

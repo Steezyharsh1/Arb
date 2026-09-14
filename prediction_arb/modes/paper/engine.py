@@ -30,12 +30,32 @@ from ...matching.llm_matcher import LLMMatcher
 from ...monitoring.alerts import ConsoleAlertSink
 from ...monitoring.dashboard import opportunities_table
 from ...monitoring.health import HealthMonitor
+from ...orderbooks.aggregator import OrderBookAggregator
 from ...risk import kill_switch
 from ...risk.exposure import ExposureTracker
 from ...risk.limits import RiskLimits, RiskState, check_trade_against_limits
 from ..shared import run_arbitrage_scan, run_matching
 
 log = get_logger("modes.paper")
+
+
+def _book_age_ms(settings: dict) -> float:
+    """The configured order-book staleness limit, in milliseconds.
+
+    `execution.max_book_age_ms` is the execution-time bound (what the live
+    firewall enforces); `arbitrage.maximum_book_age_ms` is the scan-time
+    bound. Paper applies one gate for both, taking the stricter of the two
+    — a book stale enough to fail either check must not be scanned *or*
+    filled against.
+    """
+    execution = settings.get("execution", {})
+    arbitrage = settings.get("arbitrage", {})
+    candidates = [
+        float(v) for v in (execution.get("max_book_age_ms"),
+                           arbitrage.get("maximum_book_age_ms"))
+        if v is not None
+    ]
+    return min(candidates) if candidates else 1000.0
 
 
 class PaperEngine:
@@ -61,10 +81,16 @@ class PaperEngine:
             for venue, amount in (config.mode_config.get(
                 "paper_starting_cash") or {}).items()
         }
-        self._latest_books: dict[tuple[str, str], OrderBook] = {}
+        # D11: the scan and the simulator both read through this aggregator,
+        # which enforces `maximum_book_age_ms`. Before this the paper engine
+        # kept its own dict and applied NO freshness gate, so a book could
+        # age indefinitely and still be traded against — while `settings.yaml`
+        # declared a 1000ms limit that only the live firewall honoured.
+        self.aggregator = OrderBookAggregator(max_staleness_ms=_book_age_ms(
+            config.settings))
         # (venue, contract_id) pairs actively streamed via the venue's
         # WebSocket feed (Phase 2). Streaming books arrive as events and
-        # update _latest_books in real time (sub-second staleness) instead
+        # update the aggregator in real time (sub-second staleness) instead
         # of waiting for the next poll. Without credentials this set stays
         # empty and everything is polled, exactly as before.
         self._streaming: set[tuple[str, str]] = set()
@@ -74,7 +100,9 @@ class PaperEngine:
         self.execution = PaperExecutionEngine(
             starting_cash=starting,
             fee_calc=fee_calc,
-            book_lookup=lambda v, c: self._latest_books.get((v, c)),
+            # Freshness-gated: a simulated fill must not be priced against a
+            # book the scan would already have rejected for staleness (D11).
+            book_lookup=lambda v, c: self.aggregator.peek(v, c),
             fill_probability_at_touch=float(config.mode_config.get(
                 "simulated_fill_probability_at_touch", 0.9)),
             simulated_latency_ms=int(config.mode_config.get(
@@ -112,12 +140,23 @@ class PaperEngine:
         # authoritative; polling only fills in what is not streamed.
         for key, book in books.items():
             if key not in self._streaming:
-                self._latest_books[key] = book
+                await self.aggregator.update(book)
 
-        # Scan over the MERGED book cache: streamed books are fresher than
-        # the poll batch (they update between cycles).
+        # D11: scan over the FRESH subset only. Books that aged past
+        # `maximum_book_age_ms` are counted and reported, never silently
+        # traded on — and never silently dropped either, because a scan that
+        # quietly sees nothing looks identical to a quiet market.
+        fresh = await self.aggregator.fresh_snapshot()
+        stale = await self.aggregator.stale_keys()
+        if stale:
+            self.console.print(
+                f"[yellow][cycle {cycle}] {len(stale)} order book(s) older "
+                f"than {self.aggregator.max_staleness_ms:.0f}ms were excluded "
+                f"from the scan and from execution: {sorted(stale)}[/yellow]")
+            log.warning("stale books excluded from cycle %s: %s", cycle, stale)
+
         ops = await run_arbitrage_scan(
-            contracts, self._latest_books, approved, self.fee_calc, Mode.PAPER,
+            contracts, fresh, approved, self.fee_calc, Mode.PAPER,
             minimum_net_profit=Decimal(str(arb.get("minimum_net_profit", 2))),
             minimum_net_return=Decimal(str(arb.get("minimum_net_return", 0.005))),
             maximum_settlement_delay_days=Decimal(str(
@@ -205,8 +244,13 @@ class PaperEngine:
 
     async def _on_streamed_book(self, key: tuple[str, str],
                                 book: OrderBook) -> None:
-        """WebSocket callback: a fresh book for a streamed market."""
-        self._latest_books[key] = book
+        """WebSocket callback: a fresh book for a streamed market.
+
+        Routed through the aggregator so streamed books get the same
+        sequence-number guard and staleness accounting as polled ones
+        (D11).
+        """
+        await self.aggregator.update(book)
         await self.health.record_success(key[0])
 
     async def _reap_vanished(self, contracts: list[NormalizedContract]) -> None:
@@ -214,8 +258,8 @@ class PaperEngine:
         out of discovery (including when discovery is empty this cycle),
         so the scan never sees a vanished market's stale book."""
         live = {(c.venue, c.contract_id) for c in contracts}
-        for key in [k for k in self._latest_books if k not in live]:
-            self._latest_books.pop(key, None)
+        for key in [k for k in await self.aggregator.keys() if k not in live]:
+            await self.aggregator.drop(key)
         for key in [k for k in self._streaming if k not in live]:
             adapter = self.adapters.get(key[0])
             if adapter is not None:
@@ -233,7 +277,7 @@ class PaperEngine:
         for c in contracts:
             key = (c.venue, c.contract_id)
             if key in self._streaming:
-                continue  # WS feed updates _latest_books directly
+                continue  # WS feed updates the aggregator directly
             adapter = self.adapters.get(c.venue)
             if adapter is None or adapter.get_api_status() != APIStatus.VERIFIED:
                 continue

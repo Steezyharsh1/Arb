@@ -165,9 +165,12 @@ class TestPaperStreaming:
         pushed = make_book("kalshi", "KXTEST-1",
                            asks=[("0.42", "7")], bids=[("0.40", "9")])
         asyncio.run(kalshi.subscribed["KXTEST-1"](pushed))
-        assert engine._latest_books[key] is pushed
-        # the polled venue's book is in the merged cache too
-        assert engine._latest_books[("forecast_ex", "FXTEST-1")] is not None
+        store = asyncio.run(engine.aggregator.snapshot())
+        assert store[key] is pushed
+        # the polled venue's book is in the merged store too
+        assert store[("forecast_ex", "FXTEST-1")] is not None
+        # and a fresh book is visible to the execution engine's lookup
+        assert engine.aggregator.peek(*key) is pushed
 
     def test_streaming_failure_falls_back_to_polling_once(self, tmp_path,
                                                           complete_fee_calc):
@@ -185,7 +188,8 @@ class TestPaperStreaming:
         assert "kalshi" in engine._streaming_failed_venues
         assert ("kalshi", "KXTEST-1") not in engine._streaming
         assert kalshi.polled.count("KXTEST-1") == 2
-        assert engine._latest_books[("kalshi", "KXTEST-1")] is not None
+        store = asyncio.run(engine.aggregator.snapshot())
+        assert store[("kalshi", "KXTEST-1")] is not None
 
     def test_no_credentials_means_polling_only(self, tmp_path,
                                                complete_fee_calc):
@@ -217,4 +221,4 @@ class TestPaperStreaming:
 
         assert engine._streaming == set()
         assert kalshi.unsubscribed == ["KXTEST-1"]
-        assert engine._latest_books == {}
+        assert asyncio.run(engine.aggregator.keys()) == []

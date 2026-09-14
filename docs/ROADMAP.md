@@ -24,7 +24,7 @@ Status tags used throughout:
 
 | Check | Result |
 |---|---|
-| `pytest` | **250 passed** (~24s), re-run 2026-09-13 after the Phase 4 pass: Phase 0's 107 + 11 Phase 1 fee/provenance/compliance + 26 Phase 2 (22 Kalshi host-failover/bulk/WS-streaming/rate-limit + 4 paper-streaming) + 41 Phase 3 Polymarket US + 24 exact-fee-model (`tests/test_polymarket_fees.py`) + 12 smoke-script/D14 (`tests/test_kalshi_smoke_script.py`, `tests/test_units.py::TestRateLimitCalibration`) + 3 per-fill accuracy + **25 Phase 4** (`tests/test_phase4_recording.py`: contract round-trip, migration 002, read-only recorded store, no-fabrication decode, backtest metrics). All offline: mock HTTP transports and a scripted local WebSocket server |
+| `pytest` | **264 passed** (~24s), re-run 2026-09-13 after the Phase 4/6 pass: Phase 0's 107 + 11 Phase 1 fee/provenance/compliance + 26 Phase 2 (22 Kalshi host-failover/bulk/WS-streaming/rate-limit + 4 paper-streaming) + 41 Phase 3 Polymarket US + 24 exact-fee-model (`tests/test_polymarket_fees.py`) + 12 smoke-script/D14 (`tests/test_kalshi_smoke_script.py`, `tests/test_units.py::TestRateLimitCalibration`) + 3 per-fill accuracy + **25 Phase 4** (`tests/test_phase4_recording.py`: contract round-trip, migration 002, read-only recorded store, no-fabrication decode, backtest metrics) + **14 Phase 6** (`tests/test_paper_realism.py`: fill probability, book freshness — both mutation-verified). All offline: mock HTTP transports and a scripted local WebSocket server |
 | `python -m prediction_arb.main --status` | Works: kalshi=VERIFIED, polymarket_us=API_DOCUMENTED_UNTESTED, forecast_ex=API_DOCUMENTED_UNTESTED; independence matrix correct (kalshi↔polymarket_us = INDEPENDENT) |
 | `python -m prediction_arb.main --readiness` | 0 snapshots recorded in a fresh clone; **0 opportunities ever analyzed**; live NOT RECOMMENDED. (The 13,801-snapshot figure below was from the previous engineer's working copy — the DB is git-ignored, so a fresh clone starts empty.) |
 | Live-capable venues | **1** (Kalshi). Polymarket US is implemented and INDEPENDENT, but stays API_DOCUMENTED_UNTESTED until the owner captures observed-payload evidence (P7) |
@@ -52,7 +52,7 @@ wiring, and exact contextual fee/eligibility data remain independent blockers.
 | 3 | **Second independent venue adapter** | PARTIAL — adapter + exact fee model complete 2026-09-13 (gate 3 CLOSED); **gates 1, 2, 4 are owner-gated** | Real books from the owner-selected venue proven INDEPENDENT of Kalshi, in paper mode |
 | 4 | Data lineage, replay, backtest metrics | CODE COMPLETE 2026-09-13 (D3, D4 fixed); **exit needs owner's real collected data** | `--mode historical --date …` replays recorded data and reports metrics |
 | 5 | Matching that can actually match | BROKEN (D6, D9) | APPROVED certificates produced from real cross-venue data |
-| 6 | Paper validation & realism | PARTIAL (D11, D12) | Multi-week paper run with realistic fill/staleness modelling |
+| 6 | Paper validation & realism | PARTIAL — D11, D12 fixed 2026-09-13; **owner's multi-week run pending** | Multi-week paper run with realistic fill/staleness modelling |
 | 7 | Compliance & legal re-verification | PARTIAL — 2026-09-13 Utah/CFTC snapshot complete | Owner/legal review and venue/category eligibility evidence before live |
 | 8 | Live readiness & first live path | NOT STARTED (HUMAN) | IBKR paper + Kalshi demo drills, then a capped live trade |
 | 9 | v2 strategy surface (multi-leg, logical, routing) | NOT STARTED | Behind existing stubs, only after Phase 6 evidence |
@@ -583,21 +583,49 @@ by a human.
 
 ---
 
-### Phase 6 — Paper validation & realism  ·  PARTIAL
+### Phase 6 — Paper validation & realism  ·  PARTIAL (D11, D12 fixed 2026-09-13)
 
-- D11: `OrderBookAggregator` is only referenced by tests; the paper
+- ~~D11: `OrderBookAggregator` is only referenced by tests; the paper
   engine keeps its own dict and applies **no** freshness gate, while
-  `settings.yaml` declares `maximum_book_age_ms: 1000`. Enforce
-  staleness in paper (reject or degrade), and use the aggregator.
-- D12: `simulated_fill_probability_at_touch` (0.9 in `paper.yaml`) is
-  stored but never used — paper fills are always 100% at touch, which
-  flatters the strategy. Implement the fill model or delete the config
-  key and say so.
+  `settings.yaml` declares `maximum_book_age_ms: 1000`.~~ **FIXED
+  2026-09-13.** The paper engine now holds an `OrderBookAggregator`; both
+  the scan and the simulated execution engine read through it. The limit
+  is the stricter of `execution.max_book_age_ms` and
+  `arbitrage.maximum_book_age_ms`, so a book stale enough to fail either
+  check is neither scanned nor filled against. Excluded books are counted
+  and printed, never silently dropped — a scan that quietly sees nothing
+  is indistinguishable from a quiet market.
+- ~~D12: `simulated_fill_probability_at_touch` (0.9 in `paper.yaml`) is
+  stored but never used — paper fills are always 100% at touch.~~
+  **FIXED 2026-09-13.** The configured probability is now applied to the
+  portion of an order executing *at the touch*; levels consumed beyond the
+  touch are taker executions against displayed liquidity and fill in full.
+  It is an expected-fill model, not a coin flip, so paper stays
+  reproducible run to run, and it rounds **down** — rounding up would
+  reintroduce the exact optimism the fix removes.
 - Add queue-position/partial-fill realism, latency per venue, and
   opportunity-lifetime bookkeeping (`§68`).
 
 Exit: a multi-week paper run whose fill assumptions are documented and
-defensible, with per-cycle metrics persisted.
+defensible, with per-cycle metrics persisted. **Still needs the owner's
+multi-week run**; the code that would produce defensible fill assumptions
+now exists.
+
+#### Phase 6 — why these two were fixed together
+
+Both defects pushed paper results in the *optimistic* direction, which is
+the dangerous one: a strategy that validates in paper and then fails live
+is worse than one that never validated. Fixing only one would have left
+the other quietly inflating the same numbers.
+
+Verified by mutation, not just by passing tests. Reverting the fill model
+(`if False:` in place of the probability check) fails 4 tests; reverting
+the freshness gate (`snapshot()` for `fresh_snapshot()`) fails the
+end-to-end test that feeds the scan a 5-second-old book and asserts it
+does not arrive. The first draft of the D11 tests only exercised the
+aggregator's helpers and caught the revert **not at all** — testing that a
+helper works is not testing that it is used. `tests/test_paper_realism.py`
+(14 tests) exists because of that miss.
 
 ---
 
@@ -660,8 +688,8 @@ collection), and log rotation.
 | D8 | ~~Spec document missing~~ **FIXED 2026-09-13**: `docs/SPEC.md` reconstructs all 73 cited sections from code/docs/tests/config evidence, with `[I]` flags on the two thin ones (§33, §68) and an appendix of the 22 numbers that have no surviving citation | Was: 73 distinct `§` sections cited at 224 sites with no spec file. Now: `grep -c "^### §" docs/SPEC.md` → 73 | 0 |
 | D9 | No LLM configured ⇒ no APPROVED certificates ⇒ nothing is ever evaluated | `main.py`: `LLMMatcher(client=None)`; `optimizer.search_event` skips pairs without approval | 5 |
 | D10 | Live mode is monitor-only; readiness check hardcodes the venue count | `prediction_arb/modes/live/engine.py::run`; `main.py::cmd_readiness` (`False` literal) | 8 |
-| D11 | No book-freshness enforcement in paper; `OrderBookAggregator` is dead code | aggregator referenced only in tests; `maximum_book_age_ms` enforced solely by the live firewall | 6 |
-| D12 | Configured fill probability is ignored | `fill_probability_at_touch` stored in `prediction_arb/execution/simulated.py` and never read | 6 |
+| D11 | ~~No book-freshness enforcement in paper; `OrderBookAggregator` is dead code~~ **FIXED 2026-09-13**: the paper engine now holds an `OrderBookAggregator` and both the scan and the simulated execution engine read through it. The gate is the stricter of `execution.max_book_age_ms` and `arbitrage.maximum_book_age_ms`; excluded books are counted and printed rather than silently dropped. Streamed books get the same sequence guard and staleness accounting as polled ones | Was: aggregator referenced only in tests; `maximum_book_age_ms` enforced solely by the live firewall, so a paper book could age forever and still be traded against. Now: `tests/test_paper_realism.py::TestPaperFreshnessEndToEnd`, verified by mutation — reverting `fresh_snapshot()` → `snapshot()` fails `test_stale_polled_book_never_reaches_the_scan` | 6 |
+| D12 | ~~Configured fill probability is ignored~~ **FIXED 2026-09-13**: `fill_probability_at_touch` now scales the portion of an order executing at the touch (levels beyond the touch are taker fills and stay whole). Expected-fill rather than a coin flip, so paper remains reproducible, and it rounds down — rounding up would reintroduce the optimism being removed | Was: stored in `prediction_arb/execution/simulated.py` and never read, so every paper fill was 100% at the touch while `paper.yaml` said 0.9. Now: `tests/test_paper_realism.py::TestFillProbabilityAtTouch`, verified by mutation (replacing the check with `if False:` fails 4 tests, including one asserting `paper.yaml`'s 0.9 actually reaches the engine) | 6 |
 | D13 | ~~Trade fees priced at a walk's weighted-average price instead of per fill~~ **FIXED 2026-09-13**: `FeeCalculator.trade_fee_fills()` charges each walked level, applies the venue's documented rounding, and honours an order-total cap; `two_leg.py` and `execution/simulated.py` now pass the real `levels_consumed`. The old shortcut is not what any venue bills: it overstates a concave taker charge and would understate a maker credit, and it ignores the cumulative cap entirely | Was: `two_leg.py:139` → `trade_fee(venue, yes_walk.weighted_average_price, qty)`. Now: per-fill; `tests/test_polymarket_fees.py::TestPerFillAccuracy` proves the engine charges walked levels and that the two numbers differ | 3 |
 | D14 | ~~Configured rate-limit headroom silently ignored~~ **FIXED 2026-09-13**: `main.py` read `rate_limit_headroom` from the top level of `venues.yaml` instead of under its `venues:` key, so the hardcoded `0.8` default always won. Harmless only while config and default matched; an operator tightening headroom would have had no effect | Was: `config.venues.get("kalshi", {})` → `{}`. Now unwrapped like `build_adapters`; `tests/test_units.py::TestRateLimitCalibration` (verified by mutation: reverting the fix fails the test with `headroom=0.8`) | 2 |
 
