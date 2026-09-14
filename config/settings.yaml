@@ -44,6 +44,16 @@ cost_of_capital:
 fees:
   max_schedule_age_days: 30   # refuse live trading on stale fee data
 
+# LLM semantic matcher (§19, §97). Credentials come only from the mode env
+# file: LLM_API_BASE / LLM_API_KEY / LLM_MODEL (docs/API_SETUP.md). With no
+# LLM configured, matching stays conservative — every ambiguous pair ends
+# in REVIEW and nothing is auto-APPROVED.
+llm:
+  # Bound on NEW LLM comparisons per scan cycle. Pairs beyond the budget
+  # fail closed to REVIEW instead of running an unbounded bill; cache hits
+  # never consume budget.
+  max_comparisons_per_cycle: 200
+
 scanner:
   poll_interval_seconds: 10
   max_markets_per_venue: 500

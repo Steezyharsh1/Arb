@@ -187,7 +187,29 @@ _Status note (2026-09-13, second pass): the owner selected Polymarket US. The ad
   fee/eligibility context, and one real overlap persisted as APPROVED or REVIEW
   (never fabricated or forced).
 
-### M4 — Make matching able to match (Phase 5, defects D6 + D9)
+### M4 — Make matching able to match (Phase 5, defects D6 + D9) · **CODE COMPLETE 2026-09-14 — exit evidence owner-gated**
+_Status note (2026-09-14, second pass): **D6, D9 and D15 are fixed.**
+D6: `group_by_event` builds candidate groups by deterministic blocking
+(§96: settlement 24h buckets ±1, category, threshold+operator+units,
+canonical numeric title tokens, plural-folded content words) instead of
+exact canonical title + settlement date, so differently-phrased
+cross-venue events actually become candidates; blocking only proposes —
+the deterministic matcher (§18) remains the sole authority and a REJECT
+stays final (24 tests, mutation-checked). D9: `main.py` builds the LLM
+matcher from the mode env file via `matching/llm_client.py` (§97, any
+OpenAI-compatible endpoint; docs/API_SETUP.md) — schema validation,
+outage⇒no-match, caching and versioning unchanged; no config stays the
+conservative default (REVIEW, never auto-APPROVED); partial config
+refuses startup; a per-cycle comparison budget bounds cost (20 tests,
+mutation-checked; the three startup paths — none/partial/full — were
+exercised live in the sandbox, and no key material reaches any log). D15
+(found while re-deriving the pipeline, fixed as its own commit):
+`validate_match` now APPROVES only proven-INDEPENDENT pairs; same-venue
+and unresolved relationships are REVIEW (§33). **Exit still owner-gated:**
+an LLM key in `.env.paper` (H7), plus real two-venue data (H2 + the
+smoke scripts + a collect run) so candidate pairs, certificates with
+statuses and a human-reviewable false-match rate come from the real
+venues._
 - **D6** is the silent killer: `normalized_event_key` groups by exact
   canonical title + settlement date, so two venues describing the same
   event differently never become candidates. Replace with real blocking

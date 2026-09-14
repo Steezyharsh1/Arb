@@ -49,8 +49,16 @@ def validate_match(a: NormalizedContract, b: NormalizedContract,
         return ValidationOutcome("REJECTED", independence,
                                  [f"deterministic checks failed: {failed}"])
 
-    if independence == Independence.UNKNOWN:
-        reasons.append("venue relationship UNKNOWN → never auto-trade")
+    # Provenance gate (§33, defect D15): ONLY a proven-INDEPENDENT
+    # relationship may be APPROVED. Same-venue frontends (e.g. Kalshi
+    # contracts reached through Webull) are not arbitrage at all, and an
+    # APPROVED certificate saying otherwise would poison the human match
+    # review — they go to REVIEW like every other unresolved relationship.
+    # `search_event` additionally refuses to evaluate non-INDEPENDENT
+    # pairs, so this closes the certificate side of the same hole.
+    if independence != Independence.INDEPENDENT:
+        reasons.append(f"venue relationship {independence.value} is not "
+                       f"proven INDEPENDENT → REVIEW, never APPROVED")
         return ValidationOutcome("REVIEW", independence, reasons)
 
     return ValidationOutcome("APPROVED", independence, reasons)

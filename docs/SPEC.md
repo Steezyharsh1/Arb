@@ -137,9 +137,10 @@ INDEPENDENT pairs are eligible for guaranteed arbitrage.
 
 ### §16 — Contract normalization  `[C]`
 **Requirement.** Adapters emit `NormalizedContract`; the normalization layer
-adds cross-venue grouping keys (canonical event text, canonical outcome).
-Normalization MUST be conservative: it creates CANDIDATE groups only and never
-decides equivalence — that is the matching pipeline's job (§18–§20).
+adds cross-venue grouping keys (candidate blocking per §96; canonical
+outcome). Normalization MUST be conservative: it creates CANDIDATE groups
+only and never decides equivalence — that is the matching pipeline's job
+(§18–§20).
 **Evidence.** `prediction_arb/normalization/contracts.py`,
 `normalization/outcomes.py`, `normalization/venues.py`,
 `normalization/settlement.py`.
@@ -172,15 +173,19 @@ titles) for semantic contract equivalence only. Its default MUST be
 conservative: no LLM configured ⇒ no match; LLM outage ⇒ no match; low
 confidence ⇒ no match. False negatives are preferred over false positives.
 **Evidence.** `prediction_arb/matching/llm_matcher.py`,
-`docs/LLM_MATCHING.md`, `tests/test_units.py`
-(`test_no_llm_configured_is_no_match`).
+`prediction_arb/matching/llm_client.py` (§97), `docs/LLM_MATCHING.md`,
+`tests/test_units.py` (`test_no_llm_configured_is_no_match`),
+`tests/test_llm_client.py`.
 
 ### §20 — Match certificates  `[C,T]`
 **Requirement.** Every pair decision MUST produce a persistable certificate
 recording both contract identities and versions, deterministic check results,
 LLM verdict and confidence, final status (APPROVED / REJECTED / REVIEW),
 independence classification, and the matcher/LLM-model/prompt versions. Only
-APPROVED certificates may reach the arbitrage search.
+APPROVED certificates may reach the arbitrage search. A certificate MUST be
+APPROVED only when the venue relationship is proven INDEPENDENT (§33):
+same-venue frontends and unresolved relationships are REVIEW, never
+APPROVED (2026-09-14, defect D15).
 **Evidence.** `prediction_arb/matching/match_certificates.py`,
 `matching/rules_validator.py`, `database/repository.py`
 (`save_match_certificate`), `arbitrage/optimizer.py`.
@@ -737,6 +742,48 @@ and are conservative (guaranteed-only arbitrage, limit orders only, market
 orders disallowed, UNKNOWN blocking enabled).
 **Evidence.** `config/settings.yaml`, `prediction_arb/core/config.py`.
 
+### §96 — Cross-venue candidate blocking  `[C,T]`
+**Requirement.** Added 2026-09-14 (defect D6 fix; replaces exact-title
+grouping). The normalization layer MUST generate cross-venue candidate
+groups by deterministic blocking, not by exact event text: contracts share
+a group when they share at least one blocking key from the families —
+settlement 24-hour UTC buckets (own bucket ±1), normalized
+category/product code, threshold + operator + units with canonicalized
+numbers, canonical numeric tokens from the title, and plural-folded
+stopword-filtered content words. Blocking MUST be recall-oriented and
+MUST only propose candidates: it never decides equivalence, never
+promotes a pair past the deterministic filter (§18, REJECT final), and
+never approves anything. Component ids MUST be stable across runs and
+input orderings.
+**Evidence.** `prediction_arb/normalization/contracts.py`
+(`blocking_keys`, `group_by_event`, `numeric_tokens`,
+`content_tokens`, `canonical_number`),
+`tests/test_candidate_generation.py`,
+`docs/LLM_MATCHING.md`, `docs/ROADMAP.md` (defect D6).
+
+### §97 — LLM client wiring and comparison budget  `[C,T]`
+**Requirement.** Added 2026-09-14 (defect D9 fix). The LLM matcher MUST be
+constructible from the mode env file — `LLM_API_BASE` / `LLM_API_KEY` /
+`LLM_MODEL`, optional `LLM_TIMEOUT_SECONDS` — against any
+OpenAI-compatible `/chat/completions` endpoint. The client MUST be
+transport only: verdict logic, schema validation (§88), caching (§87) and
+versioning stay in the matcher. Setting none of the variables MUST keep
+the conservative no-LLM default (ambiguous pairs → REVIEW, never
+auto-APPROVED, §19); setting a partial or malformed configuration MUST
+refuse startup. Transport failures (unreachable, non-200, non-JSON,
+unexpected shape) are no-match. A per-cycle comparison budget MUST bound
+new LLM calls per scan cycle: pairs beyond the budget fail closed to
+REVIEW, are NOT cached (a later cycle may still consider them), and cache
+hits never consume budget; the budget window resets once per
+`run_matching` call. The API key MUST never be logged.
+**Evidence.** `prediction_arb/matching/llm_client.py`
+(`build_llm_config`, `chat_completion`, `build_llm_matcher`),
+`prediction_arb/matching/llm_matcher.py` (`begin_cycle`,
+`max_comparisons_per_cycle`), `prediction_arb/modes/shared.py`
+(`run_matching` budget reset), `tests/test_llm_client.py`,
+`docs/API_SETUP.md` (LLM matcher section), `config/settings.yaml`
+(`llm.max_comparisons_per_cycle`), `docs/ROADMAP.md` (defect D9).
+
 ---
 
 ## Appendix A — Index of reconstructed sections
@@ -816,6 +863,8 @@ orders disallowed, UNKNOWN blocking enabled).
 | §90 | Data-collection mode | [C,D] | `prediction_arb/modes/collect/engine.py`, `main.py` |
 | §92 | No fabricated history or data | [C,D,T] | `prediction_arb/modes/historical/engine.py`, `backtesting/engine.py` |
 | §95 | Safe defaults | [G,C] | `config/settings.yaml`, `prediction_arb/core/config.py` |
+| §96 | Cross-venue candidate blocking | [C,T] | `prediction_arb/normalization/contracts.py`, `tests/test_candidate_generation.py`, `docs/LLM_MATCHING.md` |
+| §97 | LLM client wiring and comparison budget | [C,T] | `prediction_arb/matching/llm_client.py`, `prediction_arb/matching/llm_matcher.py`, `tests/test_llm_client.py`, `docs/API_SETUP.md` |
 
 ## Appendix B — Numbers with no surviving citation
 
@@ -890,4 +939,3 @@ Tag distribution:
 5. If the original specification is ever recovered, this file becomes a
    diff target: replace inferred text with the real text, keep the numbers,
    and drop the `[I]` tags that no longer apply.
-

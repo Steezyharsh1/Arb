@@ -97,9 +97,25 @@ live mode is monitor-only by construction.
   complementary asks. Official hosts, formats, sequencing, limits, and fees
   were documentation-verified on 2026-09-13; a fresh sandbox network smoke
   test was **UNAVAILABLE**, not reported as live-tested.
-- Full paper/collect pipeline: discovery → normalization → deterministic +
-  LLM-gated matching → certificates → order-book walking → fee/slippage/
-  settlement costing → risk checks → simulated execution. Incomplete fees
+- Cross-venue **candidate generation now works**: contracts are grouped by
+  deterministic blocking (settlement-window buckets, category, threshold +
+  operator + units, numeric tokens and content words of the titles) instead
+  of exact title text, so the same real-world event phrased differently on
+  two venues actually becomes a candidate pair. Blocking only proposes
+  candidates — the deterministic matcher still rejects on any hard
+  mismatch, and its REJECT is final.
+- **The LLM matcher is now wired** (optional, owner-supplied key): put
+  `LLM_API_BASE` / `LLM_API_KEY` / `LLM_MODEL` in `.env.paper` and any
+  OpenAI-compatible endpoint can approve cross-venue matches — with
+  schema validation (malformed/contradictory output ⇒ no match), outage
+  ⇒ no-match, per-cycle cost budget, and model/prompt versions recorded
+  on every certificate. With **no** key configured everything still runs,
+  but every ambiguous pair ends in REVIEW and nothing is ever evaluated
+  for arbitrage — never auto-APPROVED.
+- Full paper/collect pipeline: discovery → normalization → blocking-based
+  candidate generation → deterministic + LLM-gated matching → certificates
+  → order-book walking → fee/slippage/settlement costing → risk checks →
+  simulated execution. Incomplete fees
   now block rather than becoming estimates, so direct Kalshi opportunities
   remain blocked until contextual metadata is integrated.
 - Collect mode now records the **full** normalized contract — settlement
@@ -130,7 +146,7 @@ live mode is monitor-only by construction.
   Books that fail the freshness gate are counted and reported, never
   silently dropped.
 - Mode isolation, kill switch, crash-recovery intents, and all ten mandatory
-  spec cases are covered by the test suite (`pytest` — 264 passing, all
+  spec cases are covered by the test suite (`pytest` — 311 passing, all
   offline).
 - Fees are charged **per fill** from the levels a walk actually consumed,
   with each venue's documented rounding, and Polymarket US's exact
@@ -189,5 +205,9 @@ MODE_SEPARATION, CRASH_RECOVERY.
   adapter references; the Kalshi adapter refuses order placement unless
   constructed for live mode; the firewall re-verifies 15 conditions per
   order; UNKNOWN never means yes.
+- Match certificates are APPROVED only for pairs whose venue relationship
+  is **proven INDEPENDENT** — same-venue frontends (e.g. Kalshi contracts
+  reached through Webull) and any unresolved relationship end in REVIEW
+  for human handling, never in an APPROVED certificate.
 - Nothing here is financial or legal advice. Verify venue terms, fees,
   and Utah eligibility yourself before funding live trading.

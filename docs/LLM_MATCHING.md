@@ -8,7 +8,9 @@ deterministic filters.
 
 ```
 ALL MARKETS
-  → event grouping (canonical text + settlement date)   [cheap]
+  → candidate blocking (§96: settlement 24h buckets ±1, category,
+    threshold + operator + units, numeric title tokens, plural-folded
+    content words; connected components)                  [cheap, recall-first]
   → deterministic filter (outcome type, payout, settlement ±6h,
     threshold/operator/units, resolution presence, early-resolution
     symmetry)                                            [REJECT is final]
@@ -17,6 +19,12 @@ ALL MARKETS
   → rules validator (deterministic wins; UNKNOWN independence → REVIEW)
   → match certificate (APPROVED / REJECTED / REVIEW), persisted
 ```
+
+Blocking only *proposes* cross-venue candidate pairs; it never decides
+equivalence and can never promote a pair past the deterministic filter.
+Exact-text grouping (the pre-2026-09-14 behaviour) was defect D6: two
+venues never phrase the same event identically, so no cross-venue pair
+was ever even considered.
 
 ## Failure protection (§88)
 
@@ -31,6 +39,20 @@ REVIEW for human handling, never auto-APPROVED.
 Results cached by (venue:contract_id:contract_version) pair key;
 re-run only when a contract's rules change. Certificates record
 matcher_version, llm_model_version, llm_prompt_version.
+
+## Client wiring & budget (§97, added 2026-09-14)
+
+`matching/llm_client.py` builds the matcher from the mode env file —
+`LLM_API_BASE` / `LLM_API_KEY` / `LLM_MODEL` (any OpenAI-compatible
+`/chat/completions` endpoint; `LLM_TIMEOUT_SECONDS` optional). It is
+transport only: verdict logic, schema validation and caching stay here.
+No configuration ⇒ conservative no-LLM default. Partial configuration
+refuses startup. A per-cycle comparison budget
+(`llm.max_comparisons_per_cycle`, default 200, reset by `begin_cycle()`
+once per `run_matching` call) bounds new LLM calls per scan cycle; pairs
+beyond the budget fail closed to REVIEW and are deliberately not cached,
+so a later cycle can still consider them. Cache hits never consume
+budget.
 
 ## Prompt contract
 
