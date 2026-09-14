@@ -130,7 +130,7 @@ live mode is monitor-only by construction.
   Books that fail the freshness gate are counted and reported, never
   silently dropped.
 - Mode isolation, kill switch, crash-recovery intents, and all ten mandatory
-  spec cases are covered by the test suite (`pytest` — 264 passing, all
+  spec cases are covered by the test suite (`pytest` — 288 passing, all
   offline).
 - Fees are charged **per fill** from the levels a walk actually consumed,
   with each venue's documented rounding, and Polymarket US's exact

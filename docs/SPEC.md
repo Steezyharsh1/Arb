@@ -137,9 +137,10 @@ INDEPENDENT pairs are eligible for guaranteed arbitrage.
 
 ### §16 — Contract normalization  `[C]`
 **Requirement.** Adapters emit `NormalizedContract`; the normalization layer
-adds cross-venue grouping keys (canonical event text, canonical outcome).
-Normalization MUST be conservative: it creates CANDIDATE groups only and never
-decides equivalence — that is the matching pipeline's job (§18–§20).
+adds cross-venue grouping keys (candidate blocking per §96; canonical
+outcome). Normalization MUST be conservative: it creates CANDIDATE groups
+only and never decides equivalence — that is the matching pipeline's job
+(§18–§20).
 **Evidence.** `prediction_arb/normalization/contracts.py`,
 `normalization/outcomes.py`, `normalization/venues.py`,
 `normalization/settlement.py`.
@@ -737,6 +738,25 @@ and are conservative (guaranteed-only arbitrage, limit orders only, market
 orders disallowed, UNKNOWN blocking enabled).
 **Evidence.** `config/settings.yaml`, `prediction_arb/core/config.py`.
 
+### §96 — Cross-venue candidate blocking  `[C,T]`
+**Requirement.** Added 2026-09-14 (defect D6 fix; replaces exact-title
+grouping). The normalization layer MUST generate cross-venue candidate
+groups by deterministic blocking, not by exact event text: contracts share
+a group when they share at least one blocking key from the families —
+settlement 24-hour UTC buckets (own bucket ±1), normalized
+category/product code, threshold + operator + units with canonicalized
+numbers, canonical numeric tokens from the title, and plural-folded
+stopword-filtered content words. Blocking MUST be recall-oriented and
+MUST only propose candidates: it never decides equivalence, never
+promotes a pair past the deterministic filter (§18, REJECT final), and
+never approves anything. Component ids MUST be stable across runs and
+input orderings.
+**Evidence.** `prediction_arb/normalization/contracts.py`
+(`blocking_keys`, `group_by_event`, `numeric_tokens`,
+`content_tokens`, `canonical_number`),
+`tests/test_candidate_generation.py`,
+`docs/LLM_MATCHING.md`, `docs/ROADMAP.md` (defect D6).
+
 ---
 
 ## Appendix A — Index of reconstructed sections
@@ -816,6 +836,7 @@ orders disallowed, UNKNOWN blocking enabled).
 | §90 | Data-collection mode | [C,D] | `prediction_arb/modes/collect/engine.py`, `main.py` |
 | §92 | No fabricated history or data | [C,D,T] | `prediction_arb/modes/historical/engine.py`, `backtesting/engine.py` |
 | §95 | Safe defaults | [G,C] | `config/settings.yaml`, `prediction_arb/core/config.py` |
+| §96 | Cross-venue candidate blocking | [C,T] | `prediction_arb/normalization/contracts.py`, `tests/test_candidate_generation.py`, `docs/LLM_MATCHING.md` |
 
 ## Appendix B — Numbers with no surviving citation
 
@@ -890,4 +911,3 @@ Tag distribution:
 5. If the original specification is ever recovered, this file becomes a
    diff target: replace inferred text with the real text, keep the numbers,
    and drop the `[I]` tags that no longer apply.
-

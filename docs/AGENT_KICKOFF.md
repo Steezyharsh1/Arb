@@ -187,7 +187,21 @@ _Status note (2026-09-13, second pass): the owner selected Polymarket US. The ad
   fee/eligibility context, and one real overlap persisted as APPROVED or REVIEW
   (never fabricated or forced).
 
-### M4 — Make matching able to match (Phase 5, defects D6 + D9)
+### M4 — Make matching able to match (Phase 5, defects D6 + D9) · **D6 FIXED 2026-09-14; D9 wiring next**
+_Status note (2026-09-14): **D6 is fixed.** `group_by_event` now builds
+candidate groups by deterministic blocking (§96: settlement 24h buckets ±1,
+category, threshold+operator+units, canonical numeric title tokens,
+plural-folded content words) instead of exact canonical title + settlement
+date, so differently-phrased cross-venue events actually become candidates.
+Blocking only proposes — the deterministic matcher (§18) remains the sole
+authority and a REJECT stays final; verified by 24 tests in
+`tests/test_candidate_generation.py`, mutation-checked by reverting the
+fix (6 tests fail). The end-to-end chain (candidate → deterministic pass →
+certificate → optimizer) is exercised offline with a stub LLM. Still open:
+D9 (real LLM client wiring) and the owner-gated exit evidence on real
+two-venue data. New finding **D15** registered: `validate_match` can stamp
+a SAME_VENUE pair APPROVED (search_event still refuses to evaluate it) —
+see the defect register._
 - **D6** is the silent killer: `normalized_event_key` groups by exact
   canonical title + settlement date, so two venues describing the same
   event differently never become candidates. Replace with real blocking

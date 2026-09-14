@@ -24,7 +24,7 @@ Status tags used throughout:
 
 | Check | Result |
 |---|---|
-| `pytest` | **264 passed** (~24s), re-run 2026-09-13 after the Phase 4/6 pass: Phase 0's 107 + 11 Phase 1 fee/provenance/compliance + 26 Phase 2 (22 Kalshi host-failover/bulk/WS-streaming/rate-limit + 4 paper-streaming) + 41 Phase 3 Polymarket US + 24 exact-fee-model (`tests/test_polymarket_fees.py`) + 12 smoke-script/D14 (`tests/test_kalshi_smoke_script.py`, `tests/test_units.py::TestRateLimitCalibration`) + 3 per-fill accuracy + **25 Phase 4** (`tests/test_phase4_recording.py`: contract round-trip, migration 002, read-only recorded store, no-fabrication decode, backtest metrics) + **14 Phase 6** (`tests/test_paper_realism.py`: fill probability, book freshness — both mutation-verified). All offline: mock HTTP transports and a scripted local WebSocket server |
+| `pytest` | **288 passed** (~25s), re-run 2026-09-14 after the D6 fix: the 264 from 2026-09-13 (Phase 0's 107 + 11 Phase 1 fee/provenance/compliance + 26 Phase 2 + 41 Phase 3 + 24 exact-fee-model + 12 smoke-script/D14 + 3 per-fill accuracy + 25 Phase 4 + 14 Phase 6) + **24 candidate-generation tests** (`tests/test_candidate_generation.py`: blocking families, grouping, end-to-end candidate→certificate→opportunity — mutation-verified). All offline: mock HTTP transports and a scripted local WebSocket server |
 | `python -m prediction_arb.main --status` | Works: kalshi=VERIFIED, polymarket_us=API_DOCUMENTED_UNTESTED, forecast_ex=API_DOCUMENTED_UNTESTED; independence matrix correct (kalshi↔polymarket_us = INDEPENDENT) |
 | `python -m prediction_arb.main --readiness` | 0 snapshots recorded in a fresh clone; **0 opportunities ever analyzed**; live NOT RECOMMENDED. (The 13,801-snapshot figure below was from the previous engineer's working copy — the DB is git-ignored, so a fresh clone starts empty.) |
 | Live-capable venues | **1** (Kalshi). Polymarket US is implemented and INDEPENDENT, but stays API_DOCUMENTED_UNTESTED until the owner captures observed-payload evidence (P7) |
@@ -51,7 +51,7 @@ wiring, and exact contextual fee/eligibility data remain independent blockers.
 | 2 | Kalshi adapter refresh + streaming | PARTIAL — code complete + verification script delivered 2026-09-13 (D5, D14 fixed); **owner run pending** | 24h collect run with ≥99% cycle success; WebSocket streaming in paper |
 | 3 | **Second independent venue adapter** | PARTIAL — adapter + exact fee model complete 2026-09-13 (gate 3 CLOSED); **gates 1, 2, 4 are owner-gated** | Real books from the owner-selected venue proven INDEPENDENT of Kalshi, in paper mode |
 | 4 | Data lineage, replay, backtest metrics | CODE COMPLETE 2026-09-13 (D3, D4 fixed); **exit needs owner's real collected data** | `--mode historical --date …` replays recorded data and reports metrics |
-| 5 | Matching that can actually match | BROKEN (D6, D9) | APPROVED certificates produced from real cross-venue data |
+| 5 | Matching that can actually match | PARTIAL — D6 fixed 2026-09-14 (blocking, §96); **D9 (LLM wiring) open**; real-data exit owner-gated | APPROVED certificates produced from real cross-venue data |
 | 6 | Paper validation & realism | PARTIAL — D11, D12 fixed 2026-09-13; **owner's multi-week run pending** | Multi-week paper run with realistic fill/staleness modelling |
 | 7 | Compliance & legal re-verification | PARTIAL — 2026-09-13 Utah/CFTC snapshot complete | Owner/legal review and venue/category eligibility evidence before live |
 | 8 | Live readiness & first live path | NOT STARTED (HUMAN) | IBKR paper + Kalshi demo drills, then a capped live trade |
@@ -228,6 +228,12 @@ verification script the owner can run to confirm both hosts and the book
 format." The script did not exist. It does now:
 
 - **`scripts/kalshi_smoke.py` (new).** Read-only, GET-only, never
+  constructs an adapter with order placement enabled. Public checks (no
+  key): probes the recommended `external-api` host *and* the legacy
+  `api.elections` fallback individually, confirms `exchange_active`,
+  normalizes markets, and re-verifies the **book format** — fixed-point
+  `orderbook_fp` envelope, `[dollar-string, quantity-string]` level pairs,
+  both bid ladders present, YES asks synthesised as `1 − NO bid`, and Read-only, GET-only, never
   constructs an adapter with order placement enabled. Public checks (no
   key): probes the recommended `external-api` host *and* the legacy
   `api.elections` fallback individually, confirms `exchange_active`,
@@ -560,15 +566,30 @@ acceptance run.
 
 ---
 
-### Phase 5 — Matching that can actually match  ·  BROKEN
+### Phase 5 — Matching that can actually match  ·  PARTIAL — D6 FIXED 2026-09-14; D9 (LLM wiring) next
 
-- D6: `prediction_arb/normalization/contracts.py::normalized_event_key` groups by
+- ~~D6: `prediction_arb/normalization/contracts.py::normalized_event_key` groups by
   *exact canonical title + settlement date*. Two venues phrase the same
   event differently, so cross-venue pairs will essentially never land in
-  the same group — the matcher never even sees them. Replace with real
-  candidate generation (blocking): settlement window ± tolerance,
-  category/product code, threshold + operator + units, numeric tokens
-  extracted from titles, then fuzzy/embedding similarity, then the LLM.
+  the same group — the matcher never even sees them.~~ **FIXED
+  2026-09-14.** Grouping is now real blocking (§96):
+  `blocking_keys()` emits per-contract keys from five deterministic
+  families — 24h UTC settlement buckets (own bucket ±1, so a 23:00 vs
+  01:00-next-day timestamp disagreement still groups), category/product
+  code, threshold + operator + units (number-canonicalized so `10000.00`
+  and `1E+4` block together), canonical numeric tokens extracted from
+  titles (`$100k` and `$100,000` block together), and plural-folded,
+  stopword-filtered content words. `group_by_event` returns the connected
+  components of the shared-key graph (union-find, stable component ids).
+  Blocking is candidate generation only and deliberately recall-oriented:
+  the deterministic matcher (§18, REJECT final) still decides everything;
+  blocking can only widen what it sees, never approve. 24 tests in
+  `tests/test_candidate_generation.py`, **mutation-verified** (reverting
+  `group_by_event` to exact-text grouping fails 6 of them, including the
+  end-to-end one). Fuzzy/embedding similarity is deliberately NOT a
+  separate stage: content-word blocking is the deterministic fuzzy net
+  here, and no embedding provider has been verified — the semantic stage
+  is the (schema-validated) LLM, per §89.
 - D9: no LLM client is configured, so every ambiguous pair ends in
   REVIEW and `search_event` (which requires APPROVED certificates)
   evaluates nothing. Wire a real client in `main.py` per
@@ -579,7 +600,11 @@ acceptance run.
 
 Exit: on real two-venue data the pipeline emits candidate pairs,
 certificates with statuses, and a measurable false-match rate reviewed
-by a human.
+by a human. The pipeline side is now exercised end-to-end offline
+(`tests/test_candidate_generation.py::TestPipelineEmitsCandidates`:
+differently-phrased cross-venue pair → candidate → deterministic pass →
+APPROVED certificate → evaluated opportunity); the exit criterion itself
+still needs the owner's real two-venue data (Phase 2/3 owner gates).
 
 ---
 
@@ -683,7 +708,7 @@ collection), and log rotation.
 | D3 | ~~Collect data is invisible to historical replay~~ **FIXED 2026-09-13**: `Repository` gained a `read_only` handle (SQLite `mode=ro`, so writes are refused by the engine, not by convention) and `_assert_mode_tag` a narrow allowance — `read_only` **and** `mode=HISTORICAL` **and** a `collect`/`paper` tag. `AppConfig.recorded_store_path` is derived from the same constants collect writes with, so replay and the writer cannot drift. A missing store raises instead of creating an empty DB; a `live`-tagged store is still refused | Was: collect → `data/paper/…` (tagged `mode=collect`); historical → `data/historical/…` (0 rows); report showed `frames: 0`. Now: `tests/test_phase4_recording.py::TestRecordedStoreAccess` (6 tests) | 4 |
 | D4 | ~~Recorded markets lose the metadata matching needs~~ **FIXED 2026-09-13**: `MarketRow` gained 26 nullable columns (`SCHEMA_VERSION` 1 → 2) and migration `002` is forward-only and `PRAGMA`-guarded, so a fresh DB does not die on "duplicate column name" and a real v1 DB upgrades with its rows intact. `record_contract()` persists all 37 `NormalizedContract` fields plus the raw payload; `database/contract_codec.py` owns both directions. **Decode never invents** — an under-recorded row returns `None` and is counted, replacing the old invented `payout=1.00` / `tick_size=0.01` / `contract_version="historical"` | Was: `MarketRow` had 11 columns; `_reconstruct_contract` set `settlement_time=None`, `resolution_source=""` → `deterministic_match` rejected on both. Now: `test_record_contract_round_trips_every_field` asserts an empty difference list across all 37 fields | 4 |
 | D5 | ~~Kalshi on legacy host, intermittent failures, no failover~~ **FIXED IN CODE 2026-09-13**: recommended `external-api` hosts configured, legacy hosts kept as fallbacks, 5xx/transport failover + connect-time probing, bulk books, WS streaming, tier-aware budget clamping (26 tests). *Operational verification (24h run on the owner's machine) still pending — see Phase 2 section* | Was: `config/venues.yaml` → `api.elections.kalshi.com`; collect log: 18 DNS failures + 14 HTTP 500s | 2 |
-| D6 | Cross-venue candidate generation cannot produce candidates | `normalized_event_key` = exact canonical title + settlement date | 5 |
+| D6 | ~~Cross-venue candidate generation cannot produce candidates~~ **FIXED IN CODE 2026-09-14**: `group_by_event` now unions contracts over five deterministic blocking-key families (settlement 24h buckets ±1, category, threshold+operator+units, canonical numeric tokens, plural-folded content words) instead of exact canonical title + settlement date; recall-oriented by design, and the deterministic matcher stays the only authority (§18/§96). 24 tests in `tests/test_candidate_generation.py`, mutation-verified. *Exit evidence on real two-venue data remains owner-gated (Phases 2/3)* | Was: `normalized_event_key` = exact canonical title + settlement date → cross-venue pairs never candidates. Now: `tests/test_candidate_generation.py` (e.g. `test_differently_phrased_same_event_group_together`, `test_pipeline_finds_cross_venue_opportunity`) | 5 |
 | D7 | ~~Venue research stale~~ **FIXED 2026-09-13**: evidence ledger now covers direct DCMs, aliases, multi-route frontends, fees, Utah/CFTC context, and ranked candidates; old “only one independent pair” premise removed | `docs/VENUE_RESEARCH.md`; provenance/fee/compliance registries; focused tests | 1 |
 | D8 | ~~Spec document missing~~ **FIXED 2026-09-13**: `docs/SPEC.md` reconstructs all 73 cited sections from code/docs/tests/config evidence, with `[I]` flags on the two thin ones (§33, §68) and an appendix of the 22 numbers that have no surviving citation | Was: 73 distinct `§` sections cited at 224 sites with no spec file. Now: `grep -c "^### §" docs/SPEC.md` → 73 | 0 |
 | D9 | No LLM configured ⇒ no APPROVED certificates ⇒ nothing is ever evaluated | `main.py`: `LLMMatcher(client=None)`; `optimizer.search_event` skips pairs without approval | 5 |
@@ -786,6 +811,24 @@ steps for that route:
    evidence to `reports/evidence/polymarket_us_<UTC>.json` (git-ignored).
 3. Paste that evidence into the Phase 3 completion record, then the
    adapter's `get_api_status()` can be promoted from
+   `API_DOCUMENTED_UNTESTED` to `VERIFIED` — which is what makes collect
+   mode start recording the venue.
+4. *(Optional, streaming only.)* Create an API key at
+   polymarket.us/developer and put `POLYMARKET_KEY_ID` /
+   `POLYMARKET_SECRET_KEY` in `.env.paper`. Requires the iOS app plus
+   identity verification. Books work without it. Keep credentials local;
+   never paste them into chat or commit them.
+
+**H5 — Decide the data policy**
+Recorded market data is already 17 MB for one day of collection. Decide
+how long to retain it and whether any of it belongs in git (recommended:
+none; keep it local or in external storage).
+
+**H6 — Say the word before anything live**
+Nothing in Phases 0–7 places a real order. Live work starts only in
+Phase 8, only after paper/demo drills, and only with your typed
+confirmation phrase.
+_api_status()` can be promoted from
    `API_DOCUMENTED_UNTESTED` to `VERIFIED` — which is what makes collect
    mode start recording the venue.
 4. *(Optional, streaming only.)* Create an API key at

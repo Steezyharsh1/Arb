@@ -8,7 +8,9 @@ deterministic filters.
 
 ```
 ALL MARKETS
-  → event grouping (canonical text + settlement date)   [cheap]
+  → candidate blocking (§96: settlement 24h buckets ±1, category,
+    threshold + operator + units, numeric title tokens, plural-folded
+    content words; connected components)                  [cheap, recall-first]
   → deterministic filter (outcome type, payout, settlement ±6h,
     threshold/operator/units, resolution presence, early-resolution
     symmetry)                                            [REJECT is final]
@@ -17,6 +19,12 @@ ALL MARKETS
   → rules validator (deterministic wins; UNKNOWN independence → REVIEW)
   → match certificate (APPROVED / REJECTED / REVIEW), persisted
 ```
+
+Blocking only *proposes* cross-venue candidate pairs; it never decides
+equivalence and can never promote a pair past the deterministic filter.
+Exact-text grouping (the pre-2026-09-14 behaviour) was defect D6: two
+venues never phrase the same event identically, so no cross-venue pair
+was ever even considered.
 
 ## Failure protection (§88)
 
