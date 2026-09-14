@@ -24,15 +24,16 @@ Status tags used throughout:
 
 | Check | Result |
 |---|---|
-| `pytest` | **185 passed** (~17s): Phase 0's 107 + 11 Phase 1 fee/provenance/compliance + 26 Phase 2 tests — 22 Kalshi host-failover/bulk/WS-streaming/rate-limit + 4 paper-streaming integration + 41 Phase 3 Polymarket US tests (all offline) |
-| `python -m prediction_arb.main --status` | Works: kalshi=VERIFIED, forecast_ex=API_DOCUMENTED_UNTESTED; independence matrix correct |
-| `python -m prediction_arb.main --readiness` | 13,801 snapshots recorded; **0 opportunities ever analyzed**; live NOT RECOMMENDED |
+| `pytest` | **264 passed** (~24s), re-run 2026-09-13 after the Phase 4/6 pass: Phase 0's 107 + 11 Phase 1 fee/provenance/compliance + 26 Phase 2 (22 Kalshi host-failover/bulk/WS-streaming/rate-limit + 4 paper-streaming) + 41 Phase 3 Polymarket US + 24 exact-fee-model (`tests/test_polymarket_fees.py`) + 12 smoke-script/D14 (`tests/test_kalshi_smoke_script.py`, `tests/test_units.py::TestRateLimitCalibration`) + 3 per-fill accuracy + **25 Phase 4** (`tests/test_phase4_recording.py`: contract round-trip, migration 002, read-only recorded store, no-fabrication decode, backtest metrics) + **14 Phase 6** (`tests/test_paper_realism.py`: fill probability, book freshness — both mutation-verified). All offline: mock HTTP transports and a scripted local WebSocket server |
+| `python -m prediction_arb.main --status` | Works: kalshi=VERIFIED, polymarket_us=API_DOCUMENTED_UNTESTED, forecast_ex=API_DOCUMENTED_UNTESTED; independence matrix correct (kalshi↔polymarket_us = INDEPENDENT) |
+| `python -m prediction_arb.main --readiness` | 0 snapshots recorded in a fresh clone; **0 opportunities ever analyzed**; live NOT RECOMMENDED. (The 13,801-snapshot figure below was from the previous engineer's working copy — the DB is git-ignored, so a fresh clone starts empty.) |
 | Live-capable venues | **1** (Kalshi). Polymarket US is implemented and INDEPENDENT, but stays API_DOCUMENTED_UNTESTED until the owner captures observed-payload evidence (P7) |
-| `data/paper/…sqlite3` | 21,892 markets (all Kalshi, mostly sports), 13,801 book snapshots spanning 2026-08-30 → 2026-09-05, tagged `mode=collect` |
+| `data/paper/…sqlite3` | Not present in a fresh clone (git-ignored). Previously 21,892 markets / 13,801 book snapshots spanning 2026-08-30 → 2026-09-05, tagged `mode=collect` |
 | `data/historical/…sqlite3` | **Empty** (0 rows in every table) |
 | `reports/historical/…json` | `{"frames": 0, "opportunities": 0}` |
-| `logs/collect/collect_20260831.jsonl` | 32 error rows: 18× DNS failure, 14× Kalshi HTTP 500 (2026-08-31 → 2026-09-04) |
-| Outbound network from this sandbox | Kalshi unreachable (TLS closed) — venue calls must be verified on the user's machine |
+| `logs/collect/collect_20260831.jsonl` | Not present in a fresh clone. Previously 32 error rows: 18× DNS failure, 14× Kalshi HTTP 500 (2026-08-31 → 2026-09-04) |
+| CI | **Has run and is green**: 10 completed runs, all `success`, including run 34777759265 on `main` (`gh run list`) |
+| Outbound network from this sandbox | Venues unreachable (TLS closed on `external-api.kalshi.com`, `api.elections.kalshi.com`, `gateway.polymarket.us`, `api.polymarket.us`) — venue calls must be verified on the owner's machine. **Documentation hosts ARE reachable through the research tooling**, which is how rows P8–P12 and R9 were re-verified |
 
 **Bottom line:** the safety architecture and Phase 1 fail-closed research
 registries are tested, but the opportunity pipeline has never produced a
@@ -47,11 +48,11 @@ wiring, and exact contextual fee/eligibility data remain independent blockers.
 |---|---|---|---|
 | 0 | Repo hygiene, packaging, runnability, spec reconstruction | **DONE 2026-09-13** | Fresh clone → `pip install -e ".[dev]"` → full suite passes → CLI runs, no manual hacks |
 | 1 | Venue & API research refresh (2026) | **DONE 2026-09-13 — OWNER CHECKPOINT** | Owner selects Polymarket US, Gemini, or IBKR route before adapter work |
-| 2 | Kalshi adapter refresh + streaming | PARTIAL — code complete 2026-09-13 (D5 fixed in code); 24h run pending | 24h collect run with ≥99% cycle success; WebSocket streaming in paper |
-| 3 | **Second independent venue adapter** | PARTIAL — Polymarket US route chosen + adapter code complete 2026-09-13; live promotion pending | Real books from the owner-selected venue proven INDEPENDENT of Kalshi, in paper mode |
-| 4 | Data lineage, replay, backtest metrics | BROKEN (D3, D4) | `--mode historical --date …` replays recorded data and reports metrics |
+| 2 | Kalshi adapter refresh + streaming | PARTIAL — code complete + verification script delivered 2026-09-13 (D5, D14 fixed); **owner run pending** | 24h collect run with ≥99% cycle success; WebSocket streaming in paper |
+| 3 | **Second independent venue adapter** | PARTIAL — adapter + exact fee model complete 2026-09-13 (gate 3 CLOSED); **gates 1, 2, 4 are owner-gated** | Real books from the owner-selected venue proven INDEPENDENT of Kalshi, in paper mode |
+| 4 | Data lineage, replay, backtest metrics | CODE COMPLETE 2026-09-13 (D3, D4 fixed); **exit needs owner's real collected data** | `--mode historical --date …` replays recorded data and reports metrics |
 | 5 | Matching that can actually match | BROKEN (D6, D9) | APPROVED certificates produced from real cross-venue data |
-| 6 | Paper validation & realism | PARTIAL (D11, D12) | Multi-week paper run with realistic fill/staleness modelling |
+| 6 | Paper validation & realism | PARTIAL — D11, D12 fixed 2026-09-13; **owner's multi-week run pending** | Multi-week paper run with realistic fill/staleness modelling |
 | 7 | Compliance & legal re-verification | PARTIAL — 2026-09-13 Utah/CFTC snapshot complete | Owner/legal review and venue/category eligibility evidence before live |
 | 8 | Live readiness & first live path | NOT STARTED (HUMAN) | IBKR paper + Kalshi demo drills, then a capped live trade |
 | 9 | v2 strategy surface (multi-leg, logical, routing) | NOT STARTED | Behind existing stubs, only after Phase 6 evidence |
@@ -112,7 +113,9 @@ green; `python -m prediction_arb.main --status` prints the venue table;
 | Docs updated for the new layout and commands | `README.md`, `docs/API_SETUP.md`, `docs/ARCHITECTURE.md`, `docs/TESTING.md`, and package-qualified module paths throughout `docs/` |
 
 Still open from Phase 0 (deliberately not done unilaterally):
-1. **CI has not run** — it executes on the first push/pull request.
+1. ~~**CI has not run**~~ **CLOSED 2026-09-13** — verified with `gh run list`:
+   10 completed runs, all `success`, including run `34777759265` on `main`
+   (the merge of PR #3) and the per-PR runs for Phases 0, 1, 2 and 3.
 2. **Git history still contains the 17 MB SQLite blob.** Untracking stops the
    bleed; removing it from history needs a rewrite (`git filter-repo`/BFG) and
    must be the owner's decision.
@@ -218,17 +221,56 @@ all offline — mock HTTP transport + scripted local WebSocket server):
   documented-conservative configured budgets (8/3 req/s, under the Basic
   tier) apply unchanged.
 
+#### Completion record — verification artifacts (2026-09-13, second pass)
+
+M2's exit criterion asked for two things: a clean collect run **and** "a
+verification script the owner can run to confirm both hosts and the book
+format." The script did not exist. It does now:
+
+- **`scripts/kalshi_smoke.py` (new).** Read-only, GET-only, never
+  constructs an adapter with order placement enabled. Public checks (no
+  key): probes the recommended `external-api` host *and* the legacy
+  `api.elections` fallback individually, confirms `exchange_active`,
+  normalizes markets, and re-verifies the **book format** — fixed-point
+  `orderbook_fp` envelope, `[dollar-string, quantity-string]` level pairs,
+  both bid ladders present, YES asks synthesised as `1 − NO bid`, and the
+  engine invariants the arbitrage core relies on (best-first ordering,
+  prices inside (0,1), positive sizes, uncrossed book). With a key it
+  additionally verifies tier discovery + budget clamping, endpoint costs,
+  bulk `GET /markets/orderbooks` against the per-ticker book, and
+  (with `--with-stream N`) the WebSocket with its sequencing counters.
+  Writes sanitized evidence to `reports/evidence/kalshi_<UTC>.json`
+  (git-ignored); exit 0 only when every hard check passes.
+- **12 offline tests** (`tests/test_kalshi_smoke_script.py`) cover the
+  script's decision functions and safety posture, since the network path
+  cannot run here.
+- **Run in this sandbox (2026-09-13):** it correctly probed both bases,
+  recorded `TLS/SSL connection has been closed (EOF)` for each, wrote the
+  evidence file, and exited `1`. That is the honest K9 result, not a
+  pass — the same script on the owner's machine is what turns K9 into
+  observed evidence.
+- **D14 fixed** (found while wiring the script): `main.py` read
+  `rate_limit_headroom` from the top level of `venues.yaml` instead of
+  under its `venues:` key, so the operator's configured headroom was
+  silently ignored and the hardcoded `0.8` always used. Harmless only
+  while the two values matched. Fixed + 3 regression tests; verified by
+  mutation (revert the fix → the test fails with `headroom=0.8`).
+
 Still open (exit criterion — requires the owner's machine + key):
 
 1. **H2:** Kalshi API key in `.env.paper` (needed to exercise WS, bulk
    books, and tier discovery against the real venue — and to verify the
    handshake signature against a live session).
-2. A 24-hour `--mode collect` run with ≥99% successful cycles and no
+2. **Run `python scripts/kalshi_smoke.py`** on a machine that can reach
+   Kalshi (no key needed for the public checks; add `--with-stream 10`
+   once H2 is done) and paste the evidence file into this section. This is
+   the single step that converts K9 from UNAVAILABLE to observed.
+3. A 24-hour `--mode collect` run with ≥99% successful cycles and no
    unhandled 5xx, plus a paper session confirming sub-second streaming
    staleness. Feed counters (`snapshots`, `deltas_applied`,
    `sequence_gaps`, `reconnects`) are exposed via
    `adapter.streaming_stats()` for that evidence.
-3. K9 stands: no fresh live endpoint validation from this sandbox
+4. K9 stands: no fresh live endpoint validation from this sandbox
    (TLS EOF); nothing here is labelled live-tested.
 
 Exit: a 24-hour `--mode collect` run with ≥99% successful cycles and no
@@ -313,14 +355,35 @@ has real two-venue data for the first time.
 
 1. **Utah/account eligibility** for Polymarket US non-sports categories,
    resolved through an authorized workflow. Never geo-bypass. Sports
-   stays RESTRICTED regardless of venue.
-2. **Observed-payload evidence** via the smoke script above (gate 2).
-3. **Exact fee context** — the cumulative aggressive-order cap and
-   banker's rounding must be modelled before any execution use (P8).
+   stays RESTRICTED regardless of venue. *Re-checked 2026-09-13 (row R9):
+   the venue's own trading-restrictions page says nothing about states, and
+   secondary sources contradict each other about Utah — so this stays
+   UNKNOWN and live-blocking. Only the venue's terms/your account
+   dashboard or legal review can close it.* **OWNER.**
+2. **Observed-payload evidence** via the smoke script below (gate 2).
+   **OWNER** — this sandbox cannot reach the venue (P7).
+3. ~~**Exact fee context**~~ **CLOSED 2026-09-13.** The cumulative
+   aggressive-order cap and banker's rounding are now modelled exactly
+   (P11): `rounding: half_even`, `order_fee_cap: cumulative_exact_rounded`,
+   `trade_calculation_status: COMPLETE`, verified by reproducing all 198
+   values of the venue's own published 100-lot fee table, plus the FAQ's
+   two banker's-rounding examples and a multi-fill cap case. Volume rebates
+   are recorded but deliberately never applied (weekly payout on prior-month
+   volume, not a per-trade discount). Fees are charged **per fill** from the
+   walked levels, which is what the cap is defined over (D13, fixed).
+   **Settlement fees remain `INCOMPLETE — BLOCK`** (P12: no settlement fee
+   is published anywhere reviewed, and documented-by-absence is not
+   verification), so Polymarket US opportunities still fail closed until
+   that is settled by the rulebook or an owner account statement.
 4. **≥1 real Kalshi cross-listing** persisted as APPROVED or REVIEW,
    never forced. This is blocked behind **D6** (candidate generation)
    and **D9** (no LLM client), which is why Phase 5 should follow
    immediately rather than adding venue #3.
+
+```bash
+python scripts/polymarket_us_smoke.py          # read-only, no credentials
+python scripts/kalshi_smoke.py                 # read-only, no credentials
+```
 
 ---
 
@@ -364,27 +427,136 @@ is persisted as APPROVED or REVIEW (never forced to APPROVED).
 
 ---
 
-### Phase 4 — Data lineage, replay, backtest metrics  ·  BROKEN
+### Phase 4 — Data lineage, replay, backtest metrics  ·  CODE COMPLETE 2026-09-13 (exit needs owner data)
 
-- D3: recorded data lands in the paper DB; historical mode opens an
+- ~~D3: recorded data lands in the paper DB; historical mode opens an
   empty DB; `Repository._assert_mode_tag` would refuse cross-mode reads
-  anyway. Decide the recorded-data store explicitly (e.g. collect
-  writes `data/recorded/…` readable by historical mode) and update
-  `prediction_arb/core/config.py:_EXPECTED_DB` + `_assert_mode_tag` together.
-- D4: persist the **full** `NormalizedContract` (settlement time,
-  cutoff, resolution source/method, threshold + operator + units,
-  early-resolution rules, payout, tick size, contract version,
-  underlying exchange, clearing entity) plus the raw market payload.
-  Add migration `002` via `prediction_arb/database/migrations/runner.py` (forward-only)
-  and reconstruct faithfully in
-  `prediction_arb/modes/historical/data_provider.py::_reconstruct_contract`.
-- Implement `prediction_arb/backtesting/engine.py::run_backtest` metrics: opportunity
-  duration, fill probability, partial-fill rate, drawdown, capital
-  utilisation, fee drag. No fabricated history, no live fallback.
+  anyway.~~ **FIXED 2026-09-13.** `Repository` gained a `read_only`
+  handle and `_assert_mode_tag` a narrow allowance (historical +
+  read-only + a `collect`/`paper` tag). `AppConfig.recorded_store_path`
+  is derived from the same constants collect writes with, so the two
+  cannot drift. Historical mode now reads the recorded store read-only
+  and writes only its own database.
+- ~~D4: persist the **full** `NormalizedContract` … plus the raw market
+  payload.~~ **FIXED 2026-09-13.** `MarketRow` gained 26 nullable
+  columns (`SCHEMA_VERSION` 1 → 2), migration `002` is forward-only and
+  idempotent, and `database/contract_codec.py` owns both directions so a
+  field written at collect time cannot be dropped at replay time.
+- ~~Implement `backtesting/engine.py::run_backtest` metrics.~~ **DONE
+  2026-09-13** in `backtesting/metrics.py`: opportunity duration, fill
+  probability, partial-fill rate, drawdown, capital utilisation, fee
+  drag. No fabricated history, no live fallback.
 
 Exit: `--mode historical --date <collected date>` replays real frames
 and produces a report with non-zero frames and honest zero-or-more
-opportunities, reproducible across runs.
+opportunities, reproducible across runs. **Still needs the owner's real
+collected data** — the sandbox cannot reach either venue, so no genuine
+frames exist to replay. The code path is exercised end to end in
+`tests/test_phase4_recording.py` instead.
+
+#### Phase 4 — what was built, and the honesty rules it holds to
+
+**D3 — recorded store is now readable by replay.** Historical mode keeps
+its own writable database for replay output and opens the collect/paper
+store separately, read-only:
+
+- `Repository(db_path, mode, read_only=True)` opens via
+  `sqlite3.connect("file:…?mode=ro", uri=True)`. Writes are refused by
+  SQLite itself, not by a convention the code could bypass. Migrations
+  are skipped and the mode tag is never written.
+- It refuses a missing file rather than creating an empty database
+  (`FileNotFoundError`), and still refuses a `live`-tagged store.
+- The allowance is deliberately narrow: `read_only=True` **and**
+  `mode == HISTORICAL` **and** tag in `{collect, paper}`. Anything else
+  still raises "Refusing to mix mode data (§49)".
+
+**D4 — recording is now faithful, and gaps stay gaps.**
+
+- `record_contract()` persists all 37 `NormalizedContract` fields plus
+  the raw venue payload. Verified: a rich contract round-trips with
+  **zero** field differences.
+- Decimals are stored as text (matching the existing convention),
+  datetimes as `DateTime(timezone=True)`, microstructure / order-type /
+  raw payload as JSON text.
+- Migration `002` adds each column only if absent, so a fresh database
+  (which already gets the columns from `create_all`) does not fail with
+  "duplicate column name". A genuine v1 database is upgraded in place
+  with its existing rows preserved and the new columns NULL.
+- **Decode never invents.** `decode_contract` returns `None` when a row
+  lacks the fields a contract needs. `HistoricalDataProvider` counts and
+  reports those rows (`under_recorded`) and the replay says how many were
+  excluded. The previous behaviour — substituting `payout=1.00`,
+  `tick_size=0.01`, `min_order_size=1`, `contract_version="historical"` —
+  was fabrication, and it is gone.
+
+**Backtest metrics — measured vs modelled stays separated.**
+
+- *Measured* from the recording: opportunity duration, fill statistics,
+  fee drag, peak capital required.
+- *Modelled*, and labelled as such in every result: the equity curve and
+  drawdown assume every executable opportunity filled in full at the
+  recorded prices. `BacktestResult.assumptions` carries that in plain
+  text so a report can never be read as a forecast.
+- Opportunity duration keys on the **sorted leg pair**, not
+  `opportunity_id`: each `evaluate_two_leg` call mints a fresh `uuid4`,
+  so the id can never express persistence across frames. With the leg
+  pair, `first_seen == last_seen` no longer holds by construction.
+- Fill statistics come from recorded book depth. When no walk was
+  recorded they are `None` — never an assumed 100% (that assumption is
+  defect D12, and it is not repeated here).
+- `run_backtest` refuses to run without a `FeeCalculator`: cost is what
+  separates a real trade from a fantasy one.
+- **The battery is reachable from the CLI.** `--mode historical` runs
+  `summarize_frames` over the opportunities that replay just produced —
+  it does not re-scan, so the numbers describe exactly the run that was
+  persisted — and the full battery lands in
+  `reports/historical/historical_replay_*.json` under `metrics`. This
+  was a real gap in the first cut: the battery existed but only
+  `BacktestEngine` could reach it, so the exit criterion ("replays
+  recorded data **and reports metrics**") was not met by the command the
+  criterion names. Unavailable metrics print as `n/a`, never as a bare
+  `None` (reads like a bug) or `0` (reads like a measurement of nothing).
+
+**One thing this phase deliberately did not do:** `HistoricalExecutionEngine`
+is still unwired — replay counts and measures opportunities, it does not
+simulate executions against them. That belongs to Phase 6 (fill realism,
+D12), not here, and wiring it now would have implied execution evidence
+that does not exist.
+
+#### Phase 4 — verification record (2026-09-13)
+
+The three decisions recorded before the work started were all followed,
+and each is now pinned by a test in `tests/test_phase4_recording.py`
+(25 tests, all passing):
+
+| Decision | Where it landed | Test that pins it |
+|---|---|---|
+| Historical reads the recorded store; collect is not repointed | `Repository(read_only=True)` + narrow `_assert_mode_tag` allowance + `AppConfig.recorded_store_path` | `test_historical_reads_collect_store_read_only`, `test_read_only_still_refuses_a_live_tagged_store`, `test_config_recorded_store_matches_where_collect_writes` |
+| Migration `002` forward-only; old rows keep NULLs | `migrations/runner.py:_m002_market_contract_fields`, guarded by `PRAGMA table_info` | `test_migration_002_is_registered_and_idempotent`, `test_migration_002_upgrades_a_v1_database` |
+| No fabrication in reconstruction | `contract_codec.decode_contract` returns `None` when under-recorded | `test_decode_never_invents_for_under_recorded_rows`, `test_provider_counts_unreconstructable_instead_of_dropping` |
+
+Also verified rather than assumed:
+
+- **Round trip is lossless.** `test_record_contract_round_trips_every_field`
+  walks all 37 `NormalizedContract` fields and asserts the difference
+  list is empty. A silently dropped field is exactly how replay starts
+  inventing, so this is checked field by field, not spot-checked.
+- **Read-only is enforced by SQLite, not by convention.** The test
+  attempts a write through the read-only handle and asserts it raises.
+- **A missing recorded store is never created.**
+  `test_read_only_never_creates_a_missing_store` asserts both the
+  `FileNotFoundError` and that the file still does not exist afterwards.
+- **The metric battery is not permanently empty.** One test pins the
+  honest zero (no LLM ⇒ pair is REVIEW ⇒ nothing approved, even with a
+  profitable-looking spread); a second approves the pair and asserts the
+  metrics actually populate. Without both, a green metric test could pass
+  on an unwired pipeline.
+
+**What still blocks the phase exit:** real recorded data. Neither venue
+is reachable from this environment, so no genuine frames exist to replay
+and the exit criterion cannot be met here. The owner's 24h collect run
+(Phase 2) produces it; `--mode historical --date <that date>` is then the
+acceptance run.
 
 ---
 
@@ -411,21 +583,49 @@ by a human.
 
 ---
 
-### Phase 6 — Paper validation & realism  ·  PARTIAL
+### Phase 6 — Paper validation & realism  ·  PARTIAL (D11, D12 fixed 2026-09-13)
 
-- D11: `OrderBookAggregator` is only referenced by tests; the paper
+- ~~D11: `OrderBookAggregator` is only referenced by tests; the paper
   engine keeps its own dict and applies **no** freshness gate, while
-  `settings.yaml` declares `maximum_book_age_ms: 1000`. Enforce
-  staleness in paper (reject or degrade), and use the aggregator.
-- D12: `simulated_fill_probability_at_touch` (0.9 in `paper.yaml`) is
-  stored but never used — paper fills are always 100% at touch, which
-  flatters the strategy. Implement the fill model or delete the config
-  key and say so.
+  `settings.yaml` declares `maximum_book_age_ms: 1000`.~~ **FIXED
+  2026-09-13.** The paper engine now holds an `OrderBookAggregator`; both
+  the scan and the simulated execution engine read through it. The limit
+  is the stricter of `execution.max_book_age_ms` and
+  `arbitrage.maximum_book_age_ms`, so a book stale enough to fail either
+  check is neither scanned nor filled against. Excluded books are counted
+  and printed, never silently dropped — a scan that quietly sees nothing
+  is indistinguishable from a quiet market.
+- ~~D12: `simulated_fill_probability_at_touch` (0.9 in `paper.yaml`) is
+  stored but never used — paper fills are always 100% at touch.~~
+  **FIXED 2026-09-13.** The configured probability is now applied to the
+  portion of an order executing *at the touch*; levels consumed beyond the
+  touch are taker executions against displayed liquidity and fill in full.
+  It is an expected-fill model, not a coin flip, so paper stays
+  reproducible run to run, and it rounds **down** — rounding up would
+  reintroduce the exact optimism the fix removes.
 - Add queue-position/partial-fill realism, latency per venue, and
   opportunity-lifetime bookkeeping (`§68`).
 
 Exit: a multi-week paper run whose fill assumptions are documented and
-defensible, with per-cycle metrics persisted.
+defensible, with per-cycle metrics persisted. **Still needs the owner's
+multi-week run**; the code that would produce defensible fill assumptions
+now exists.
+
+#### Phase 6 — why these two were fixed together
+
+Both defects pushed paper results in the *optimistic* direction, which is
+the dangerous one: a strategy that validates in paper and then fails live
+is worse than one that never validated. Fixing only one would have left
+the other quietly inflating the same numbers.
+
+Verified by mutation, not just by passing tests. Reverting the fill model
+(`if False:` in place of the probability check) fails 4 tests; reverting
+the freshness gate (`snapshot()` for `fresh_snapshot()`) fails the
+end-to-end test that feeds the scan a 5-second-old book and asserts it
+does not arrive. The first draft of the D11 tests only exercised the
+aggregator's helpers and caught the revert **not at all** — testing that a
+helper works is not testing that it is used. `tests/test_paper_realism.py`
+(14 tests) exists because of that miss.
 
 ---
 
@@ -480,16 +680,18 @@ collection), and log rotation.
 |---|---|---|---|
 | D1 | ~~Package unimportable as committed~~ **FIXED 2026-09-13**: package moved to `prediction_arb/`, `pyproject.toml` added, three working entry points | Was: `import prediction_arb` → ModuleNotFoundError on a fresh clone. Now: `pip install -e ".[dev]"` → 118 tests pass | 0 |
 | D2 | ~~No `.gitignore`; artifacts tracked~~ **FIXED 2026-09-13**: `.gitignore` + `.gitattributes` added, 60 `.pyc` + both DBs + `logs/` + `reports/` untracked (files kept on disk), `reconnect.py` → `scripts/ibkr_gateway_session.py` with safe TLS handling. *Caveat: the 17 MB blob remains in git **history**; purging it needs a history rewrite (owner's call)* | `git ls-files \| grep -c pycache` → 0; CI step guards against regressions | 0 |
-| D3 | Collect data is invisible to historical replay | collect → `data/paper/…` (tagged `mode=collect`); historical → `data/historical/…` (0 rows); report shows `frames: 0` | 4 |
-| D4 | Recorded markets lose the metadata matching needs | `MarketRow` has no settlement/rules/threshold/payout/version columns; `_reconstruct_contract` sets `settlement_time=None`, `resolution_source=""` → `deterministic_match` rejects on both | 4 |
+| D3 | ~~Collect data is invisible to historical replay~~ **FIXED 2026-09-13**: `Repository` gained a `read_only` handle (SQLite `mode=ro`, so writes are refused by the engine, not by convention) and `_assert_mode_tag` a narrow allowance — `read_only` **and** `mode=HISTORICAL` **and** a `collect`/`paper` tag. `AppConfig.recorded_store_path` is derived from the same constants collect writes with, so replay and the writer cannot drift. A missing store raises instead of creating an empty DB; a `live`-tagged store is still refused | Was: collect → `data/paper/…` (tagged `mode=collect`); historical → `data/historical/…` (0 rows); report showed `frames: 0`. Now: `tests/test_phase4_recording.py::TestRecordedStoreAccess` (6 tests) | 4 |
+| D4 | ~~Recorded markets lose the metadata matching needs~~ **FIXED 2026-09-13**: `MarketRow` gained 26 nullable columns (`SCHEMA_VERSION` 1 → 2) and migration `002` is forward-only and `PRAGMA`-guarded, so a fresh DB does not die on "duplicate column name" and a real v1 DB upgrades with its rows intact. `record_contract()` persists all 37 `NormalizedContract` fields plus the raw payload; `database/contract_codec.py` owns both directions. **Decode never invents** — an under-recorded row returns `None` and is counted, replacing the old invented `payout=1.00` / `tick_size=0.01` / `contract_version="historical"` | Was: `MarketRow` had 11 columns; `_reconstruct_contract` set `settlement_time=None`, `resolution_source=""` → `deterministic_match` rejected on both. Now: `test_record_contract_round_trips_every_field` asserts an empty difference list across all 37 fields | 4 |
 | D5 | ~~Kalshi on legacy host, intermittent failures, no failover~~ **FIXED IN CODE 2026-09-13**: recommended `external-api` hosts configured, legacy hosts kept as fallbacks, 5xx/transport failover + connect-time probing, bulk books, WS streaming, tier-aware budget clamping (26 tests). *Operational verification (24h run on the owner's machine) still pending — see Phase 2 section* | Was: `config/venues.yaml` → `api.elections.kalshi.com`; collect log: 18 DNS failures + 14 HTTP 500s | 2 |
 | D6 | Cross-venue candidate generation cannot produce candidates | `normalized_event_key` = exact canonical title + settlement date | 5 |
 | D7 | ~~Venue research stale~~ **FIXED 2026-09-13**: evidence ledger now covers direct DCMs, aliases, multi-route frontends, fees, Utah/CFTC context, and ranked candidates; old “only one independent pair” premise removed | `docs/VENUE_RESEARCH.md`; provenance/fee/compliance registries; focused tests | 1 |
 | D8 | ~~Spec document missing~~ **FIXED 2026-09-13**: `docs/SPEC.md` reconstructs all 73 cited sections from code/docs/tests/config evidence, with `[I]` flags on the two thin ones (§33, §68) and an appendix of the 22 numbers that have no surviving citation | Was: 73 distinct `§` sections cited at 224 sites with no spec file. Now: `grep -c "^### §" docs/SPEC.md` → 73 | 0 |
 | D9 | No LLM configured ⇒ no APPROVED certificates ⇒ nothing is ever evaluated | `main.py`: `LLMMatcher(client=None)`; `optimizer.search_event` skips pairs without approval | 5 |
 | D10 | Live mode is monitor-only; readiness check hardcodes the venue count | `prediction_arb/modes/live/engine.py::run`; `main.py::cmd_readiness` (`False` literal) | 8 |
-| D11 | No book-freshness enforcement in paper; `OrderBookAggregator` is dead code | aggregator referenced only in tests; `maximum_book_age_ms` enforced solely by the live firewall | 6 |
-| D12 | Configured fill probability is ignored | `fill_probability_at_touch` stored in `prediction_arb/execution/simulated.py` and never read | 6 |
+| D11 | ~~No book-freshness enforcement in paper; `OrderBookAggregator` is dead code~~ **FIXED 2026-09-13**: the paper engine now holds an `OrderBookAggregator` and both the scan and the simulated execution engine read through it. The gate is the stricter of `execution.max_book_age_ms` and `arbitrage.maximum_book_age_ms`; excluded books are counted and printed rather than silently dropped. Streamed books get the same sequence guard and staleness accounting as polled ones | Was: aggregator referenced only in tests; `maximum_book_age_ms` enforced solely by the live firewall, so a paper book could age forever and still be traded against. Now: `tests/test_paper_realism.py::TestPaperFreshnessEndToEnd`, verified by mutation — reverting `fresh_snapshot()` → `snapshot()` fails `test_stale_polled_book_never_reaches_the_scan` | 6 |
+| D12 | ~~Configured fill probability is ignored~~ **FIXED 2026-09-13**: `fill_probability_at_touch` now scales the portion of an order executing at the touch (levels beyond the touch are taker fills and stay whole). Expected-fill rather than a coin flip, so paper remains reproducible, and it rounds down — rounding up would reintroduce the optimism being removed | Was: stored in `prediction_arb/execution/simulated.py` and never read, so every paper fill was 100% at the touch while `paper.yaml` said 0.9. Now: `tests/test_paper_realism.py::TestFillProbabilityAtTouch`, verified by mutation (replacing the check with `if False:` fails 4 tests, including one asserting `paper.yaml`'s 0.9 actually reaches the engine) | 6 |
+| D13 | ~~Trade fees priced at a walk's weighted-average price instead of per fill~~ **FIXED 2026-09-13**: `FeeCalculator.trade_fee_fills()` charges each walked level, applies the venue's documented rounding, and honours an order-total cap; `two_leg.py` and `execution/simulated.py` now pass the real `levels_consumed`. The old shortcut is not what any venue bills: it overstates a concave taker charge and would understate a maker credit, and it ignores the cumulative cap entirely | Was: `two_leg.py:139` → `trade_fee(venue, yes_walk.weighted_average_price, qty)`. Now: per-fill; `tests/test_polymarket_fees.py::TestPerFillAccuracy` proves the engine charges walked levels and that the two numbers differ | 3 |
+| D14 | ~~Configured rate-limit headroom silently ignored~~ **FIXED 2026-09-13**: `main.py` read `rate_limit_headroom` from the top level of `venues.yaml` instead of under its `venues:` key, so the hardcoded `0.8` default always won. Harmless only while config and default matched; an operator tightening headroom would have had no effect | Was: `config.venues.get("kalshi", {})` → `{}`. Now unwrapped like `build_adapters`; `tests/test_units.py::TestRateLimitCalibration` (verified by mutation: reverting the fix fails the test with `headroom=0.8`) | 2 |
 
 ---
 

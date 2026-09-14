@@ -175,7 +175,9 @@ class TestStubHonesty:
         from prediction_arb.arbitrage.multi_leg import (
             find_multi_leg_opportunities,
         )
-        from prediction_arb.backtesting.engine import BacktestEngine
+        # NOTE: BacktestEngine used to belong in this list. Its metrics are
+        # implemented (Phase 4), so it no longer raises NotImplementedError;
+        # see tests/test_phase4_recording.py.
         from prediction_arb.monitoring.dashboard import WebDashboard
         with pytest.raises(NotImplementedError):
             ArbGraph().find_cycles()

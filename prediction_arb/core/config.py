@@ -68,6 +68,19 @@ class AppConfig:
         return d / f"{self.database_name}.sqlite3"
 
     @property
+    def recorded_store_path(self) -> Path:
+        """Where collect/paper recorded market data lives (D3).
+
+        Collect and paper share one market-data lineage, so this is the
+        collect database file — the store historical replay must be able
+        to read. Derived from the same constants collect mode uses to
+        write, so the two cannot drift apart. Read-only from here on:
+        historical mode writes its own database and never this one.
+        """
+        return (ROOT / "data" / "paper"
+                / f"{_EXPECTED_DB[Mode.COLLECT]}.sqlite3")
+
+    @property
     def allow_live_orders(self) -> bool:
         return bool(self.mode_config.get("allow_live_orders", False))
 

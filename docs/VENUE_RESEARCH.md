@@ -90,7 +90,11 @@ re-verified 2026-09-13. Venue *identity* evidence stays in row V2 below.
 | P5 | Rate limits are **20 requests/second** for authenticated endpoints (per API key) and 20 requests/second public (per IP). `429` carries no `Retry-After`; the documented remedy is to stop, wait ≥1 s, and back off exponentially. A separate 5-second **latency stopgap** rejects unprocessed inbound orders with the message `Global Rate Limit Exceeded`; that message is explicitly **not** a rate limit and must not trigger throttling. | VERIFIED / DOC | https://docs.polymarket.us/api-reference/rate-limits | 2026-09-13 |
 | P6 | The markets WebSocket is `wss://api.polymarket.us/v1/ws/markets` and **requires API-key authentication in the handshake** even for public market data. Subscribe with `{"subscribe":{"request_id","subscription_type","market_slugs"}}`; `subscription_type` 1 = `MARKET_DATA` (full book), 2 = `MARKET_DATA_LITE`, 3 = `TRADE`. Responses carry a **complete** `market_data` book (`bids`/`offers`), not incremental deltas, so there is no sequence number to gap-check. Server sends `{"heartbeat":{}}`; errors arrive as `{"request_id", "error"}`; max **100 markets per subscription**. | VERIFIED / DOC | https://docs.polymarket.us/api-reference/websocket/overview ; https://docs.polymarket.us/api-reference/websocket/markets | 2026-09-13 |
 | P7 | A fresh unauthenticated HTTP smoke test against `gateway.polymarket.us` did not reach an HTTP response; the sandbox terminated TLS with EOF. This does **not** establish an outage and does **not** validate the current payload. | UNAVAILABLE / LIVE | `https://gateway.polymarket.us/v1/markets` (attempted) | 2026-09-13 |
-| P8 | Trading fees are `Θ × C × p × (1-p)` with taker `Θ = 0.06` and maker rebate `Θ = -0.0125`, effective 2026-07-01. All fees are rounded to the nearest cent with **banker's rounding**, and when an aggressive order fills against multiple resting orders the **total** commission is capped at the banker's rounding of the cumulative exact fee (the adjustment can only reduce a fill's charge). Monthly taker-volume rebate tiers (10/25/50% above $250k/$1M/$10M) apply on the prior calendar month. | VERIFIED / DOC | https://docs.polymarket.us/fees | 2026-09-13 |
+| P8 | Trading fees are `Θ × C × p × (1-p)` with taker `Θ = 0.06` and maker rebate `Θ = -0.0125`, effective 2026-07-01. All fees are rounded to the nearest cent with **banker's rounding**, and when an aggressive order fills against multiple resting orders the **total** commission is capped at the banker's rounding of the cumulative exact fee (the adjustment can only reduce a fill's charge). Maker rebates are computed per fill, independently, and are **not** capped. Taker-volume rebate tiers (10/25/50% above $250k/$1M/$10M) are set by the **prior calendar month's** notional taker volume and are **paid out weekly**. The schedule is **exchange-wide** — there is no per-market fee selector. | VERIFIED / DOC | https://docs.polymarket.us/fees ; https://docs.polymarket.us/fees#fee-rules | 2026-09-13 |
+| P9 | Recurring **weekly maintenance Thursday 02:00–06:00 ET** (effective 2026-07-09; previously 06:00–08:00). All open orders are cancelled before the window, **all API requests return `503 Service Unavailable`** during it, and books **reopen empty** because every order was cancelled. Markets move `SUSPENDED → OPEN` when it ends. | VERIFIED / DOC | https://docs.polymarket.us/faqs/general-faqs | 2026-09-13 |
+| P10 | Fractional-contract support is **documented inconsistently**. The retail/learn docs state "Polymarket US does not support fractional contracts. All trades are executed in **whole event contracts**", while the API docs describe `minimumTradeQty: 0.01` as "the market supports 1% contract increments" and the institutional data model carries a per-instrument `fractionalQtyScale`. Resolution adopted in code: the per-market `minimumTradeQty` from the payload is authoritative and is **never inferred**; the engine's own sizing stays whole-contract, so the conflict cannot make it size a fractional order. | VERIFIED / DOC (conflict) | https://docs.polymarket.us/learn/trading/basics/fractional-shares ; https://docs.polymarket.us/api-reference/market/overview ; https://docs.polymarket.us/faqs/general-faqs | 2026-09-13 |
+| P11 | The fee model in `prediction_arb/fees/calculator.py` now implements P8 exactly (banker's rounding per fill, cumulative aggressive-order cap that can only reduce a charge, uncapped per-fill maker rebates) and **reproduces all 198 published values** of the venue's own "Fee Schedule by Price" 100-lot table — including the rows that only banker's rounding can produce (1.365→`$1.36`, 1.485→`$1.48`, 0.765→`$0.76`). Volume rebates are recorded as evidence and **never applied**, because they are a weekly payout on prior-month volume, not a per-trade discount. | VERIFIED / DOC + offline test; UNAVAILABLE / LIVE | https://docs.polymarket.us/fees#fee-schedule-by-price ; `tests/test_polymarket_fees.py` | 2026-09-13 |
+| P12 | **No settlement fee is published** for Polymarket US. The fee schedule contains trading fees only; the settlement page describes winning contracts settling at `$1.00` and losing at `$0.00` with the portfolio updated automatically, and the fee FAQ says fees are charged only when a trade executes. "No fee documented" is documented-by-absence, not verification, and an understated settlement cost flatters the strategy — so `settlement_calculation_status` stays **INCOMPLETE** and keeps blocking. | UNVERIFIED / DOC (absence only) | https://docs.polymarket.us/learn/markets/contract-settlement ; https://docs.polymarket.us/fees#faq | 2026-09-13 |
 
 **Code consequence (Phase 3, 2026-09-13):** `prediction_arb/adapters/polymarket_us.py`
 reads discovery and books from the **public** gateway with no credentials
@@ -105,13 +109,29 @@ ceiling and `429` is surfaced for backoff, never swallowed (P5, §13).
 reconnect/resubscribe and terminal auth handling; it deliberately contains
 **no** sequence-gap machinery because the protocol sends complete books,
 not deltas (P6) — inventing one would fabricate a guarantee the venue does
-not provide. Fees remain `INCOMPLETE — BLOCK` in `config/fees.yaml`
-because the cumulative aggressive-order cap needs per-order fill state
-(P8), and **order placement is not implemented at all**. `api_status`
-stays `API_DOCUMENTED_UNTESTED` and collect mode skips the venue until the
+not provide.
+
+**Fees (updated 2026-09-13, Phase 3 gate 3 CLOSED):** the exact fee model
+is now implemented (P11). `config/fees.yaml` carries
+`rounding: half_even` and `order_fee_cap: cumulative_exact_rounded` for
+this venue, `trade_calculation_status: COMPLETE`, and the documented
+volume-rebate tiers as evidence-only metadata. The engine charges fees
+**per fill** from the levels a walk actually consumed, which is what the
+venue bills and what the cumulative cap is defined over (defect D13, fixed).
+Settlement fees stay `INCOMPLETE — BLOCK` (P12), so two-leg evaluation —
+which charges settlement on both legs — still refuses to price a
+Polymarket US opportunity until that gap is closed by the exchange
+rulebook or an owner account statement. `api_status` stays
+`API_DOCUMENTED_UNTESTED` and collect mode skips the venue until the
 owner captures observed-payload evidence with
 `scripts/polymarket_us_smoke.py` (P7 stands: this sandbox cannot reach the
 venue).
+
+**Operational note (P9):** Thursday 02:00–06:00 ET the venue returns `503`
+for every request and reopens with **empty** books. `503` is a 5xx, so the
+adapter's failover rotates hosts and then surfaces the failure rather than
+silently trading on a stale book; paper-mode realism work (Phase 6) should
+model the weekly flat-book window instead of treating it as an outage.
 
 ## 3. Direct exchange / DCM evidence ledger
 
@@ -176,6 +196,16 @@ These rules are encoded in
 | R6 | The CFTC published a prediction-market ANPRM on 2026-03-16. | VERIFIED / DOC | https://www.federalregister.gov/documents/2026/03/16/2026-05105/prediction-markets | 2026-09-13 |
 | R7 | The CFTC published a proposed Rule 40.11 framework on 2026-06-12, with comments closing 2026-07-27. It is a proposed rule, not an effective final rule. | VERIFIED / DOC | https://www.federalregister.gov/documents/2026/06/12/2026-11854/prediction-markets-public-interest-determinations | 2026-09-13 |
 | R8 | No effective 2026 final Rule 40.11 amendment was identified in the official materials reviewed through the cut-off. This negative search result is not a guarantee that no later/unindexed action exists. | UNKNOWN / DOC | https://www.federalregister.gov/agencies/commodity-futures-trading-commission | 2026-09-13 |
+| R9 | Polymarket US's own **Trading Restrictions** page addresses who should not trade (sell-side/buy-side employees, MNPI holders, firm compliance) and says **nothing about state availability**. Secondary sources disagree about Utah: one lists Utah as available with only Nevada excluded, another lists ~11 restricted states, and a third says state restrictions are unpublished. No primary source establishes Utah eligibility, and the sources conflict with each other. | UNKNOWN / DOC (conflicting secondary sources) | https://docs.polymarket.us/learn/trading/access-and-limits/trading-restrictions ; https://oddsassist.com/prediction-markets/polymarket-us-states/ ; https://predscope.com/guide/polymarket-us ; https://www.saturdaydownsouth.com/prediction-markets/polymarket-promo-code/legal-states/ | 2026-09-13 |
+
+**R9 consequence:** Utah eligibility for Polymarket US stays **UNKNOWN** and
+therefore live-blocking, exactly as before. Secondary blogs that contradict
+each other are not evidence, and a venue marketing page loading is not
+eligibility. The only acceptable resolutions are (a) the venue's own terms
+or account dashboard stating Utah availability for the specific
+non-sports categories, or (b) owner/legal review. Utah **sports** stays
+RESTRICTED regardless (R1/R2), which matters for Polymarket US
+specifically because it carries heavy sports inventory.
 
 ### Eligibility decision used by the repository
 
@@ -194,7 +224,7 @@ These rules are encoded in
 |---|---|---|---|
 | ForecastEx / IBKR-ForecastEx | `$0.01` each executed side; opposite bids pair at `$1.00` (V1, F4) | **COMPLETE** for represented route | Fixed trade and zero settlement rules are explicitly route-qualified. |
 | Kalshi direct | Standard `0.07` taker / `0.0175` maker-enabled quadratic models plus dynamic multipliers (K6-K8) | **INCOMPLETE — BLOCK** | Series/event type+multiplier, account precision, walked fills, and per-order accumulator are absent. |
-| Polymarket US | `0.06` taker / `-0.0125` maker plus tiers and banker’s/cumulative rounding (V2) | **INCOMPLETE — BLOCK** | Account tier and cumulative aggressive-order state absent. |
+| Polymarket US | `0.06` taker / `-0.0125` maker, banker's rounding per fill, cumulative aggressive-order cap, exchange-wide schedule, weekly volume rebates (P8, P11) | **COMPLETE** for trade fees; **INCOMPLETE — BLOCK** for settlement | Trade model now implemented per fill and verified against all 198 published 100-lot values. No settlement fee is published anywhere reviewed (P12), and documented-by-absence is not verification. |
 | Gemini | Pre/post-2026-03-18 cohorts (V3) | **INCOMPLETE — BLOCK** | Listing cohort and contract/clearing context absent. |
 | CDNA/OG | Published range only (V4) | **INCOMPLETE — BLOCK** | Exact function and route treatment unverified. |
 | CME / IBKR routes | Exchange and FCM charges documented (V5, F4) | **INCOMPLETE — BLOCK** | Product/route/account and settlement treatment not integrated or live-reconciled. |

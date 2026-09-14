@@ -56,6 +56,11 @@ python -m prediction_arb.main --mode collect
 # account, no orders) — promotes the venue out of API_DOCUMENTED_UNTESTED
 python scripts/polymarket_us_smoke.py
 
+# Kalshi read-only smoke test: both hosts + the orderbook_fp book format
+# (no API key needed; with a key it also checks tier, bulk books and the
+# WebSocket). This is Phase 2's owner-runnable verification step.
+python scripts/kalshi_smoke.py --with-stream 10
+
 # paper trading (default mode): real data, simulated execution
 python -m prediction_arb.main --mode paper
 
@@ -97,14 +102,55 @@ live mode is monitor-only by construction.
   settlement costing → risk checks → simulated execution. Incomplete fees
   now block rather than becoming estimates, so direct Kalshi opportunities
   remain blocked until contextual metadata is integrated.
+- Collect mode now records the **full** normalized contract — settlement
+  and cutoff times, resolution source/method, threshold + operator +
+  units, early-resolution and cancellation rules, payout, tick size,
+  order-size bounds, contract version, provenance, microstructure,
+  supported order types, and the venue's own payload — so historical
+  replay reconstructs what was actually observed instead of inventing
+  plausible defaults. Reconstruction that cannot be done faithfully is
+  counted and reported, never substituted.
+- Historical mode reads the recorded store **read-only** (SQLite `mode=ro`,
+  so writes are refused by the database engine rather than by convention)
+  and writes replay output to its own database. A missing recorded store
+  is reported honestly; it is never created empty, and history is never
+  fabricated or back-filled from live data.
+- Backtest metrics over recorded frames: opportunity duration, fill
+  probability, partial-fill rate, drawdown, capital utilisation and fee
+  drag. Measured quantities and modelled ones stay separated, and every
+  result carries its assumptions in plain text — the equity curve assumes
+  every executable opportunity filled, so it is an upper bound, never a
+  forecast.
+- Paper mode no longer flatters the strategy. Order books pass a real
+  staleness gate before they are scanned **or** filled against, and the
+  configured `simulated_fill_probability_at_touch` actually scales the
+  at-touch portion of a fill. Both defects previously pushed results in the
+  optimistic direction — the dangerous one, since a strategy that validates
+  in paper and then fails live is worse than one that never validated.
+  Books that fail the freshness gate are counted and reported, never
+  silently dropped.
 - Mode isolation, kill switch, crash-recovery intents, and all ten mandatory
-  spec cases are covered by the test suite (`pytest`).
+  spec cases are covered by the test suite (`pytest` — 264 passing, all
+  offline).
+- Fees are charged **per fill** from the levels a walk actually consumed,
+  with each venue's documented rounding, and Polymarket US's exact
+  `Θ × C × p × (1-p)` model — banker's rounding per fill plus the
+  cumulative aggressive-order cap that can only reduce a charge. The
+  implementation reproduces all 198 values of the venue's own published
+  100-lot fee table (`tests/test_polymarket_fees.py`). Volume rebates are
+  recorded as evidence and never applied, because they are a weekly payout
+  on prior-month volume rather than a per-trade discount.
 
 ## What is stubbed (honest NotImplementedError, clean interfaces)
 - ForecastEx/IBKR, Webull, and Moomoo adapters. Phase 1 researched additional
   candidates but deliberately stopped before adapter implementation.
 - Multi-leg / logical arbitrage, graph cycle search, web dashboard,
-  email/webhook alerts, full backtest metrics (§3 v1 scope).
+  email/webhook alerts (§3 v1 scope).
+- Backtest *metrics* are implemented, but backtest *execution* is not:
+  replay measures opportunities, it does not simulate fills against them
+  (`HistoricalExecutionEngine` stays unwired on purpose). The phase exit
+  criterion also needs real collected data, which requires an owner-run
+  collect session on a network-reachable machine.
 
 ## Repository layout
 

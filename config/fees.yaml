@@ -82,41 +82,82 @@ schedules:
         fixed_amount: "0.00"
         applies_to: settlement
 
+  # ------------------------------------------------------------------
+  # Polymarket US (QCX LLC d/b/a Polymarket US) — direct API route.
+  #
+  # Trade fee modelled EXACTLY as documented (docs.polymarket.us/fees,
+  # evidence rows P8 + P11 in docs/VENUE_RESEARCH.md, re-verified
+  # 2026-09-13):
+  #
+  #   Fee = Θ × C × p × (1 - p),  taker Θ = 0.06, maker rebate Θ = -0.0125
+  #   * every fee/rebate is rounded to the nearest cent with BANKER'S
+  #     rounding (round half to even) — the FAQ's own examples:
+  #     $0.025 -> $0.02 and $0.035 -> $0.04;
+  #   * when an aggressive order fills against multiple resting orders each
+  #     fill is billed its banker's-rounded fee, adjusted so the total
+  #     collected never exceeds the banker's rounding of the CUMULATIVE
+  #     EXACT fee; the adjustment can only reduce a fill's charge;
+  #   * maker rebates are computed per fill, independently, and are never
+  #     capped;
+  #   * the schedule is EXCHANGE-WIDE from 2026-07-01 12:00 ET, so there is
+  #     no per-market fee selector to carry (this supersedes the Phase 1
+  #     "fee-enabled market selector required" note).
+  #
+  # Verified offline against the venue's own published 99-row "Fee Schedule
+  # by Price" 100-lot table (tests/test_polymarket_fees.py reproduces every
+  # row for both the taker and maker columns). live_test_status stays
+  # UNAVAILABLE: no account statement has been reconciled, so this is
+  # documentation-verified, not live-tested.
+  #
+  # Volume rebates are RECORDED but deliberately NEVER APPLIED: the venue
+  # documents them as a weekly payout on prior-calendar-month notional
+  # taker volume, not a per-trade discount. Applying one per order would
+  # understate cost and flatter the strategy.
+  #
+  # Settlement stays INCOMPLETE: the published fee schedule contains only
+  # trading fees, and the settlement page describes a $1.00/$0.00 payout
+  # with no fee line. "No fee documented" is documented-by-absence, not
+  # verification, and an understated settlement cost flatters the strategy
+  # — so it keeps blocking until the exchange rulebook or an owner account
+  # statement settles it. Two-leg evaluation charges settlement fees too,
+  # so polymarket_us opportunities remain BLOCKED until this is resolved.
   - venue: polymarket_us
-    version: "2026-07-01-snapshot"
+    version: "2026-07-01-effective"
     effective_date: "2026-07-01"
     expiration_date: null
     verified_at: "2026-09-13"
     verification_status: VERIFIED
     documentation_tested: true
     live_test_status: UNAVAILABLE
-    source: "https://docs.polymarket.us/fees"
+    source: "https://docs.polymarket.us/fees; https://docs.polymarket.us/fees#fee-rules; https://docs.polymarket.us/fees#fee-schedule-by-price; https://docs.polymarket.us/learn/markets/contract-settlement"
     currency: USD
-    trade_calculation_status: INCOMPLETE
+    rounding: half_even                     # banker's rounding (P8)
+    order_fee_cap: cumulative_exact_rounded # aggressive-order cap (P8)
+    trade_calculation_status: COMPLETE
     settlement_calculation_status: INCOMPLETE
     fee_context:
-      series: "fee-enabled market selector required"
-      listing_cohort: "current Polymarket US listings"
-      event_status: "all"
-      contract_type: "$1 event contract"
-      access_route: "direct Polymarket US API"
-      account_or_fill_state: "cumulative aggressive-order adjustment"
-    required_context:
-      - series
-      - listing_cohort
-      - event_status
-      - contract_type
-      - access_route
-      - cumulative_fill_quantity
-      - cumulative_fee_charged
-    blocking_reason: "half-even cent rounding and cumulative aggressive-order fee cap require order/fill state absent from the calculator; settlement fee was not independently verified"
+      series: "exchange-wide — every Polymarket US event contract (fee schedule effective 2026-07-01 12:00 ET)"
+      listing_cohort: "all current listings; no listing-date cohort in the published schedule"
+      event_status: "all; fees are charged only when a trade executes (cancelled/expired/rejected orders are not charged)"
+      contract_type: "$1 event contract, price p in (0.00, 1.00)"
+      access_route: "direct Polymarket US API (QCX DCM)"
+      account_or_fill_state: "per-fill price + quantity; order-level cumulative exact fee for the taker cap"
+    blocking_reason: "settlement fee is not published anywhere reviewed — documented-by-absence is not verification, so settlement keeps blocking (trade fees themselves are exact and verified against the published 100-lot table)"
     fees:
-      - fee_type: taker_quadratic_reference
+      - fee_type: taker_quadratic
         multiplier: "0.06"
         applies_to: taker
-      - fee_type: maker_rebate_reference
+      - fee_type: maker_rebate_quadratic
         multiplier: "-0.0125"
         applies_to: maker
+    rebate_policy: "Taker volume rebates (10%/25%/50% above $250k/$1M/$10M prior-calendar-month notional taker volume, paid weekly) are recorded for evidence only and are never applied per order — see the comment above."
+    volume_rebate_tiers:
+      - threshold: "250000"
+        rebate: "0.10"
+      - threshold: "1000000"
+        rebate: "0.25"
+      - threshold: "10000000"
+        rebate: "0.50"
 
   - venue: gemini
     version: "2026-03-18"

@@ -161,7 +161,7 @@ blob; the data-retention policy (H5); confirming SPEC §33 and §68 (`[I]`).
   not begin M2 or M3 adapter work first.
 
 ### M2 — Kalshi refresh (Phase 2, defects D5) · **CODE COMPLETE 2026-09-13 (owner directed Phase 2 to proceed)**
-_Status note (2026-09-13): the owner directed Phase 2 (Kalshi refresh) to proceed. Host migration, 5xx/transport failover, `orderbook_fp` re-verification, `subscribe_order_book` WebSocket streaming with seq-gap recovery, bulk `GET /markets/orderbooks`, and tier-aware rate-limit clamping are implemented with 22 offline tests. Remaining exit items: 24h collect run + streaming verification on the owner's machine with the H2 API key — see Phase 2 in `docs/ROADMAP.md`._
+_Status note (2026-09-13, second pass): host migration, 5xx/transport failover, `orderbook_fp` re-verification, `subscribe_order_book` WebSocket streaming with seq-gap recovery, bulk `GET /markets/orderbooks`, and tier-aware rate-limit clamping are implemented with 22 offline tests. The **verification script the M2 exit criterion asked for now exists**: `scripts/kalshi_smoke.py` (read-only, GET-only, both hosts + book-format invariants, optional key-gated tier/bulk/WebSocket checks, sanitized evidence file, 12 offline tests). It was run in the sandbox and correctly failed with TLS EOF on both bases (K9 stands). **D14 also fixed**: `main.py` read `rate_limit_headroom` from the wrong level of `venues.yaml`, so the configured value was silently ignored. Remaining exit items: the owner runs the smoke script + a 24h collect run with the H2 API key — see Phase 2 in `docs/ROADMAP.md`._
 - Move `config/venues.yaml` to the recommended hosts
   (`https://external-api.kalshi.com/trade-api/v2`,
   `wss://external-api-ws.kalshi.com/trade-api/ws/v2`, demo
@@ -173,7 +173,8 @@ _Status note (2026-09-13): the owner directed Phase 2 (Kalshi refresh) to procee
 - **Exit**: a collect run with no unhandled 5xx; a verification script
   the owner can run to confirm both hosts and the book format.
 
-### M3 — Second venue adapter (Phase 3) · **BLOCKED ON OWNER CHOICE**
+### M3 — Second venue adapter (Phase 3) · **ROUTE SELECTED (Polymarket US) — CODE + FEE MODEL COMPLETE; 3 GATES ARE OWNER-GATED**
+_Status note (2026-09-13, second pass): the owner selected Polymarket US. The adapter, WebSocket, provenance, and per-market tick/min-qty handling are implemented with 41 offline tests. **Exit gate 3 (exact fee context) is now CLOSED**: banker's rounding, the cumulative aggressive-order cap, and uncapped per-fill maker rebates are modelled exactly, verified by reproducing all 198 values of the venue's own published 100-lot fee table, and fees are now charged per fill from the walked levels (D13 fixed). Settlement fees stay `INCOMPLETE — BLOCK` (no settlement fee is published — documented-by-absence is not verification). Gates 1 (Utah/account eligibility, still UNKNOWN per new row R9), 2 (observed-payload evidence — `scripts/polymarket_us_smoke.py`, needs a machine that can reach the venue) and 4 (one real cross-listing, blocked behind D6/D9) all require the owner or Phase 5._
 - Implement only the selected Polymarket US, Gemini, or IBKR route. Begin with
   official reads, payload capture, contract-qualified provenance, dynamic fee
   context, and Utah/account eligibility validation; orders remain paper/sandbox
@@ -200,13 +201,14 @@ _Status note (2026-09-13): the owner directed Phase 2 (Kalshi refresh) to procee
   certificates, with a human-reviewable false-match rate.
 
 ### M5 — Replay, backtest, and paper realism (Phases 4 + 6, defects D3, D4, D11, D12)
-- Persist the full `NormalizedContract` + raw payload at collect time
+_Status note (2026-09-13, third pass): **Phase 4 is code complete — D3 and D4 are fixed.** Collect mode persists all 37 `NormalizedContract` fields plus the raw payload via `record_contract()`; migration `002` is forward-only and `PRAGMA`-guarded (`SCHEMA_VERSION` 1 → 2); `database/contract_codec.py` owns both directions and a round trip is verified lossless across every field. Historical mode reads the recorded store **read-only** (SQLite `mode=ro`, enforced by the engine, not by convention) and writes only its own database; a missing store raises rather than being created empty. Reconstruction **never invents** — an under-recorded row returns `None` and is counted, replacing the old invented `payout=1.00`/`tick_size=0.01`/`contract_version="historical"`. The metric battery (opportunity duration keyed on the stable leg pair, fill probability, partial-fill rate, drawdown, capital utilisation, fee drag) is implemented in `backtesting/metrics.py` with measured and modelled results kept apart and assumptions disclosed on every result. 25 new tests in `tests/test_phase4_recording.py`, including one that pins the battery to the CLI path: the metric code was briefly reachable only from `BacktestEngine`, so `--mode historical` reported counts but not metrics and the exit criterion was not actually met. **The Phase 6 half of M5 is now done too — D11 and D12 are fixed** (14 more tests in `tests/test_paper_realism.py`, both mutation-verified): the paper engine reads books through `OrderBookAggregator` with a real staleness gate, and `simulated_fill_probability_at_touch` finally scales the at-touch portion of a fill instead of being read, stored and ignored. **Still open:** the Phase 4 exit needs the owner's real collected data (neither venue is reachable from the sandbox), and Phase 6's exit needs the owner's multi-week paper run. `HistoricalExecutionEngine` deliberately stays unwired; wiring it would imply execution evidence that does not exist._
+- ~~Persist the full `NormalizedContract` + raw payload at collect time
   (migration `002` through the forward-only runner) and make the recorded
   store readable by historical mode; reconstruct faithfully in
-  `prediction_arb/modes/historical/data_provider.py`.
-- Implement `prediction_arb/backtesting/engine.py::run_backtest` metrics (opportunity
+  `prediction_arb/modes/historical/data_provider.py`.~~ **DONE 2026-09-13.**
+- ~~Implement `prediction_arb/backtesting/engine.py::run_backtest` metrics (opportunity
   duration, fill probability, partial-fill rate, drawdown, capital
-  utilisation, fee drag).
+  utilisation, fee drag).~~ **DONE 2026-09-13.**
 - Enforce book freshness in paper (use `OrderBookAggregator`, which is
   currently dead code) and either implement
   `simulated_fill_probability_at_touch` or delete the config key and
