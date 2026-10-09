@@ -8,6 +8,11 @@ This is the reference document for anyone (human or agent) continuing
 the project. It describes **phases**, the **verified current state**,
 the **defect register**, and the **actions only a human can perform**.
 
+> **Fresh agent session?** Read `docs/AGENT_HANDOFF.md` first — it is the
+> permanent entry point (current baseline, verified test results, environment
+> limits, critical path, and what not to start). This roadmap stays the
+> register of record for phases and defects.
+
 Status tags used throughout:
 
 | Tag | Meaning |
@@ -20,20 +25,20 @@ Status tags used throughout:
 
 ---
 
-## 1. Current state snapshot (all verified locally 2026-09-13)
+## 1. Current state snapshot (verified locally 2026-09-13; re-verified 2026-10-09 where the row says so)
 
 | Check | Result |
 |---|---|
-| `pytest` | **311 passed** (~26s), re-run 2026-09-14 after the Phase 5 pass: the 264 from 2026-09-13 (Phase 0's 107 + 11 Phase 1 + 26 Phase 2 + 41 Phase 3 + 24 exact-fee-model + 12 smoke-script/D14 + 3 per-fill accuracy + 25 Phase 4 + 14 Phase 6) + **24 candidate-generation tests** (`tests/test_candidate_generation.py`: blocking families, grouping, D15 provenance gate, end-to-end candidate→certificate→opportunity — mutation-verified) + **20 LLM-client tests** (`tests/test_llm_client.py`: config paths, transport, budget — mutation-verified). All offline: mock HTTP transports and a scripted local WebSocket server |
-| `python -m prediction_arb.main --status` | Works: kalshi=VERIFIED, polymarket_us=API_DOCUMENTED_UNTESTED, forecast_ex=API_DOCUMENTED_UNTESTED; independence matrix correct (kalshi↔polymarket_us = INDEPENDENT) |
-| `python -m prediction_arb.main --readiness` | 0 snapshots recorded in a fresh clone; **0 opportunities ever analyzed**; live NOT RECOMMENDED. (The 13,801-snapshot figure below was from the previous engineer's working copy — the DB is git-ignored, so a fresh clone starts empty.) |
+| `pytest` | **311 collected, 310 passed, 1 FAILED** (~26s) — re-run 2026-10-09 on Python 3.11.2. The failure is `tests/test_units.py::TestSettlementTiming::test_lockup_and_cost` (**defect D16**: the fixture settlement date `2026-09-15` is now in the past, so `capital_lockup_days` clamps to 0 and `assert lockup > 0` fails). Production code is not implicated; the suite is nonetheless red until D16 is fixed. Composition as of 2026-09-14, when the suite last passed in full: the 264 from 2026-09-13 (Phase 0's 107 + 11 Phase 1 + 26 Phase 2 + 41 Phase 3 + 24 exact-fee-model + 12 smoke-script/D14 + 3 per-fill accuracy + 25 Phase 4 + 14 Phase 6) + **24 candidate-generation tests** (`tests/test_candidate_generation.py`: blocking families, grouping, D15 provenance gate, end-to-end candidate→certificate→opportunity — mutation-verified) + **20 LLM-client tests** (`tests/test_llm_client.py`: config paths, transport, budget — mutation-verified). All offline: mock HTTP transports and a scripted local WebSocket server |
+| `python -m prediction_arb.main --status` | Works (re-verified 2026-10-09, exit 0): kalshi=VERIFIED, polymarket_us=API_DOCUMENTED_UNTESTED, forecast_ex=API_DOCUMENTED_UNTESTED; independence matrix correct (kalshi↔polymarket_us = INDEPENDENT) |
+| `python -m prediction_arb.main --readiness` | Re-verified 2026-10-09: 0 snapshots recorded in a fresh clone; **0 opportunities ever analyzed**; live NOT RECOMMENDED. (The 13,801-snapshot figure below was from the previous engineer's working copy — the DB is git-ignored, so a fresh clone starts empty.) |
 | Live-capable venues | **1** (Kalshi). Polymarket US is implemented and INDEPENDENT, but stays API_DOCUMENTED_UNTESTED until the owner captures observed-payload evidence (P7) |
 | `data/paper/…sqlite3` | Not present in a fresh clone (git-ignored). Previously 21,892 markets / 13,801 book snapshots spanning 2026-08-30 → 2026-09-05, tagged `mode=collect` |
 | `data/historical/…sqlite3` | **Empty** (0 rows in every table) |
 | `reports/historical/…json` | `{"frames": 0, "opportunities": 0}` |
 | `logs/collect/collect_20260831.jsonl` | Not present in a fresh clone. Previously 32 error rows: 18× DNS failure, 14× Kalshi HTTP 500 (2026-08-31 → 2026-09-04) |
-| CI | **Has run and is green**: 10 completed runs, all `success`, including run 34777759265 on `main` (`gh run list`) |
-| Outbound network from this sandbox | Venues unreachable (TLS closed on `external-api.kalshi.com`, `api.elections.kalshi.com`, `gateway.polymarket.us`, `api.polymarket.us`) — venue calls must be verified on the owner's machine. **Documentation hosts ARE reachable through the research tooling**, which is how rows P8–P12 and R9 were re-verified |
+| CI | Has run and was green through 2026-09-15: latest run `34917308199` (`gh run list`, checked 2026-10-09) `success`, as were all runs before it including `34804088486` on `main`. **Caveat: no CI run has happened since the suite went red (D16)** — the green status predates the regression and does not describe today's suite |
+| Outbound network from this sandbox | Venues unreachable — re-confirmed 2026-10-09 by running both smoke scripts (`scripts/kalshi_smoke.py`, `scripts/polymarket_us_smoke.py`), each exiting `1` with `TLS/SSL connection has been closed (EOF)` on `external-api.kalshi.com`, `api.elections.kalshi.com` and `gateway.polymarket.us`. Rows K9 and P7 therefore still stand; venue calls must be verified on the owner's machine. **Documentation hosts ARE reachable through the research tooling**, which is how rows P8–P12 and R9 were re-verified |
 
 **Bottom line:** the safety architecture and Phase 1 fail-closed research
 registries are tested. The opportunity pipeline still has never seen real
@@ -45,6 +50,11 @@ D15 keeps same-venue pairs out of APPROVED. What remains for the first
 real opportunity is owner-gated: venue reachability evidence (smoke
 scripts), the Kalshi key (H2) for collected data, and an LLM key (H7)
 for approval semantics.
+
+**Added 2026-10-09:** the test suite itself is currently **red** — one
+date-dependent fixture expired (D16, no production code implicated). Fixing it
+is the only critical-path item that needs no owner action; see
+`docs/AGENT_HANDOFF.md` §8.
 
 ---
 
@@ -748,6 +758,7 @@ collection), and log rotation.
 | D13 | ~~Trade fees priced at a walk's weighted-average price instead of per fill~~ **FIXED 2026-09-13**: `FeeCalculator.trade_fee_fills()` charges each walked level, applies the venue's documented rounding, and honours an order-total cap; `two_leg.py` and `execution/simulated.py` now pass the real `levels_consumed`. The old shortcut is not what any venue bills: it overstates a concave taker charge and would understate a maker credit, and it ignores the cumulative cap entirely | Was: `two_leg.py:139` → `trade_fee(venue, yes_walk.weighted_average_price, qty)`. Now: per-fill; `tests/test_polymarket_fees.py::TestPerFillAccuracy` proves the engine charges walked levels and that the two numbers differ | 3 |
 | D14 | ~~Configured rate-limit headroom silently ignored~~ **FIXED 2026-09-13**: `main.py` read `rate_limit_headroom` from the top level of `venues.yaml` instead of under its `venues:` key, so the hardcoded `0.8` default always won. Harmless only while config and default matched; an operator tightening headroom would have had no effect | Was: `config.venues.get("kalshi", {})` → `{}`. Now unwrapped like `build_adapters`; `tests/test_units.py::TestRateLimitCalibration` (verified by mutation: reverting the fix fails the test with `headroom=0.8`) | 2 |
 | D15 | ~~`validate_match` can issue an APPROVED certificate for a SAME_VENUE pair~~ **FOUND + FIXED 2026-09-14** (found while re-deriving the matching pipeline for D6; fixed as its own reviewable commit): the provenance gate now routes every relationship that is not proven `INDEPENDENT` — SAME_VENUE, LIKELY_SAME_VENUE, LIKELY_INDEPENDENT, UNKNOWN — to REVIEW, never APPROVED (§33 requires an INDEPENDENT relationship for any trade). `search_event` already refused to evaluate non-INDEPENDENT pairs, so no fake trade could execute; the fix closes the certificate side, which would otherwise poison the human false-match review. 3 tests in `tests/test_candidate_generation.py::TestSameVenueNeverApproved`, mutation-verified (reverting the gate fails the 2 same-venue tests) | Was: only `Independence.UNKNOWN` was downgraded to REVIEW in `matching/rules_validator.py`; kalshi↔webull (SAME_VENUE via `provenance/independence.py`) with a deterministic pass + a good LLM verdict reproduced `APPROVED`. Now: `TestSameVenueNeverApproved` | 5 |
+| D16 | **Test suite is red: an expired date fixture.** `tests/conftest.py` pins `SETTLE = 2026-09-15T20:00Z`; `normalization/settlement.py::capital_lockup_days` clamps a past settlement to `0`, so `TestSettlementTiming::test_lockup_and_cost`'s `assert lockup > 0` fails for every run after that instant. The production behaviour is correct (a settled contract locks no capital) — the fixture, not the code, is stale. Fix the test's date-dependence without weakening what it asserts, and sweep the other fixed-date fixtures (`tests/test_candidate_generation.py`, `tests/test_phase4_recording.py`) for the same rot. **OPEN** | Reproduced 2026-10-09: `pytest` → `310 passed, 1 failed`; `pytest tests/test_units.py::TestSettlementTiming -q` → `AssertionError: assert (Decimal('0.0') is not None and Decimal('0.0') > 0)`. Confirmed date-dependent, not environmental: `capital_lockup_days([a,b], now=datetime(2026,9,14,tzinfo=utc))` returns `1.8333…` while `now()` returns `0.0`. CI has not run since 2026-09-15, so its green status predates this | 0 |
 
 ---
 

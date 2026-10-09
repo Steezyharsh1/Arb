@@ -192,11 +192,14 @@ never committed; `.env.*` files hold credentials and are never committed either
 
 ## Documentation
 
-**Start here:** `docs/ROADMAP.md` (phase map, verified current state, defect
-register D1–D12, human-action checklist) and `docs/SPEC.md` (the reconstructed
-specification — every `§N` cited in the code resolves there).
+**Start here:** `docs/AGENT_HANDOFF.md` — the permanent entry point for a fresh
+engineer or agent session (current baseline commit, verified test results,
+environment limits, defects, critical path, what not to start). Then
+`docs/ROADMAP.md` (phase map, verified current state, defect register D1–D16,
+human-action checklist) and `docs/SPEC.md` (the reconstructed specification —
+every `§N` cited in the code resolves there).
 
-`docs/`: ROADMAP, SPEC, AGENT_KICKOFF, VENUE_RESEARCH, ARCHITECTURE, API_SETUP,
+`docs/`: AGENT_HANDOFF, ROADMAP, SPEC, AGENT_KICKOFF, VENUE_RESEARCH, ARCHITECTURE, API_SETUP,
 COMPLIANCE, TRADING_LOGIC, LLM_MATCHING, RISK_MANAGEMENT, TESTING,
 MODE_SEPARATION, CRASH_RECOVERY.
 
