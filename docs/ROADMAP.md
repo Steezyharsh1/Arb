@@ -37,7 +37,7 @@ Status tags used throughout:
 | `data/historical/…sqlite3` | **Empty** (0 rows in every table) |
 | `reports/historical/…json` | `{"frames": 0, "opportunities": 0}` |
 | `logs/collect/collect_20260831.jsonl` | Not present in a fresh clone. Previously 32 error rows: 18× DNS failure, 14× Kalshi HTTP 500 (2026-08-31 → 2026-09-04) |
-| CI | Has run and was green through 2026-09-15: latest run `34917308199` (`gh run list`, checked 2026-10-09) `success`, as were all runs before it including `34804088486` on `main`. **Caveat: no CI run has happened since the suite went red (D16)** — the green status predates the regression and does not describe today's suite |
+| CI | **Green on the current branch head: run `37999166331` `success`** (2026-10-09, 49s — install, full suite, four CLI smokes, honest-empty replay, artifact guard). It is the first run since 2026-09-15 and confirms the D16 fix on a clean runner. The run immediately before it (`37997910717`, docs-only commit) failed on exactly the D16 assertion, which CI had been masking only because no run had happened since the fixture expired |
 | Outbound network from this sandbox | Venues unreachable — re-confirmed 2026-10-09 by running both smoke scripts (`scripts/kalshi_smoke.py`, `scripts/polymarket_us_smoke.py`), each exiting `1` with `TLS/SSL connection has been closed (EOF)` on `external-api.kalshi.com`, `api.elections.kalshi.com` and `gateway.polymarket.us`. Rows K9 and P7 therefore still stand; venue calls must be verified on the owner's machine. **Documentation hosts ARE reachable through the research tooling**, which is how rows P8–P12 and R9 were re-verified |
 
 **Bottom line:** the safety architecture and Phase 1 fail-closed research

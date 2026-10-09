@@ -179,7 +179,7 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4.
 | CI tracked-artifact guard (`git ls-files` piped through the `grep -E` filter in `.github/workflows/ci.yml`) | OK — no artifacts, databases, logs or env files tracked |
 | `python scripts/kalshi_smoke.py` | **exit 1** — `TLS/SSL connection has been closed (EOF)` on *both* `external-api.kalshi.com` and `api.elections.kalshi.com`. Evidence row **K9 still stands** |
 | `python scripts/polymarket_us_smoke.py` | **exit 1** — same TLS EOF on `gateway.polymarket.us`. Evidence row **P7 still stands** |
-| `gh run list` | Last CI run `34917308199` (2026-09-15, green). **No CI run has happened since the suite went red**, so the green badge predates D16 |
+| GitHub Actions CI on this branch | **Run `37999166331` — `success`** (2026-10-09, 49 s): fresh install, full suite, all four CLI smokes, honest-empty replay, artifact guard. First green run since 2026-09-15, and independent confirmation of the D16 fix on a clean runner. The immediately preceding run on this branch (`37997910717`, the docs-only commit) **failed** — exactly the pre-existing D16 failure, which CI had been masking only because it had not run since the fixture expired |
 
 **Environment limitations a fresh agent must assume:**
 
