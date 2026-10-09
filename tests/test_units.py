@@ -310,6 +310,13 @@ class TestRiskLimits:
 
 class TestSettlementTiming:
     def test_lockup_and_cost(self):
+        """An unsettled contract locks capital, and that lockup is costable.
+
+        Goes through the production call path (`now` defaults to `utcnow()`),
+        so the contracts must settle in the future *relative to the moment
+        the test runs* — `make_contract`'s default settlement is relative for
+        exactly that reason (defect D16).
+        """
         from prediction_arb.normalization.settlement import (
             capital_lockup_days, settlement_delay_cost,
         )
@@ -318,7 +325,44 @@ class TestSettlementTiming:
         lockup = capital_lockup_days([a, b])
         assert lockup is not None and lockup > 0
         cost = settlement_delay_cost(Decimal("100"), lockup, Decimal("0.05"))
-        assert cost is not None and cost >= 0
+        # A positive lockup on positive capital at a positive rate costs
+        # something; `>= 0` would also have passed with the lockup clamped
+        # to zero, which is what hid D16.
+        assert cost is not None and cost > 0
+
+    def test_lockup_tracks_the_last_leg_to_settle(self):
+        """Exact arithmetic, pinned with an explicit `now` (no wall clock)."""
+        from prediction_arb.normalization.settlement import (
+            capital_lockup_days, settlement_delay_cost,
+        )
+        now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        a = make_contract(venue="kalshi", settlement=now + timedelta(days=2))
+        b = make_contract(venue="forecast_ex",
+                          settlement=now + timedelta(days=5))
+        lockup = capital_lockup_days([a, b], now=now)
+        # The LAST leg to settle decides, plus that venue's 0-day delay.
+        assert lockup == Decimal("5")
+        # 365 * 0.05 * 5 / 365
+        assert settlement_delay_cost(Decimal("365"), lockup,
+                                     Decimal("0.05")) == Decimal("0.25")
+
+    def test_already_settled_contract_locks_no_capital(self):
+        """Zero here is correct behaviour, not a missing value.
+
+        This is the clamp that made the old absolute-date fixture fail (D16):
+        capital is already returned, so the lockup is 0 — distinct from
+        UNKNOWN, which is None and blocks.
+        """
+        from prediction_arb.normalization.settlement import (
+            capital_lockup_days, settlement_delay_cost,
+        )
+        now = datetime(2026, 1, 10, tzinfo=timezone.utc)
+        settled = make_contract(venue="kalshi",
+                                settlement=now - timedelta(days=4))
+        lockup = capital_lockup_days([settled], now=now)
+        assert lockup == Decimal("0")
+        assert settlement_delay_cost(Decimal("100"), lockup,
+                                     Decimal("0.05")) == Decimal("0")
 
     def test_unknown_venue_lockup_none(self):
         from prediction_arb.normalization.settlement import (

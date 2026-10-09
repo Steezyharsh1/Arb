@@ -37,6 +37,11 @@ producing real, costed arbitrage candidates in paper mode."
 
 ## READ THESE FIRST (in this order)
 
+0. `docs/AGENT_HANDOFF.md` — **mandatory first read.** The permanent session
+   handoff: current branch and baseline commit, the minimum code path, verified
+   test results and environment limits, reproduced vs inherited defects, the
+   critical path, deferred work, and the recommended next task. It is kept
+   current; everything else below is background.
 1. `docs/ROADMAP.md` — the phase map, verified current state, defect
    register (D1–D12), and the human-action checklist (H1–H6). **This is
    your primary reference; keep it updated as you work.**
