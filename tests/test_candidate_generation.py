@@ -17,12 +17,12 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
 
-from .conftest import make_book, make_contract
+from .conftest import SETTLEMENT_TEST_NOW, make_book, make_contract
 
 from prediction_arb.matching.llm_matcher import LLMMatcher
 from prediction_arb.modes.shared import run_arbitrage_scan, run_matching
@@ -34,7 +34,9 @@ from prediction_arb.normalization.contracts import (
     numeric_tokens,
 )
 
-SETTLE = datetime(2026, 9, 15, 20, 0, tzinfo=timezone.utc)
+# Keep all relative settlement examples after conftest's frozen settlement
+# clock. No fixture should age into a settled contract as the calendar moves.
+SETTLE = SETTLEMENT_TEST_NOW + timedelta(days=1)
 
 # Same real-world event, the way two venues actually phrase it.
 KALSHI_TITLE = ("Will the Federal Reserve hold its target range at "
@@ -297,6 +299,7 @@ class TestPipelineEmitsCandidates:
             maximum_settlement_delay_days=Decimal("5"),
             cost_of_capital_annual=Decimal("0.05")))
         assert len(ops) >= 1
+        assert ops[0].settlement_delay_cost > 0  # future lockup is costed
         assert ops[0].match_id == result.certificates[0].match_id
 
     def test_blocking_never_approves_a_deterministic_reject(self, stub_llm):

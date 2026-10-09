@@ -5,8 +5,8 @@ permanent entry point for a fresh agent session with no memory of prior
 conversations. It tells you what the project is, what is true *right now*,
 what is broken, what you may work on, and what you must not touch.
 
-- **Last updated:** 2026-10-09 (UTC) by the handoff session on branch
-  `arena/d0cf72b9-arb`.
+- **Last updated:** 2026-10-09 (UTC) by the test-baseline session on branch
+  `arena/fc6eca21-arb`.
 - **Everything below marked VERIFIED was executed in this sandbox on
   2026-10-09.** Anything inherited from earlier sessions and not re-run is
   labelled INHERITED. Never promote INHERITED to VERIFIED without running it.
@@ -41,11 +41,11 @@ owner for help).
 | Item | Value |
 |---|---|
 | Repo | `Steezyharsh1/Arb` (package name `prediction_arb`) |
-| Working branch (fixed for this session lineage) | `arena/d0cf72b9-arb` |
-| Baseline commit | `2960c682b516e2ef5ff3ee9f3e043646593af114` — *"Merge pull request #5 … Phase 5: fix D6 candidate blocking, D9 LLM wiring, and D15 certificate gate"* (2026-09-14) |
-| Working tree at session start | clean (`git status --porcelain` empty) — VERIFIED 2026-10-09 |
+| Working branch (fixed for this session lineage) | `arena/fc6eca21-arb` |
+| Baseline commit | `f74c728c12ce0a6fadd44cc7d3314c1fce614f01` — *"Merge pull request #6 from Steezyharsh1/arena/d0cf72b9-arb"* (2026-10-09) |
+| Working tree at session start | clean (`git status --porcelain` empty) — VERIFIED 2026-10-09 before edits |
 | Clone depth | **shallow (depth 1)**: `git log` shows a single commit. Run `git fetch --unshallow` if you need real history (e.g. to blame a regression) |
-| Merged PRs to date | #1 Phase 0, #2 Phase 1, #3 Phases 2+3, #4 Phase 2/3 gaps + Phase 4, #5 Phase 5 (`gh pr list --state all`) |
+| Merged PRs to date | #1 Phase 0, #2 Phase 1, #3 Phases 2+3, #4 Phase 2/3 gaps + Phase 4, #5 Phase 5, #6 D16 baseline recovery (baseline HEAD is merge PR #6) |
 | CI | `.github/workflows/ci.yml`: install → `pytest` → 4 CLI smokes → honest-empty-replay grep → tracked-artifact guard |
 
 ---
@@ -169,9 +169,14 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4.
 
 | Check (exact command) | Result — VERIFIED 2026-10-09 |
 |---|---|
-| `pytest` | **313 collected, 313 passed in ~25 s** — green again after the D16 fix (it was 310/311 earlier the same day). Includes all ten mandatory §75 spec cases. Fully offline |
-| `pytest --collect-only -q` | 313 tests: arbitrage_engine 9, candidate_generation 27, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 24, polymarket_us 41, safety 26, spec_cases 13, units 41 |
-| Time-bomb sweep (whole suite re-run under a frozen future clock: 2026-10-14, 2027-10-09, 2031-01-02) | **313 passed at every date.** No date-dependent test remains. Harness: a throwaway `freezegun` plugin started before `conftest.py` import, installed into the venv only for the sweep and uninstalled afterwards — **not** added to `requirements.txt` and not committed |
+| `.venv/bin/pytest tests/test_units.py::TestSettlementTiming::test_lockup_and_cost -q` | **1 passed** — the reported failure is not present at the baseline commit. The stale 2026-09-15 value is separately reproduced below as yielding zero lockup after that date |
+| `.venv/bin/pytest tests/test_units.py::TestSettlementTiming -q` | **4 passed** — explicit-`now` tests pin last-leg arithmetic and the intentional past-settlement clamp |
+| `.venv/bin/pytest tests/test_candidate_generation.py -q` | **27 passed** |
+| `.venv/bin/pytest tests/test_units.py::TestSettlementTiming::test_lockup_and_cost tests/test_candidate_generation.py::TestPipelineEmitsCandidates::test_pipeline_finds_cross_venue_opportunity -q` | **2 passed** after the deterministic fixture update; the direct and pipeline tests both require a positive lockup cost |
+| `.venv/bin/pytest` | **313 collected, 313 passed in 25.01 s** — current local baseline, all offline, including the ten mandatory §75 spec cases |
+| `.venv/bin/pytest --collect-only -q` | 313 tests: arbitrage_engine 9, candidate_generation 27, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 24, polymarket_us 41, safety 26, spec_cases 13, units 40 |
+| Frozen-wall-clock sweep (whole suite at 2026-10-14, 2027-10-09, 2031-01-02) | **313 passed at every date** with the current fixture changes. A temporary `freezegun` 1.5.5 plugin was installed only in ignored `.venv`; it is not a project dependency or committed file |
+| Mutation checks (temporary stale settlement values, restored immediately) | Restoring the old default date makes `test_lockup_and_cost` fail at `0.0 != 3`; restoring the old candidate date makes the end-to-end scan fail because its delay cost is `0.0000` |
 | `python -m prediction_arb.main --status` | exit 0. kalshi=VERIFIED, polymarket_us=API_DOCUMENTED_UNTESTED, forecast_ex=API_DOCUMENTED_UNTESTED; independence matrix kalshi↔polymarket_us = INDEPENDENT; kill switch disengaged |
 | `python -m prediction_arb.main --readiness` | exit 0. `0` snapshots, `0` opportunities, "Two live-capable independent venues = 1" → **LIVE MODE: NOT RECOMMENDED YET** |
 | `python -m prediction_arb.main --mode historical --date 2020-01-01` | exit 0, prints "No recorded historical order-book data…", writes an honest empty report — the CI grep still holds |
@@ -179,7 +184,7 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4.
 | CI tracked-artifact guard (`git ls-files` piped through the `grep -E` filter in `.github/workflows/ci.yml`) | OK — no artifacts, databases, logs or env files tracked |
 | `python scripts/kalshi_smoke.py` | **exit 1** — `TLS/SSL connection has been closed (EOF)` on *both* `external-api.kalshi.com` and `api.elections.kalshi.com`. Evidence row **K9 still stands** |
 | `python scripts/polymarket_us_smoke.py` | **exit 1** — same TLS EOF on `gateway.polymarket.us`. Evidence row **P7 still stands** |
-| GitHub Actions CI on this branch | **Run `37999166331` — `success`** (2026-10-09, 49 s): fresh install, full suite, all four CLI smokes, honest-empty replay, artifact guard. First green run since 2026-09-15, and independent confirmation of the D16 fix on a clean runner. The immediately preceding run on this branch (`37997910717`, the docs-only commit) **failed** — exactly the pre-existing D16 failure, which CI had been masking only because it had not run since the fixture expired |
+| GitHub Actions CI before this session's fixture changes | Run `37999166331` — `success` (2026-10-09, 49 s) on baseline commit `f74c728`: fresh install, full suite, four CLI smokes, honest-empty replay, artifact guard. This session's deterministic-clock follow-up has **not** yet run in CI; local full-suite and frozen-clock results above cover it |
 
 **Environment limitations a fresh agent must assume:**
 
@@ -209,15 +214,15 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4.
 
 | ID | Defect | Reproduction / evidence | State |
 |---|---|---|---|
-| **D16** (new) | **The test suite was red: one date-dependent test had expired.** `tests/conftest.py` pinned `SETTLE = 2026-09-15T20:00Z`; `capital_lockup_days()` clamps a past settlement to `0`, so `TestSettlementTiming::test_lockup_and_cost`'s `assert lockup > 0` failed for every run after that instant. Production code was never implicated — a settled contract genuinely locks no capital; the *fixture* was stale | Reproduced: `pytest` → `310 passed, 1 failed`; proven date-dependent, not environmental (`capital_lockup_days([a,b], now=2026-09-14)` → `1.8333…` vs `now()` → `0.0`) | **FIXED 2026-10-09** (tests only, no production change): `make_contract`'s default settlement is now a relative near-future instant, so it cannot expire and the rest of the suite keeps exercising a non-zero settlement-delay cost; the assertion was strengthened (`cost > 0`, which the clamped-to-zero state could not satisfy) and two deterministic explicit-`now` tests were added — exact "last leg decides" arithmetic, and the past-settlement clamp pinned as intentional. 311 → 313 tests, all passing, and the whole suite passes under a frozen clock at 2026-10-14 / 2027-10-09 / 2031-01-02. Mutation-verified: restoring the absolute date fails `test_lockup_and_cost`; returning the first leg instead of the last fails `test_lockup_tracks_the_last_leg_to_settle`; removing the `max(0, …)` clamp fails `test_already_settled_contract_locks_no_capital` |
+| **D16** | **The inherited review reported one expired settlement fixture.** The old `tests/conftest.py` date was `2026-09-15T20:00Z`; after it passed, `capital_lockup_days()` correctly clamped lockup to zero, so `TestSettlementTiming::test_lockup_and_cost` failed and other tests silently stopped charging delay cost. Production behavior was correct — an already-settled contract locks no capital | Prior handoff recorded `pytest` → `310 passed, 1 failed`. In this session the reported test passed at the baseline commit; an explicit calculation with settlement `2026-09-15T20:00Z` and test clock `2026-10-09T00:00Z` returned `0.0`, confirming the cause | **FIXED / RE-VERIFIED 2026-10-09** (tests only): replaced the wall-clock-relative default with frozen `SETTLEMENT_TEST_NOW` and a default settlement three days later; `test_lockup_and_cost` pins the exact 3-day lockup and `$0.0411` cost. Found and fixed the same silent failure in the candidate-generation scan: its expired 2026-09 fixture had produced zero delay cost without failing; it now settles after the frozen test clock and asserts positive cost. Four settlement-timing tests and 27 candidate tests pass; full suite **313 passed in 25.01 s** and at each of 2026-10-14 / 2027-10-09 / 2031-01-02 under a frozen wall clock. Mutation-verified: restoring either stale fixture makes its regression test fail; last-leg and past-settlement clamp tests still pin the intended arithmetic. No production code changed |
 | **D10** (open, inherited and re-confirmed) | Live mode is monitor-only and `--readiness` hardcodes the two-venue check | `main.py::cmd_readiness` contains the literal `False`; `--readiness` printed "NOT YET: Two live-capable independent venues = 1"; `modes/live/engine.py::run` refuses to scan | **OPEN.** Correct-but-dishonest: the check cannot ever pass, even when two verified venues exist. Phase 8 work |
 
 ### 7b. Inherited as FIXED — regression tests pass, but exit evidence is still owner-gated
 
 These were fixed by earlier sessions. This session re-read each fix site and
-confirmed the corresponding tests pass inside the 310, **but did not re-run the
-mutation checks** the original sessions describe, and none of them can be
-validated against a real venue here. Details and evidence columns:
+confirmed the corresponding tests pass in the 313-test suite, **but did not
+re-run the mutation checks** the original sessions describe, and none of them
+can be validated against a real venue here. Details and evidence columns:
 `docs/ROADMAP.md` §4 defect register.
 
 | ID | Subject | Where it lives now |
@@ -250,22 +255,25 @@ ROADMAP register because their impact needs an owner/agent decision first:
   Under a 30-day window they fall out of strict freshness on **2026-10-14**.
   Nothing breaks today (see the previous bullet), but any live-path work must
   re-verify the schedules first.
-- **Fixed-date fixtures are a recurring hazard.** `tests/conftest.py`'s
-  default settlement is now relative (D16 fix), but
-  `tests/test_candidate_generation.py` and `tests/test_phase4_recording.py`
-  still pin absolute 2026-09 dates. Those are *structural* uses — offsets
-  relative to their own constant, never compared with `utcnow()` — and the
-  frozen-clock sweep at 2026-10-14 / 2027-10-09 / 2031-01-02 passes, so they
-  are safe today. Anything new that compares a fixture date to `utcnow()`
-  will rot the same way D16 did; make it relative, or pass an explicit `now=`.
+- **Settlement fixtures are now tied to a deterministic test clock.**
+  `tests/conftest.py` freezes only `normalization.settlement.utcnow` at
+  `SETTLEMENT_TEST_NOW` and places its default settlement three days later;
+  `tests/test_candidate_generation.py` uses a settlement one day later and
+  asserts the end-to-end scan charges a positive delay cost. The absolute
+  2026-09-25 instant in `tests/test_phase4_recording.py` is persistence/replay
+  data only (no time-sensitive lockup path). The whole suite also passes with
+  the wall clock frozen at 2026-10-14 / 2027-10-09 / 2031-01-02. New timing
+  tests should keep using an explicit `now=` or a frozen settlement clock.
 
 ---
 
 ## 8. Current critical path (ordered by dependency, then impact)
 
-1. ~~**Restore a green baseline (D16).**~~ **DONE 2026-10-09** — 313 passing,
-   and the suite survives a frozen clock three dates into the future. With
-   that closed, **every remaining item on the critical path needs the owner**;
+1. ~~**Restore a green baseline (D16).**~~ **DONE 2026-10-09** — 313 passed
+   in 25.01 s with a fixed settlement clock, and at three future wall-clock
+   dates. The reported failure is not present at baseline; the stale default
+   and pipeline fixtures now fail explicit mutation checks. With that closed,
+   **every remaining item on the critical path needs the owner**;
    nothing further can be verified here without venue access or keys.
 2. **Owner captures venue reachability evidence** — `scripts/kalshi_smoke.py`
    and `scripts/polymarket_us_smoke.py` from a machine that can reach the
@@ -390,7 +398,7 @@ change invalidated — same commit.
 
 ```bash
 git add -A && git commit -m "<scope>: <what changed and why>"
-git push origin arena/d0cf72b9-arb        # this session lineage is fixed to this branch
+git push origin arena/fc6eca21-arb       # this session lineage is fixed to this branch
 ```
 
 Small, reviewable, single-purpose commits. Never commit secrets, databases,
@@ -408,17 +416,17 @@ counts, doc updates, and the next action. Milestone-end reporting format:
 
 **Most recent meaningful changes** (newest first):
 
-1. **2026-10-09 — D16 fixed.** `tests/conftest.py`'s default settlement is
-   relative instead of an absolute date that had expired; the lockup
-   assertion was strengthened and two deterministic settlement-timing tests
-   added (311 → **313 passing**). Mutation-verified, plus a frozen-clock sweep
-   at three future dates. Tests only — no production code, config or
-   behaviour changed.
-2. **2026-10-09 — this handoff created.** Added `docs/AGENT_HANDOFF.md`;
-   corrected demonstrably stale status in `docs/ROADMAP.md` (test-suite result,
-   CI recency, sandbox reachability re-check) and registered **D16**. Ran the
-   full baseline: four CLI smokes, both venue smoke scripts (TLS EOF, K9/P7
-   stand).
+1. **2026-10-09 — D16 fixtures made repeatable and re-verified.** The
+   settlement test clock is fixed, default and candidate fixtures settle in
+   its future, and regression assertions require both positive lockup and
+   positive cost. The reported target and affected tests pass; the full suite
+   is **313 passed in 25.01 s** and passes at three future frozen wall-clock
+   dates. Mutation checks make both stale fixtures fail. Tests/docs only — no
+   production settlement logic changed.
+2. **2026-10-09 — original D16 repair and this handoff created.** Added
+   `docs/AGENT_HANDOFF.md`, registered **D16**, and re-verified CI recency and
+   sandbox venue reachability (both smoke scripts returned TLS EOF; K9/P7
+   remain open).
 3. **2026-09-14 — Phase 5 (PR #5).** D6 candidate blocking (§96), D9 LLM
    client wiring (§97) with a per-cycle budget, D15 provenance gate on
    certificates (§33). 47 new tests.
