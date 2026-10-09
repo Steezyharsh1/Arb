@@ -23,7 +23,22 @@ from prediction_arb.core.types import (
     PriceLevel,
 )
 
-SETTLE = datetime(2026, 9, 15, 20, 0, tzinfo=timezone.utc)
+# Default settlement time for `make_contract`: always a fixed offset into the
+# FUTURE, resolved once when this module is imported.
+#
+# It used to be the absolute date 2026-09-15, and that silently rotted
+# (defect D16). Once the date passed, `capital_lockup_days` correctly clamped
+# to zero — a contract that has already settled locks up no capital — which
+# turned `assert lockup > 0` into a false alarm and, worse, quietly removed
+# the non-zero settlement-delay cost from every other test using this
+# fixture. Production never evaluates a settled contract, so the fixture
+# should not either. A relative offset cannot expire; whole-second resolution
+# keeps it stable for the duration of a run.
+#
+# Tests that need an exact, reproducible instant must pass `settlement=` (or
+# an explicit `now=`) themselves rather than relying on this default.
+SETTLE = (datetime.now(timezone.utc).replace(microsecond=0)
+          + timedelta(days=3))
 
 
 def make_contract(venue: str = "kalshi", contract_id: str = "TEST-1",

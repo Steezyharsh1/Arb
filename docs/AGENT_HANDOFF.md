@@ -169,8 +169,9 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4.
 
 | Check (exact command) | Result — VERIFIED 2026-10-09 |
 |---|---|
-| `pytest` | **311 collected, 310 passed, 1 failed in ~26 s.** The single failure is `tests/test_units.py::TestSettlementTiming::test_lockup_and_cost` (defect **D16**, §7 below). Everything else, including all ten mandatory §75 spec cases, passes offline |
-| `pytest --collect-only -q` | 311 tests: arbitrage_engine 9, candidate_generation 27, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 24, polymarket_us 41, safety 26, spec_cases 13, units 38 |
+| `pytest` | **313 collected, 313 passed in ~25 s** — green again after the D16 fix (it was 310/311 earlier the same day). Includes all ten mandatory §75 spec cases. Fully offline |
+| `pytest --collect-only -q` | 313 tests: arbitrage_engine 9, candidate_generation 27, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 24, polymarket_us 41, safety 26, spec_cases 13, units 41 |
+| Time-bomb sweep (whole suite re-run under a frozen future clock: 2026-10-14, 2027-10-09, 2031-01-02) | **313 passed at every date.** No date-dependent test remains. Harness: a throwaway `freezegun` plugin started before `conftest.py` import, installed into the venv only for the sweep and uninstalled afterwards — **not** added to `requirements.txt` and not committed |
 | `python -m prediction_arb.main --status` | exit 0. kalshi=VERIFIED, polymarket_us=API_DOCUMENTED_UNTESTED, forecast_ex=API_DOCUMENTED_UNTESTED; independence matrix kalshi↔polymarket_us = INDEPENDENT; kill switch disengaged |
 | `python -m prediction_arb.main --readiness` | exit 0. `0` snapshots, `0` opportunities, "Two live-capable independent venues = 1" → **LIVE MODE: NOT RECOMMENDED YET** |
 | `python -m prediction_arb.main --mode historical --date 2020-01-01` | exit 0, prints "No recorded historical order-book data…", writes an honest empty report — the CI grep still holds |
@@ -206,10 +207,10 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4.
 
 ### 7a. Reproduced in this session (VERIFIED 2026-10-09)
 
-| ID | Defect | Reproduction / evidence | Impact |
+| ID | Defect | Reproduction / evidence | State |
 |---|---|---|---|
-| **D16** (new) | **The test suite is red: one date-dependent test has expired.** `tests/conftest.py` pins `SETTLE = 2026-09-15T20:00Z`; `capital_lockup_days()` clamps past settlements to `0`, so `TestSettlementTiming::test_lockup_and_cost`'s `assert lockup > 0` fails for every run after that instant | `pytest tests/test_units.py::TestSettlementTiming -q` → `AssertionError: Decimal('0.0') > 0`. Confirmed date-dependent, not environmental: `capital_lockup_days([a,b], now=2026-09-14T00:00Z)` returns `1.8333…` while `now()` returns `0.0` | The project's own gate ("`pytest` must stay green") is failing, so no session can honestly claim a green baseline. **Production code is not implicated** — the fixture is stale, the behaviour under test is correct |
-| **D10** (open, inherited and re-confirmed) | Live mode is monitor-only and `--readiness` hardcodes the two-venue check | `main.py::cmd_readiness` contains the literal `False`; `--readiness` printed "NOT YET: Two live-capable independent venues = 1"; `modes/live/engine.py::run` refuses to scan | Correct-but-dishonest: the check cannot ever pass, even when two verified venues exist. Phase 8 work |
+| **D16** (new) | **The test suite was red: one date-dependent test had expired.** `tests/conftest.py` pinned `SETTLE = 2026-09-15T20:00Z`; `capital_lockup_days()` clamps a past settlement to `0`, so `TestSettlementTiming::test_lockup_and_cost`'s `assert lockup > 0` failed for every run after that instant. Production code was never implicated — a settled contract genuinely locks no capital; the *fixture* was stale | Reproduced: `pytest` → `310 passed, 1 failed`; proven date-dependent, not environmental (`capital_lockup_days([a,b], now=2026-09-14)` → `1.8333…` vs `now()` → `0.0`) | **FIXED 2026-10-09** (tests only, no production change): `make_contract`'s default settlement is now a relative near-future instant, so it cannot expire and the rest of the suite keeps exercising a non-zero settlement-delay cost; the assertion was strengthened (`cost > 0`, which the clamped-to-zero state could not satisfy) and two deterministic explicit-`now` tests were added — exact "last leg decides" arithmetic, and the past-settlement clamp pinned as intentional. 311 → 313 tests, all passing, and the whole suite passes under a frozen clock at 2026-10-14 / 2027-10-09 / 2031-01-02. Mutation-verified: restoring the absolute date fails `test_lockup_and_cost`; returning the first leg instead of the last fails `test_lockup_tracks_the_last_leg_to_settle`; removing the `max(0, …)` clamp fails `test_already_settled_contract_locks_no_capital` |
+| **D10** (open, inherited and re-confirmed) | Live mode is monitor-only and `--readiness` hardcodes the two-venue check | `main.py::cmd_readiness` contains the literal `False`; `--readiness` printed "NOT YET: Two live-capable independent venues = 1"; `modes/live/engine.py::run` refuses to scan | **OPEN.** Correct-but-dishonest: the check cannot ever pass, even when two verified venues exist. Phase 8 work |
 
 ### 7b. Inherited as FIXED — regression tests pass, but exit evidence is still owner-gated
 
@@ -249,19 +250,23 @@ ROADMAP register because their impact needs an owner/agent decision first:
   Under a 30-day window they fall out of strict freshness on **2026-10-14**.
   Nothing breaks today (see the previous bullet), but any live-path work must
   re-verify the schedules first.
-- **Fixed-date fixtures are a recurring hazard.** `tests/conftest.py` (D16),
+- **Fixed-date fixtures are a recurring hazard.** `tests/conftest.py`'s
+  default settlement is now relative (D16 fix), but
   `tests/test_candidate_generation.py` and `tests/test_phase4_recording.py`
-  all pin absolute 2026-09 dates. Only the lockup assertion is time-relative
-  today, but anything new that compares a fixture date to `utcnow()` will rot
-  the same way.
+  still pin absolute 2026-09 dates. Those are *structural* uses — offsets
+  relative to their own constant, never compared with `utcnow()` — and the
+  frozen-clock sweep at 2026-10-14 / 2027-10-09 / 2031-01-02 passes, so they
+  are safe today. Anything new that compares a fixture date to `utcnow()`
+  will rot the same way D16 did; make it relative, or pass an explicit `now=`.
 
 ---
 
 ## 8. Current critical path (ordered by dependency, then impact)
 
-1. **Restore a green baseline (D16).** Nothing else can be honestly verified
-   while the suite is red, and CI has not run since the regression appeared.
-   Smallest correct fix, no behaviour change. *Agent-doable now, no owner.*
+1. ~~**Restore a green baseline (D16).**~~ **DONE 2026-10-09** — 313 passing,
+   and the suite survives a frozen clock three dates into the future. With
+   that closed, **every remaining item on the critical path needs the owner**;
+   nothing further can be verified here without venue access or keys.
 2. **Owner captures venue reachability evidence** — `scripts/kalshi_smoke.py`
    and `scripts/polymarket_us_smoke.py` from a machine that can reach the
    venues (no keys needed for the public checks). This converts K9/P7 from
@@ -403,29 +408,49 @@ counts, doc updates, and the next action. Milestone-end reporting format:
 
 **Most recent meaningful changes** (newest first):
 
-1. **2026-10-09 — this handoff session.** Added `docs/AGENT_HANDOFF.md`;
+1. **2026-10-09 — D16 fixed.** `tests/conftest.py`'s default settlement is
+   relative instead of an absolute date that had expired; the lockup
+   assertion was strengthened and two deterministic settlement-timing tests
+   added (311 → **313 passing**). Mutation-verified, plus a frozen-clock sweep
+   at three future dates. Tests only — no production code, config or
+   behaviour changed.
+2. **2026-10-09 — this handoff created.** Added `docs/AGENT_HANDOFF.md`;
    corrected demonstrably stale status in `docs/ROADMAP.md` (test-suite result,
    CI recency, sandbox reachability re-check) and registered **D16**. Ran the
-   full baseline: 310/311 passing, four CLI smokes, both venue smoke scripts.
-   No source code changed.
-2. **2026-09-14 — Phase 5 (PR #5).** D6 candidate blocking (§96), D9 LLM
+   full baseline: four CLI smokes, both venue smoke scripts (TLS EOF, K9/P7
+   stand).
+3. **2026-09-14 — Phase 5 (PR #5).** D6 candidate blocking (§96), D9 LLM
    client wiring (§97) with a per-cycle budget, D15 provenance gate on
    certificates (§33). 47 new tests.
-3. **2026-09-13 — Phase 2/3 gaps + Phase 4 (PR #4).** Exact Polymarket US fee
+4. **2026-09-13 — Phase 2/3 gaps + Phase 4 (PR #4).** Exact Polymarket US fee
    model (198-value table reproduced), per-fill fees (D13),
    `scripts/kalshi_smoke.py` + D14, full-contract recording and read-only
    replay (D3/D4), backtest metric battery, paper realism (D11/D12).
-4. **2026-09-13 — Phases 2 + 3 (PR #3).** Kalshi host migration, failover,
+5. **2026-09-13 — Phases 2 + 3 (PR #3).** Kalshi host migration, failover,
    streaming, tier-aware limits; Polymarket US adapter + WebSocket + provenance.
 
-**Recommended next task (one):** **Fix D16 — make the settlement-lockup test
-date-independent and restore a green suite.** In
-`tests/test_units.py::TestSettlementTiming::test_lockup_and_cost`, assert
-against a settlement that is in the future *relative to the moment the test
-runs* (or pass an explicit `now=` earlier than the fixture's `SETTLE`), without
-weakening what the test proves: a known venue pair with a future settlement
-must produce a positive lockup, and the cost of that lockup must be
-computable. Then sweep the other fixed-date fixtures for the same rot, re-run
-`pytest` (expect 311 passed), and record the result in §6 here and in
-`docs/ROADMAP.md` §1. It is small, it is the only critical-path item that needs
-no owner action, and until it is done no session can claim the gate is green.
+**Recommended next task (one):** **Ask the owner to run the two read-only
+smoke scripts and paste the evidence back.** With D16 closed, the repository
+has no agent-doable item left on its critical path: every remaining phase exit
+(2, 3, 4, 5, 6) is waiting on evidence this sandbox physically cannot produce.
+The single highest-leverage request is venue reachability, because it gates
+everything downstream — promoting Polymarket US out of
+`API_DOCUMENTED_UNTESTED` is what makes collect mode record a *second* venue,
+which is the precondition for real candidate pairs, real certificates, and the
+first replayable data set:
+
+```bash
+python scripts/polymarket_us_smoke.py    # read-only, no key, no account
+python scripts/kalshi_smoke.py           # read-only, no key needed
+```
+
+Both write sanitized evidence to `reports/evidence/` (git-ignored). Use the
+mandatory beginner-friendly request format in `docs/AGENT_KICKOFF.md` ("HOW TO
+ASK THE OWNER FOR HELP"), one task per message, and state the success
+condition. Bundle the key requests (H2 Kalshi, H7 LLM) only *after* this
+returns, so the owner is never handed five setup steps at once.
+
+*While waiting*, the most useful offline work is re-verifying the §7b
+inherited fixes by mutation — each one's claim can be re-derived here with no
+owner, which converts INHERITED into VERIFIED and would catch any fix that has
+silently regressed. Do **not** start anything in §10.
