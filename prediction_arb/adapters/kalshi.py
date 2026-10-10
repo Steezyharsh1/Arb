@@ -136,6 +136,8 @@ class KalshiAdapter(PredictionMarketAdapter):
         self.rate_limits: Optional[KalshiRateLimits] = None
         self.endpoint_costs: dict[str, int] = {}
         self.default_endpoint_cost = DEFAULT_ENDPOINT_COST_TOKENS
+        # §103: every 429 seen, including ones the retry policy absorbs.
+        self.rate_limit_events = 0
 
     # ------------------------------------------------------------- props
     @property
@@ -291,6 +293,7 @@ class KalshiAdapter(PredictionMarketAdapter):
                 continue
             if resp.status_code == 429:
                 # Rate-limited: back off (retry policy), stay on this host.
+                self.rate_limit_events += 1   # §103: counted even if retried
                 raise httpx.TransportError(
                     f"rate limited (429) from {urlparse(base).netloc}")
             if 500 <= resp.status_code < 600:

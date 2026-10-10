@@ -101,7 +101,7 @@ Authoritative context: `README.md` (what works / what is stubbed),
 | Item | Value |
 |---|---|
 | Repo | `Steezyharsh1/Arb` (package name `prediction_arb`) |
-| Working branch (fixed for this Arena session) | `arena/82abf69d-arb` |
+| Working branch (fixed for this Arena session) | `arena/dc4aad6b-arb` (Arb.14 session; earlier Arb.13 text names `arena/82abf69d-arb`, the handoff's prior session branch). Base `6a17f58` (`main`). |
 | Baseline commit | `3d01ce9139dd303eee3dcc9b310d6572a197f861` — Arena session base (Arb.12 merge) |
 | Working tree at Arb.13 start | clean; no pre-existing changes; baseline **643 passed in 35.05 s**. Arb.13 result and limitations are in §6. Changes are one focused commit on the fixed branch; no push or remote CI is claimed. |
 | Clone depth at session start | **shallow (depth 1)**: initial `git log` showed a single commit. Run `git fetch --unshallow` if you need real history (e.g. to blame a regression) |
@@ -267,6 +267,29 @@ live-blocking): `docs/COMPLIANCE.md`, evidence rows R1–R9 in
 ---
 
 ## 6. Verified test results and environment limitations (2026-10-10)
+
+### Current Arb.14 verification — actually run, offline (2026-10-10)
+
+- Full suite: **764 passed** (`.venv/bin/pytest -o addopts=""`, 44.28 s). Before
+  Arb.14 the suite had 704 tests; 60 are new in `tests/test_pipeline_telemetry.py`.
+  Three pre-existing schema pins (`SCHEMA_VERSION == 4`, migration lists) were
+  moved to 5 because migration 005 is intentional.
+- Ten deliberate mutations were applied to the new code and each was caught by
+  the targeted tests: unobserved 429s reported as 0; upsert overwriting instead
+  of accumulating; partial/failed hedge swapped; no `finally` flush; kalshi 429
+  not counted; unknown skew reported as 0; unpriced net classified from gross;
+  free-text labels accepted; recovery attempts not counted; unpriced rows summed
+  as zero net. Each file was restored afterwards.
+- Found and fixed by these tests: `attempt_record` passed `mode` into
+  `ExecutionAttemptRow` a second time, so every attempt write raised. The engine's
+  telemetry guard logged it and continued, so attempts would have been silently
+  dropped. The end-to-end COMPLETED assertion is what caught it.
+- Live CLI checked on a populated demo store (not committed): `--pipeline-report`
+  and `--pipeline-report --opportunity <id>` render the sections below. With no
+  store, it prints `UNAVAILABLE` and does **not** create `data/`.
+- Not verified: a real two-venue paper run (requires network and credentials);
+  this session is offline. The paper report is therefore unexercised against live
+  feeds.
 
 ### Current Arb.13 verification — actually run, offline
 
@@ -804,6 +827,26 @@ counts, doc updates, and the next action. Milestone-end reporting format:
 ## 12. Most recent meaningful changes, and the recommended next task
 
 **Most recent meaningful changes** (newest first):
+
+00000000. **2026-10-10 — Arb.14 pipeline observability (branch
+   `arena/dc4aad6b-arb`, base `6a17f58`).** Answers "why are opportunities not
+   progressing, and is simulated execution realistic?" from persisted data, not
+   logs. Adds `pipeline_counters` (mode, UTC day, metric, closed label, value;
+   one UPSERT per cycle) and `execution_attempts` (one row per attempt, blocked
+   attempts included; schema 5, migration 005). Read-only operator views:
+   `python -m prediction_arb.main --pipeline-report [--date YYYY-MM-DD]
+   [--opportunity ID]`. The daily paper JSON report embeds the same data.
+   Unobserved values render as `UNAVAILABLE` with a reason, never 0. Telemetry
+   failures are logged and swallowed. Covers: candidate pairs and deterministic
+   rejects; match status; opportunity status and mandatory-input blockers; gross
+   vs costed net; book age and inter-venue skew; simulated submissions, partial
+   fills, hedge states, completed positions, leg gap; unhedged exposure and risk
+   breaches; adapter 429s, feed reconnects, errors. **Finding, not fixed (D29):**
+   paper opportunity ids are random per evaluation and there is no pair-level
+   position dedupe, so one economic pair can be executed repeatedly. The report
+   shows `distinct_contract_pairs`. **764 passed in 44.28 s** (60 new cases; 10
+   mutations caught). Spec §103, roadmap D29. No live path, real orders or
+   readiness promotion.
 
 0000000. **2026-10-10 — Arb.13 / D28 causal historical evaluation
    (branch `arena/82abf69d-arb`, base `3d01ce9`).** Replaced minute/latest-term

@@ -942,6 +942,32 @@ fee bounds and static supplied versions are not an intraday cost-history stream.
 
 ---
 
+### §103 — Pipeline observability is persisted, bounded and honest  `[C,D,T]`
+**Requirement.** The operator MUST be able to see, from persisted data and
+without reading logs, where candidates and opportunities are lost and whether
+simulated execution is realistic. Each reported value MUST be a recorded
+observation or explicitly `UNAVAILABLE` with a reason; an unobserved value MUST
+NOT be reported as zero, and an absent store MUST NOT be created by a read.
+
+Telemetry MUST use a closed label vocabulary; no per-id, per-price, per-timestamp
+or per-free-text label is permitted. Writes MUST be aggregated per cycle (one
+bounded upsert), and one row per attempt MAY be kept only for simulated execution
+attempts. Per-cycle verbose logging MUST NOT be added for telemetry. A telemetry
+write failure MUST be logged and MUST NOT stop trading or simulation.
+
+Reports MUST distinguish observations per cycle from distinct opportunities, and
+economic pairs from opportunity ids. Gross edge MUST NOT be presented as net
+where costs are unpriced. Simulated execution MUST be labelled as simulated and
+MUST show submissions, partial fills, hedge states, leg timing, unhedged exposure
+and risk breaches separately. Adapter rate-limit and reconnect counts MUST be
+reported only where the adapter observes them.
+**Evidence.** `prediction_arb/monitoring/pipeline.py`,
+`prediction_arb/monitoring/pipeline_report.py`, `database/{repository,models}.py`,
+`database/migrations/runner.py` (005), `modes/paper/engine.py`, `main.py`
+(`--pipeline-report`), `tests/test_pipeline_telemetry.py`.
+
+---
+
 ## Appendix A — Index of reconstructed sections
 
 | § | Title | Tag | Primary evidence |
@@ -1026,6 +1052,7 @@ fee bounds and static supplied versions are not an intraday cost-history stream.
 | §100 | Rejections state their reason to the operator | [C,D,T] | `prediction_arb/monitoring/dashboard.py`, `prediction_arb/modes/paper/engine.py`, `tests/test_readiness.py` |
 | §101 | Claim-level public adapter evidence | [C,D,T] | `prediction_arb/adapters/evidence.py`, smoke scripts, `tests/test_collect_mode.py` |
 | §102 | Causal historical evidence and conditional simulation | [C,D,T,G] | `prediction_arb/backtesting/*`, historical provider, schema 4, `tests/test_historical_evaluation.py` |
+| §103 | Pipeline observability is persisted, bounded and honest | [C,D,T] | `prediction_arb/monitoring/pipeline*.py`, schema 5, `tests/test_pipeline_telemetry.py` |
 
 ## Appendix B — Numbers with no surviving citation
 
@@ -1058,7 +1085,7 @@ Ranges imply that every number inside them existed in the original spec.
 
 ## Appendix D — Reconstruction confidence
 
-* Sections reconstructed: **80** (2026-10-10; includes §101 and §102).
+* Sections reconstructed: **81** (2026-10-10; includes §101–§103).
 * Python/config literal citation sites: **313**, **76 distinct numbers**
   (tracked/nonignored `.py` / `.yaml`; all resolve). Documentation's own local
   numbered headings are excluded rather than confused with spec references.

@@ -199,6 +199,16 @@ def _m004_historical_evidence(engine: Engine) -> None:
                 "ALTER TABLE opportunities ADD COLUMN evaluation_json TEXT"))
 
 
+def _m005_pipeline_telemetry(engine: Engine) -> None:
+    """Add the daily pipeline counters and per-attempt execution records
+    (§103, Arb.14). Purely additive: no existing table is rebuilt, and no
+    historical value is back-filled. Before this migration a store simply
+    has no telemetry, and the report says so instead of showing zeros.
+    """
+    for name in ("pipeline_counters", "execution_attempts"):
+        Base.metadata.tables[name].create(engine, checkfirst=True)
+
+
 MIGRATIONS: list[Migration] = [
     (1, "create initial schema", _m001_create_all),
     (2, "markets: full NormalizedContract fields + raw payload (D4)",
@@ -207,6 +217,8 @@ MIGRATIONS: list[Migration] = [
      _m003_opportunity_unavailable_costs),
     (4, "historical: snapshot timing/contract evidence + evaluation basis",
      _m004_historical_evidence),
+    (5, "pipeline telemetry: daily counters + execution attempt records (§103)",
+     _m005_pipeline_telemetry),
 ]
 
 

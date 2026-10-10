@@ -62,10 +62,20 @@ class AppConfig:
         return self.mode_config.get("database", _EXPECTED_DB[self.mode])
 
     @property
-    def database_path(self) -> Path:
+    def database_file(self) -> Path:
+        """Where the store is, WITHOUT creating its directory (§103).
+
+        Read-only reports use this so that asking for a report can never
+        create ``data/`` as a side effect.
+        """
         d = ROOT / "data" / (self.mode.value if self.mode != Mode.COLLECT else "paper")
-        d.mkdir(parents=True, exist_ok=True)
         return d / f"{self.database_name}.sqlite3"
+
+    @property
+    def database_path(self) -> Path:
+        path = self.database_file
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
 
     @property
     def recorded_store_path(self) -> Path:

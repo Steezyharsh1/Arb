@@ -348,8 +348,8 @@ class TestRecordedEvidence:
         assert row.asks_json == '[["0.40", "10"]]'
         with upgraded.engine.connect() as conn:
             assert conn.execute(text("SELECT version FROM schema_migrations ORDER BY version")).scalars().all() \
-                == [1, 2, 3, 4]
-            assert conn.execute(text("SELECT value FROM meta WHERE key='schema_version'")).scalar() == "4"
+                == [1, 2, 3, 4, 5]
+            assert conn.execute(text("SELECT value FROM meta WHERE key='schema_version'")).scalar() == "5"
 
     def test_snapshot_bound_contract_survives_latest_market_overwrite(self, tmp_path, complete_fee_calc):
         repo = _store(tmp_path)
