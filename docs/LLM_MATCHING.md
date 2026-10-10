@@ -8,9 +8,9 @@ deterministic filters.
 
 ```
 ALL MARKETS
-  → candidate blocking (§96: settlement 24h buckets ±1, category,
-    threshold + operator + units, numeric title tokens, plural-folded
-    content words; connected components)                  [cheap, recall-first]
+  → candidate proposal (§96: cross-venue, settlement within ±6h, shared
+    threshold / numeric-token / content-word key, non-dense at that
+    settlement moment; pairwise, not transitive)          [cheap, recall-first]
   → deterministic filter (outcome type, payout, settlement ±6h,
     threshold/operator/units, resolution presence, early-resolution
     symmetry)                                            [REJECT is final]
@@ -20,8 +20,9 @@ ALL MARKETS
   → match certificate (APPROVED / REJECTED / REVIEW), persisted
 ```
 
-Blocking only *proposes* cross-venue candidate pairs; it never decides
+Candidate proposal only *proposes* cross-venue pairs; it never decides
 equivalence and can never promote a pair past the deterministic filter.
+Measured recall and lost matches: `docs/CANDIDATE_RETRIEVAL.md`.
 Exact-text grouping (the pre-2026-09-14 behaviour) was defect D6: two
 venues never phrase the same event identically, so no cross-venue pair
 was ever even considered.

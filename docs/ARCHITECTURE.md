@@ -41,9 +41,9 @@
 1. `PaperEngine._discover()` — verified adapters only; eligibility
    filter (Utah, category/event-text aware; sports=RESTRICTED across venues,
    non-sports=UNKNOWN and blocked from live).
-2. `modes/shared.run_matching` — blocking-based candidate grouping
-   (§96: settlement buckets, category, threshold, numeric + content
-   tokens) → deterministic filter → LLM (conservative no-match if
+2. `modes/shared.run_matching` — bounded candidate proposal
+   (§96: cross-venue, settlement ±6h, threshold / numeric / content-word
+   keys, local density cap; `docs/CANDIDATE_RETRIEVAL.md`) → deterministic filter → LLM (conservative no-match if
    unconfigured; env-wired client per §97) → rules validator (only a
    proven-INDEPENDENT pair can be APPROVED) → match certificate
    (persisted).

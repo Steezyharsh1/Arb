@@ -20,7 +20,12 @@ from ..matching.deterministic_matcher import deterministic_match
 from ..matching.llm_matcher import LLMMatcher
 from ..matching.match_certificates import MatchCertificate, build_certificate
 from ..matching.rules_validator import validate_match
-from ..normalization.contracts import group_by_event, with_normalized_keys
+from ..normalization.contracts import (
+    candidate_pairs,
+    group_by_event,
+    groups_from_pairs,
+    with_normalized_keys,
+)
 
 
 @dataclass
@@ -41,33 +46,31 @@ async def run_matching(contracts: list[NormalizedContract],
     sorted contract-key tuples to (match_id, confidence)."""
     result = ScanResult(markets_scanned=len(contracts))
     contracts = [with_normalized_keys(c) for c in contracts]
-    groups = group_by_event(contracts)
-    result.events_grouped = len(groups)
+    # Retrieval (§96): pairwise, bounded, non-transitive. Only these pairs
+    # reach the deterministic matcher; proposal is not approval.
+    pairs = candidate_pairs(contracts)
+    result.events_grouped = len(groups_from_pairs(contracts, pairs))
     # One budget window per scan cycle (§97): a cycle can spend at most
     # `max_comparisons_per_cycle` NEW LLM calls; excess pairs stay REVIEW.
     llm.begin_cycle()
 
     approved: dict[tuple[str, str], tuple[str, float]] = {}
-    for _event, group in groups.items():
-        for i in range(len(group)):
-            for j in range(i + 1, len(group)):
-                a, b = group[i], group[j]
-                if a.venue == b.venue:
-                    continue
-                result.pairs_considered += 1
-                det = deterministic_match(a, b)
-                if not det.passed:
-                    continue
-                result.pairs_deterministic_pass += 1
-                llm_res = await llm.compare(a, b)
-                outcome = validate_match(a, b, det, llm_res)
-                cert = build_certificate(a, b, det, llm_res, outcome)
-                result.certificates.append(cert)
-                if cert.status == "APPROVED":
-                    ka = f"{a.venue}:{a.contract_id}"
-                    kb = f"{b.venue}:{b.contract_id}"
-                    approved[(min(ka, kb), max(ka, kb))] = (
-                        cert.match_id, cert.llm_confidence)
+    for i, j in pairs:
+        a, b = contracts[i], contracts[j]
+        result.pairs_considered += 1
+        det = deterministic_match(a, b)
+        if not det.passed:
+            continue
+        result.pairs_deterministic_pass += 1
+        llm_res = await llm.compare(a, b)
+        outcome = validate_match(a, b, det, llm_res)
+        cert = build_certificate(a, b, det, llm_res, outcome)
+        result.certificates.append(cert)
+        if cert.status == "APPROVED":
+            ka = f"{a.venue}:{a.contract_id}"
+            kb = f"{b.venue}:{b.contract_id}"
+            approved[(min(ka, kb), max(ka, kb))] = (
+                cert.match_id, cert.llm_confidence)
     return approved, result
 
 

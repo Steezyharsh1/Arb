@@ -12,6 +12,15 @@ what is broken, what you may work on, and what you must not touch.
   resolved for paper**). D21–D24 explicitly record what remains partial or
   disconnected. It carries forward D10/D19 readiness and fee freshness, D18
   settlement timing, the fee-readiness review, and D17 mandatory costs.
+- **Arb.8 candidate retrieval (2026-10-10, branch `arena/732e107e-arb`, base
+  `91d46df`):** cross-venue candidate generation (§96) is now pairwise,
+  bounded and non-transitive. On the 1,000-contract benchmark it proposes
+  **3,262 pairs instead of 333,296**, keeps **256/256** equivalent pairs the
+  matcher can pass, and cuts the largest component from **1,000 to 51**. Recall
+  on the 50-listing reference set is **15/16**, and the lost pair is a known
+  paraphrase miss (§7c, owner decision §9 of `docs/CANDIDATE_RETRIEVAL.md`).
+  Full design, numbers and lost matches: **`docs/CANDIDATE_RETRIEVAL.md`**.
+  New defect **D25** (operator/units vocabulary) is recorded, not fixed.
 - **Evidence discipline:** verification dates are per claim. Active-route fee
   documents and venue settlement-timing documents were opened directly on
   2026-10-10; no venue API, account, fill,
@@ -66,6 +75,7 @@ Authoritative context: `README.md` (what works / what is stubbed),
 | Working tree at session start | clean (`git status --porcelain` empty) — VERIFIED 2026-10-10 before this session's edits; baseline `.venv/bin/pytest -o addopts=""` **534 passed in 28.11 s** |
 | Clone depth | **shallow (depth 1)**: `git log` shows a single commit. Run `git fetch --unshallow` if you need real history (e.g. to blame a regression) |
 | Merged PRs to date | #1 Phase 0, #2 Phase 1, #3 Phases 2+3, #4 Phase 2/3 gaps + Phase 4, #5 Phase 5, #6 D16 baseline recovery, #7 deterministic settlement fixtures, #8 D17 mandatory-cost fail-closed repair, #9 fee-readiness review, #10 D18 settlement timing, #11 D10/D19 readiness + fee freshness |
+| Arb.8 candidate-retrieval session | Branch `arena/732e107e-arb`, branched from `91d46df` (`main` HEAD). Baseline before its change: `.venv/bin/pytest -o addopts=""` **549 passed in 27.72 s**. After it: **582 passed in 27.75 s** (549 + 31 new in `tests/test_candidate_retrieval.py` + 2 new settlement/threshold regressions). Not pushed (session policy). |
 | CI | `.github/workflows/ci.yml`: install → `pytest` → 5 CLI smokes (status, readiness, collect, paper, historical) → honest-empty-replay grep → readiness side-effect guard → tracked-artifact guard |
 
 ---
@@ -92,11 +102,14 @@ scored", and every defect that has ever mattered lived on it:
    `OrderBookAggregator` with a staleness gate) → scan → simulated execution.
    Collect/historical/live engines differ only in data provider and execution
    engine (`prediction_arb/modes/*`).
-4. `prediction_arb/normalization/contracts.py` — `with_normalized_keys()`,
-   `blocking_keys()`, `group_by_event()`. Candidate **generation** by blocking
-   (§96): settlement 24h buckets ±1, category, threshold+operator+units,
-   numeric title tokens, plural-folded content words, unioned with union-find.
-   Recall-oriented on purpose; it never decides equivalence.
+4. `prediction_arb/normalization/contracts.py` — `blocking_keys()`,
+   `candidate_pairs()`, `groups_from_pairs()`. Candidate **proposal** (§96,
+   Arb.8): a pair is proposed only if it is cross-venue, both settle within the
+   ±6 h `SETTLEMENT_TOLERANCE` of each other, and it shares a `thr`/`num`/`tok`
+   key that is not dense (≤ 20 holders settle within the window) at that
+   moment. Nothing is transitive; components only group the scan. Recall-oriented
+   on purpose; it never decides equivalence. Design, benchmark and lost matches:
+   `docs/CANDIDATE_RETRIEVAL.md`.
 5. `prediction_arb/matching/deterministic_matcher.py` — the hard filter (§18).
    **A deterministic REJECT is final.**
 6. `prediction_arb/matching/llm_matcher.py` + `matching/llm_client.py` — the
@@ -227,6 +240,11 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4 (re-read from
 
 | Check (exact command) | Result / recency |
 |---|---|
+| `.venv/bin/pytest -o addopts=""` (Arb.8 branch, after the candidate-retrieval change) | **582 passed in 27.75 s**, 2026-10-10 on `arena/732e107e-arb`. `test_candidate_generation.py` 29 + `test_candidate_retrieval.py` 31 = 60 of those. |
+| `.venv/bin/python -m benchmarks.candidate_retrieval.run --source reference --json …` and `--source synthetic --contracts 1000 --seed 20261010 [--skew 2.5]` | **Run 2026-10-10**, outputs committed under `benchmarks/candidate_retrieval/results/`. Synthetic 1,000: candidates 333,296 → 3,262; eq∩det-pass recall 1.0; largest component 1,000 → 51; median candidate-generation time 0.186 s → 0.040 s; peak heap 44.62 MB → 2.28 MB. Reference 50 listings: 36 candidates; eq∩det 15/16. Timings are sandbox-only and cover candidate generation, not matching. |
+| Mutation checks on the retrieval code (2026-10-10, restored and verified with `diff`) | Settlement window 400 days → 10 failed. No density bound (`MAX_LOCAL_DENSITY = 10**9`) → 2 failed. Global per-key cap 40 → 1 failed. Transitive closure of proposed pairs (legacy grouping) → 4 failed. Two fixture defects were found by these checks and fixed before they were counted. |
+| CLI smokes re-run after the change: `--status`, `--readiness`, `--mode historical --date 2020-01-01` | **Exit 0**, grep checks pass, 2026-10-10 on `arena/732e107e-arb`. The smokes created empty git-ignored `data/`, `logs/`, `reports/`; these were removed afterwards. |
+| `benchmarks/candidate_retrieval/fallback_window.py` | **Run 2026-10-10.** A 60-min cross-venue fallback is not adopted. Reference: 15/16 → 16/16 at 36 → 42 pairs. Synthetic: 3,262 → 5,112 pairs (+57 %), det-pass 720 → 796, eq∩det unchanged 256/256. Output `results/fallback_60min.json`. |
 | `python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'` | **Succeeded 2026-10-10**; Python 3.11.2, including pytest 9.1.1, PyYAML 6.0.3, Rich 15.0.0 and project runtime dependencies |
 | `.venv/bin/pytest -o addopts=""` | **549 collected, 549 passed in 26.52 s**, re-run after the paper-risk changes on 2026-10-10 (baseline at `320130e` before edits: **534 passed in 28.11 s**; `tests/test_risk_enforcement.py` adds 15). All offline. Note: the project's `addopts = "-q"` plus `-q` on the command line suppresses the summary line; use `-o addopts=""` to see the count |
 | `.venv/bin/pytest --collect-only -q` | **549 tests:** arbitrage_engine 9, candidate_generation 27, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 25, polymarket_us 41, readiness 138, **risk_enforcement 15**, safety 26, settlement_timing 44, spec_cases 13, unavailable_costs 35, units 43 |
@@ -281,6 +299,7 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4 (re-read from
 | **D22** | **`max_emergency_loss` bounds retry concession, not unknown unwind loss/fees** | Current generic engine interface has no freshness-gated recovery quote/fee preflight; the executable bid and fee are observed only after submit | **OPEN / EXPLICITLY PARTIAL.** Over-budget chase is stopped; realized unwind loss is reported and posted; unresolved exposure kills new trades. Do not broaden the claim or auto-disable unwind without preflight/failure tests |
 | **D23** | **Configured liquidity-ratio and execution-latency settings are not runtime gates** | Grep/source trace: `minimum_liquidity_ratio` and both execution-latency YAML keys have no production comparison. Liquidity is walked and time-between-legs measured, but config is dead | **OPEN.** Define semantics and fault-test before activation; do not imply active in docs/readiness |
 | **D24** | **Live risk and generic emergency behavior remain disconnected** | Live is monitor-only; no production `FirewallContext`; `EmergencyManager` is not constructed and does not cancel/flatten | **OPEN / INTENTIONAL SAFETY BLOCKER.** No real-order bypass exists because no live coordinator exists. Do not enable real orders or the disconnected emergency manager before demo fault/reconciliation tests |
+| **D25** | **Threshold-operator vocabulary and units are not normalized across venues (candidate, not fixed)** | Reproduced 2026-10-10 with `prediction_arb/matching/deterministic_matcher.py` and the adapters: identical event, threshold `5.0`, equal settlement; Kalshi emits `threshold_operator = strike_type` (raw `greater`), Polymarket US emits `None` ⇒ `threshold_operator` check FAILS. With both `>` the pair passes. Units are `None` on both adapters, so the units check passes vacuously and a real units mismatch (for example a percent versus a point value) cannot be detected. Retrieval proposes such pairs and the deterministic matcher rejects them on vocabulary alone, so each rejection is a false negative, not a finding about the events. Not in the reference set, which uses normalized operators. Fix belongs to the adapters (a shared operator vocabulary, units populated from the market) and must not weaken the matcher. Next free ID after D24 — verified 2026-10-10. | OPEN — candidate defect (not fixed). |
 
 ### 7b. Inherited as FIXED — regression tests pass, but exit evidence is still owner-gated
 
@@ -295,7 +314,7 @@ can be validated against a real venue here. Details and evidence columns:
 | D1, D2, D8 | Packaging, repo hygiene, reconstructed spec | `pyproject.toml`, `.gitignore`, `docs/SPEC.md` |
 | D3, D4 | Recorded store readable by replay; full contract persisted | `database/repository.py` (`read_only`), `database/contract_codec.py`, migration `002` |
 | D5, D14 | Kalshi hosts/failover/streaming; rate-limit headroom actually read | `adapters/kalshi*.py`, `main.py::maybe_calibrate_kalshi_rate_limits` |
-| D6 | Cross-venue candidate generation by blocking (§96) | `normalization/contracts.py` |
+| D6 | Cross-venue candidate generation by blocking (§96). Revised 2026-10-10 (Arb.8): pairwise, bounded, non-transitive retrieval; see `docs/CANDIDATE_RETRIEVAL.md` | `normalization/contracts.py::candidate_pairs`, `modes/shared.py::run_matching` |
 | D9 | LLM matcher wired from the mode env file (§97) | `main.py`, `matching/llm_client.py` |
 | D11, D12 | Paper book-freshness gate; fill probability actually applied | `modes/paper/engine.py`, `execution/simulated.py` |
 | D13 | Fee arithmetic accepts supplied per-fill slices; current production schedules remain context-incomplete, and an aggregated book walk is not account fee reconciliation | `fees/calculator.py::trade_fee_fills`, `arbitrage/two_leg.py`, `docs/FEE_READINESS.md` |
@@ -338,6 +357,15 @@ ROADMAP register because their impact needs an owner/agent decision first:
   suite — the readiness smoke therefore compares the runtime tree before and
   after the command it is testing. An earlier version of that guard asserted
   absence and failed for this reason alone (run `38021724449`).
+- **Recorded recall limitation from Arb.8 (not a registered defect, owner
+  decision pending).** The reference paraphrase `KX-APPROP-OCT01-2026` ↔
+  `federal-funds-law-sep30` is labelled equivalent and passes the deterministic
+  matcher, but shares no content word or number, so no key proposes it. The pair
+  is kept in the reference set as a known miss and pinned by a test. Recovery
+  options, and the cost of the 60-minute settlement fallback that would recover
+  it, are in `docs/CANDIDATE_RETRIEVAL.md` §9. The same document records
+  `ref-cpi-mom-03-oct26` (labelled equivalent, settles 6 h 01 m apart) as a
+  deterministic reject that no retrieval design can approve.
 - **Cosmetic, pre-existing, deliberately not fixed:** `modes/paper/engine.py`
   prints `f"[cycle {cycle}] no active-venue markets"` and Rich swallows
   `[cycle 1]` as markup, so the operator sees ` no active-venue markets`.
@@ -395,6 +423,15 @@ ROADMAP register because their impact needs an owner/agent decision first:
    emergency-loss preflight cap (D22), configured liquidity/latency gates
    (D23), and any live coordinator/emergency behavior (D24). Do not resolve
    these by implying they are active.
+0e. ~~**Reduce candidate-generation workload without a silent cap (Arb.8).**~~
+   **DONE 2026-10-10 on `arena/732e107e-arb`** — pairwise, non-transitive,
+   settlement-windowed retrieval with local density bounds. 333,296 → 3,262
+   candidates on the 1,000-contract benchmark, eq∩det recall 256/256, largest
+   component 1,000 → 51. One **owner decision** is open (not adopted):
+   accept the reference paraphrase miss (15/16), or adopt the 60-minute settlement
+   fallback (+57 % synthetic candidates for no synthetic recall gain, recovers
+   the one paraphrase). Also open: D25, the threshold-operator vocabulary, which
+   belongs to the adapters. Full record: `docs/CANDIDATE_RETRIEVAL.md`.
 1. ~~**Restore a green baseline (D16).**~~ **DONE 2026-10-09** — 313 passed
    in 25.01 s with a fixed settlement clock and at three future wall-clock
    dates; stale fixtures fail mutation checks.
@@ -553,6 +590,21 @@ counts, doc updates, and the next action. Milestone-end reporting format:
 
 **Most recent meaningful changes** (newest first):
 
+0000. **2026-10-10 — Arb.8 candidate-retrieval reduction (branch
+   `arena/732e107e-arb`, base `91d46df`).** Measured the inherited behaviour
+   first. The giant component (1,000 contracts → 1 component) reproduces; the
+   inherited 2,111 deterministic-pass figure does not, on the current generator
+   (986; the source generator is not in the repo). Built a reproducible multi-venue
+   benchmark (`benchmarks/candidate_retrieval/`) with a 50-listing hand-labelled
+   reference set and exhaustive ground truth. Replaced the settlement-bucket
+   union-find with pairwise retrieval: settlement as a ±6 h window tied to the
+   matcher's own tolerance, `thr`/`num`/`tok` keys, a local density cap of 20 (a
+   global cap was rejected), components used for grouping only. The deterministic
+   matcher, its rules, and LLM authority are unchanged. Results and every lost
+   match are in `docs/CANDIDATE_RETRIEVAL.md`; the lost reference pair is
+   recorded in §7c. Owner decisions open: §9 of that document. Tests: 582 passed
+   in 27.75 s. Defect D25 (operator vocabulary) recorded as a candidate, not fixed.
+   Nothing pushed.
 000. **2026-10-10 — D20 paper capital/risk enforcement.** Confirmed the
    inherited issues: enabled Polymarket US had no paper allocation;
    unhedged breach checks had no caller; state limits sat outside the

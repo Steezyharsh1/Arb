@@ -1,0 +1,57 @@
+{
+ "fallback_window_seconds": 3600,
+ "status": "NOT ADOPTED (owner decision pending; see docs/CANDIDATE_RETRIEVAL.md)",
+ "reference": {
+  "dataset": "reference",
+  "contracts": 50,
+  "variants": [
+   {
+    "variant": "current retrieval",
+    "candidate_pairs": 36,
+    "det_pass_proposed": 26,
+    "det_pass_total": 29,
+    "equivalent_and_det_proposed": 15,
+    "equivalent_and_det_total": 16
+   },
+   {
+    "variant": "current + 60-min cross-venue fallback",
+    "candidate_pairs": 42,
+    "det_pass_proposed": 27,
+    "det_pass_total": 29,
+    "equivalent_and_det_proposed": 16,
+    "equivalent_and_det_total": 16
+   }
+  ],
+  "extra_pairs_from_fallback": 6,
+  "newly_recovered_equivalent_and_det": [
+   [
+    "KX-APPROP-OCT01-2026",
+    "federal-funds-law-sep30"
+   ]
+  ]
+ },
+ "synthetic_1000_seed20261010": {
+  "dataset": "synthetic",
+  "contracts": 1000,
+  "variants": [
+   {
+    "variant": "current retrieval",
+    "candidate_pairs": 3262,
+    "det_pass_proposed": 720,
+    "det_pass_total": 986,
+    "equivalent_and_det_proposed": 256,
+    "equivalent_and_det_total": 256
+   },
+   {
+    "variant": "current + 60-min cross-venue fallback",
+    "candidate_pairs": 5112,
+    "det_pass_proposed": 796,
+    "det_pass_total": 986,
+    "equivalent_and_det_proposed": 256,
+    "equivalent_and_det_total": 256
+   }
+  ],
+  "extra_pairs_from_fallback": 1850,
+  "newly_recovered_equivalent_and_det": []
+ }
+}

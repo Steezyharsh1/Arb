@@ -17,7 +17,7 @@ MATCHER_VERSION = "det-1.0.0"
 # Venues may quote the same real-world event with slightly different
 # expiration timestamps (e.g. "3pm ET" vs "end of day"). Tolerance is
 # deliberately small; anything larger must be rejected.
-_SETTLEMENT_TOLERANCE = timedelta(hours=6)
+SETTLEMENT_TOLERANCE = timedelta(hours=6)
 
 
 @dataclass
@@ -65,9 +65,9 @@ def deterministic_match(a: NormalizedContract,
         _fail(res, "settlement_time", "missing settlement time on a leg")
     else:
         delta = abs(ensure_utc(a.settlement_time) - ensure_utc(b.settlement_time))
-        if delta > _SETTLEMENT_TOLERANCE:
+        if delta > SETTLEMENT_TOLERANCE:
             _fail(res, "settlement_time",
-                  f"settlement times differ by {delta} (> {_SETTLEMENT_TOLERANCE})")
+                  f"settlement times differ by {delta} (> {SETTLEMENT_TOLERANCE})")
         else:
             _ok(res, "settlement_time")
 

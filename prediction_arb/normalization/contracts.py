@@ -1,19 +1,21 @@
 """Contract normalization helpers (§16, §96).
 
 Adapters produce NormalizedContract objects; this module fills in the
-cross-venue `normalized_event` / `normalized_outcome` keys and generates
-cross-venue candidate groups by BLOCKING (§96): contracts land in the same
-group when they share at least one cheap, deterministic signal — a
-settlement window, a category, a threshold + operator + units triple, a
-numeric token from the title, or a content word of the title (plural-folded,
-stopwords removed).
+cross-venue `normalized_event` / `normalized_outcome` keys and proposes
+cross-venue candidate PAIRS by BLOCKING (§96, revised 2026-10-10 — see
+`candidate_pairs`).
 
-Blocking is candidate generation only, and it is deliberately
-recall-oriented: a false shared group is harmless (the deterministic
-matcher rejects — §18, REJECT is final), but a missed grouping hides a
-real match forever. Grouping NEVER decides equivalence and can never
-promote a pair past the deterministic filter (Principle B, §89): it only
-decides which cross-venue pairs the deterministic matcher gets to see.
+A pair is proposed only when two cross-venue contracts (a) settle within the
+deterministic matcher's own settlement tolerance and (b) share a *specific*
+signal: an exact threshold + operator + units triple, a numeric title token,
+or a plural-folded content word — and that signal is not so common that it
+would link unrelated contracts (block-size cap).
+
+Retrieval is candidate generation only. It never decides equivalence and can
+never promote a pair past the deterministic filter (Principle B, §89): it only
+decides which cross-venue pairs the deterministic matcher gets to see. A
+retrieval match is NOT a match — the deterministic matcher, the LLM and the
+certificate decide.
 """
 from __future__ import annotations
 
@@ -21,10 +23,12 @@ import dataclasses
 import hashlib
 import re
 import unicodedata
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 from ..core.clock import ensure_utc
 from ..core.types import NormalizedContract
+from ..matching.deterministic_matcher import SETTLEMENT_TOLERANCE
 
 _WS = re.compile(r"\s+")
 _PUNCT = re.compile(r"[^\w\s\.\-%]")
@@ -46,12 +50,32 @@ out off again further once all any both each few more most other some such
 only own same per vs versus
 """.split())
 
-# Settlement blocking uses 24-hour UTC buckets, and each contract is placed
-# in its own bucket plus both neighbours. Any two contracts whose settlement
-# times are within 24 hours of each other therefore share at least one
-# bucket — comfortably wider than the ±6h the deterministic matcher
-# enforces (§18), which is what actually bounds the pairing.
-_SETTLEMENT_BUCKET_SECONDS = 86400
+# Retrieval constants (§96, revised 2026-10-10).
+#
+# Settlement is a PAIRWISE window, never a bucket: the previous design put each
+# contract in 24h buckets ±1 and joined everything in a bucket with union-find,
+# so a calendar of clustered expiries chained into one giant component (1,000
+# contracts → 1 component; every one of the 333,296 cross-venue pairs proposed
+# on the benchmark generator, docs/CANDIDATE_RETRIEVAL.md). The
+# window is the deterministic matcher's own tolerance, imported so the two can
+# never drift apart: a pair outside it is always rejected (§18), so proposing
+# only pairs inside it cannot remove any pair the matcher could pass.
+RETRIEVAL_SETTLEMENT_WINDOW = SETTLEMENT_TOLERANCE
+
+# A key is generic at a settlement moment when more than this many contracts
+# holding it settle within the window of that moment (a year, "total",
+# "will" on a busy expiry). Such a key proposes no pairs at that moment. It is
+# counted locally, not across the calendar, so a family-level word that spans
+# many dates still identifies its event. Bounds work per contract. The value
+# and the sweep that chose it are in docs/CANDIDATE_RETRIEVAL.md.
+MAX_LOCAL_DENSITY = 20
+
+# Families that may PROPOSE a pair. `cat:` is excluded: venue taxonomies
+# differ (Kalshi series tickers vs. Polymarket topics), so category equality
+# across venues is rare, and where it does occur it is generic. Settlement is
+# replaced by the pairwise window above.
+PROPOSAL_FAMILIES = ("thr", "num", "tok")
+
 
 # '100k' / '2.5m' scale factors, for numeric tokens with a trailing
 # magnitude letter ('Will Bitcoin reach $100k' vs '… $100,000').
@@ -160,33 +184,29 @@ def with_normalized_keys(contract: NormalizedContract) -> NormalizedContract:
     )
 
 
-def blocking_keys(contract: NormalizedContract) -> set[str]:
-    """Cheap deterministic blocking keys for one contract (§96).
+def blocking_keys(contract: NormalizedContract,
+                  families: tuple[str, ...] = PROPOSAL_FAMILIES) -> set[str]:
+    """Discriminative blocking keys for one contract (§96).
 
-    Two contracts become match candidates when they share ≥1 key. Families:
+    Two cross-venue contracts can become candidates only when they share at
+    least one key from ``families`` (default: ``PROPOSAL_FAMILIES``) and
+    settle within ``RETRIEVAL_SETTLEMENT_WINDOW``. Families:
 
-    * ``settle:<bucket>`` — 24h UTC settlement buckets, own bucket ±1
-      (covers venue-to-venue timestamp disagreement across day boundaries;
-      contracts with no settlement time get no settle key — the
-      deterministic matcher rejects those pairs anyway, §18);
-    * ``cat:<category>`` — normalized category / product code;
     * ``thr:<op>:<number>:<units>`` — exact threshold + operator + units,
       canonicalized so '10000.00' and '1E+4' block together;
     * ``num:<n>`` — every canonical numeric token of the title;
     * ``tok:<word>`` — every plural-folded, stopword-filtered content word.
+
+    ``cat:<category>`` is produced only when requested by name (diagnostics).
+    There is no settlement key: settlement is a pairwise window in
+    ``candidate_pairs``, never a shared bucket.
     """
     keys: set[str] = set()
 
-    if contract.settlement_time is not None:
-        bucket = int(ensure_utc(contract.settlement_time).timestamp()) \
-            // _SETTLEMENT_BUCKET_SECONDS
-        keys.update(f"settle:{b}" for b in
-                    (bucket - 1, bucket, bucket + 1))
-
-    if contract.category:
+    if "cat" in families and contract.category:
         keys.add(f"cat:{canonical_text(contract.category)}")
 
-    if contract.threshold is not None:
+    if "thr" in families and contract.threshold is not None:
         num = canonical_number(contract.threshold)
         if num is not None:
             keys.add("thr:{}:{}:{}".format(
@@ -194,30 +214,101 @@ def blocking_keys(contract: NormalizedContract) -> set[str]:
                 num,
                 (contract.units or "").strip().lower()))
 
-    for n in numeric_tokens(contract.event_description):
-        keys.add(f"num:{n}")
-    for w in content_tokens(contract.event_description):
-        keys.add(f"tok:{w}")
+    if "num" in families:
+        for n in numeric_tokens(contract.event_description):
+            keys.add(f"num:{n}")
+    if "tok" in families:
+        for w in content_tokens(contract.event_description):
+            keys.add(f"tok:{w}")
 
     return keys
 
 
-def group_by_event(contracts: list[NormalizedContract]
-                   ) -> dict[str, list[NormalizedContract]]:
-    """Group contracts into candidate components over shared blocking keys
-    (§96).
+def candidate_pairs(contracts: list[NormalizedContract],
+                    *,
+                    families: tuple[str, ...] = PROPOSAL_FAMILIES,
+                    max_local_density: int = MAX_LOCAL_DENSITY,
+                    window: timedelta = RETRIEVAL_SETTLEMENT_WINDOW,
+                    ) -> list[tuple[int, int]]:
+    """Propose cross-venue candidate pairs as sorted index pairs ``(i, j)``, ``i < j``.
 
-    Contracts are connected when they share at least one blocking key;
-    groups are the connected components of that graph (union-find). The
-    component id is derived from the sorted member identities, so it is
-    stable across runs and input orderings.
+    A pair ``(i, j)`` is proposed iff all of:
 
-    Grouping is intentionally coarse and transitive: merging contracts that
-    merely share a common year puts a few extra pairs in front of the
-    deterministic matcher, which rejects them for free. The alternative —
-    a tighter key — is how real cross-venue matches get lost (that was D6).
+    1. the two contracts are on different venues (same-venue pairs are never
+       matched — D15);
+    2. both have a settlement time and they differ by at most ``window``;
+    3. they share a blocking key from ``families`` (``blocking_keys``), and
+       for that key, neither contract is in a *dense* moment: at most
+       ``max_local_density`` contracts holding the key settle within
+       ``window`` of it.
+
+    Rule 3 is local, not global. A word that is common across the whole
+    calendar ("shutdown", "senate") still identifies its event when the
+    listings settle at different times; a word that many contracts share at
+    the same settlement moment ("2026", "total", "will" on a busy expiry)
+    cannot discriminate there and proposes nothing. The density is counted
+    inside the same window used by rule 2, so the cap bounds the work per
+    contract by ``max_local_density``.
+
+    Nothing here is transitive: two contracts that merely share a neighbour
+    are NOT proposed together. Rule 2 is a NECESSARY condition of the
+    deterministic settlement check (§18), so it removes no pair the matcher
+    could pass. Proposal is not approval: every pair still goes through the
+    deterministic matcher, the LLM and the certificate.
     """
-    n = len(contracts)
+    ts: list[float | None] = []
+    members: dict[str, list[int]] = {}
+    for i, c in enumerate(contracts):
+        if c.settlement_time is None:
+            ts.append(None)
+            continue
+        t = ensure_utc(c.settlement_time).timestamp()
+        ts.append(t)
+        for key in blocking_keys(c, families):
+            members.setdefault(key, []).append(i)
+
+    window_s = window.total_seconds()
+    seen: set[tuple[int, int]] = set()
+    for idx in members.values():
+        if len(idx) < 2:
+            continue
+        idx.sort(key=lambda k: ts[k])  # type: ignore[arg-type,return-value]
+        times = [ts[k] for k in idx]   # type: ignore[misc]
+        n = len(idx)
+        # dense[a]: how many holders of this key settle within `window` of a.
+        lo = hi = 0
+        dense = [0] * n
+        for a in range(n):
+            while times[a] - times[lo] > window_s:  # type: ignore[operator]
+                lo += 1
+            while hi < n and times[hi] - times[a] <= window_s:  # type: ignore[operator]
+                hi += 1
+            dense[a] = hi - lo
+        for a in range(n):
+            if dense[a] > max_local_density:
+                continue
+            i = idx[a]
+            for b in range(a + 1, n):
+                if times[b] - times[a] > window_s:  # type: ignore[operator]
+                    break
+                if dense[b] > max_local_density:
+                    continue
+                j = idx[b]
+                if contracts[i].venue == contracts[j].venue:
+                    continue
+                seen.add((i, j) if i < j else (j, i))
+    return sorted(seen)
+
+
+def component_indices(n: int, pairs: list[tuple[int, int]]) -> list[list[int]]:
+    """Connected components over ``n`` nodes and candidate ``pairs`` (union-find).
+
+    Each component is a sorted list of indices. Components are only a COARSER
+    GROUPING for the scan (search_event evaluates APPROVED pairs inside a
+    group); they are never a claim that their members match. Because pairs are
+    not transitive, components stay small unless the candidate graph itself is
+    dense.
+    """
     parent = list(range(n))
 
     def find(i: int) -> int:
@@ -226,26 +317,35 @@ def group_by_event(contracts: list[NormalizedContract]
             i = parent[i]
         return i
 
-    def union(i: int, j: int) -> None:
+    for i, j in pairs:
         ri, rj = find(i), find(j)
         if ri != rj:
             parent[max(ri, rj)] = min(ri, rj)
 
-    owner: dict[str, int] = {}
-    for i, contract in enumerate(contracts):
-        for key in blocking_keys(contract):
-            first = owner.setdefault(key, i)
-            if first != i:
-                union(i, first)
-
     members: dict[int, list[int]] = {}
     for i in range(n):
         members.setdefault(find(i), []).append(i)
+    return list(members.values())
 
+
+def groups_from_pairs(contracts: list[NormalizedContract],
+                      pairs: list[tuple[int, int]]
+                      ) -> dict[str, list[NormalizedContract]]:
+    """Name each candidate component by a stable digest of its members."""
     groups: dict[str, list[NormalizedContract]] = {}
-    for indices in members.values():
+    for indices in component_indices(len(contracts), pairs):
         group = [contracts[i] for i in indices]
         ident = "|".join(sorted(f"{c.venue}:{c.contract_id}" for c in group))
         digest = hashlib.sha256(ident.encode()).hexdigest()[:16]
         groups[f"blk:{digest}"] = group
     return groups
+
+
+def group_by_event(contracts: list[NormalizedContract]
+                   ) -> dict[str, list[NormalizedContract]]:
+    """Candidate groups = connected components of ``candidate_pairs`` (§96).
+
+    Kept for the scan (``run_arbitrage_scan``), which asks each group for its
+    approved pairs. Group membership implies nothing about equivalence.
+    """
+    return groups_from_pairs(contracts, candidate_pairs(contracts))
