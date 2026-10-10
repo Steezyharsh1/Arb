@@ -5,12 +5,13 @@ permanent entry point for a fresh agent session with no memory of prior
 conversations. It tells you what the project is, what is true *right now*,
 what is broken, what you may work on, and what you must not touch.
 
-- **Last updated:** 2026-10-10 (UTC) by the mandatory-cost session on branch
-  `arena/321f09ff-arb` (D17: an unavailable mandatory cost is never a zero).
-- **Everything below marked VERIFIED was executed in this sandbox on
-  2026-10-10** (rows dated 2026-10-09 were executed then and are labelled
-  as such). Anything inherited from earlier sessions and not re-run is
-  labelled INHERITED. Never promote INHERITED to VERIFIED without running it.
+- **Last updated:** 2026-10-10 (UTC) by the fee-readiness review on branch
+  `arena/57b00329-arb`; it also carries forward the D17 mandatory-cost repair.
+- **Evidence discipline:** verification dates are per claim. Active-route fee
+  documents were opened directly on 2026-10-10; no venue API, account, fill,
+  or settlement statement was available. Test and CLI results below are marked
+  with their actual command/date. Anything inherited and not re-run is
+  labelled INHERITED; never promote it to VERIFIED without evidence.
 - This document does **not** restate the other docs. Each subject links to the
   one authoritative document for it. If this file and another document
   disagree about *status*, re-verify and fix both in the same change.
@@ -28,12 +29,16 @@ Safety, honesty about UNKNOWN, and mode isolation outrank features.
 **Immediate objective (unchanged).** Get from *"architecturally sound but has
 never seen real two-venue data"* to *"two genuinely independent venues
 producing real, costed arbitrage candidates in paper mode."* No real money is
-traded in this engagement under any circumstances.
+traded in this engagement under any circumstances. Current fee audit:
+three enabled venue pairs are provenance-independent, but **0/3 are
+end-to-end cost-evaluable**; all active trade and settlement schedules are
+`INCOMPLETE`. Do not turn the documented rates into estimates.
 
 Authoritative context: `README.md` (what works / what is stubbed),
-`docs/ROADMAP.md` (phase map + defect register), `docs/SPEC.md` (every `§N`
-cited in the code), `docs/AGENT_KICKOFF.md` (role, milestones, how to ask the
-owner for help).
+`docs/ROADMAP.md` (phase map + defect register),
+`docs/FEE_READINESS.md` (pair matrix, current fee evidence and operator steps),
+`docs/SPEC.md` (every `§N` cited in the code), `docs/AGENT_KICKOFF.md`
+(role, milestones, how to ask the owner for help).
 
 ---
 
@@ -42,11 +47,11 @@ owner for help).
 | Item | Value |
 |---|---|
 | Repo | `Steezyharsh1/Arb` (package name `prediction_arb`) |
-| Working branch (fixed for this session lineage) | `arena/321f09ff-arb` |
-| Baseline commit | `796abec767ec962bd2bb9a8ff49de42480f12cdb` — *"Merge pull request #7 from Steezyharsh1/arena/fc6eca21-arb"* (merged 2026-10-10T00:34Z; CI run `38009643994` green) |
-| Working tree at session start | clean (`git status --porcelain` empty) — VERIFIED 2026-10-10 before edits |
+| Working branch (fixed for this Arena session) | `arena/57b00329-arb` |
+| Baseline commit | `06399ba66e169764bb27cf30401bf7bd71384972` — merge commit for PR #8 (D17 mandatory-cost fix); this fee review branched from it |
+| Working tree at session start | clean (`git status --porcelain` empty) — VERIFIED 2026-10-10 before this review's edits |
 | Clone depth | **shallow (depth 1)**: `git log` shows a single commit. Run `git fetch --unshallow` if you need real history (e.g. to blame a regression) |
-| Merged PRs to date | #1 Phase 0, #2 Phase 1, #3 Phases 2+3, #4 Phase 2/3 gaps + Phase 4, #5 Phase 5, #6 D16 baseline recovery, #7 *"test: make settlement fixtures deterministic"* (merged 2026-10-10T00:34Z — baseline HEAD is this merge) |
+| Merged PRs to date | #1 Phase 0, #2 Phase 1, #3 Phases 2+3, #4 Phase 2/3 gaps + Phase 4, #5 Phase 5, #6 D16 baseline recovery, #7 deterministic settlement fixtures, #8 D17 mandatory-cost fail-closed repair |
 | CI | `.github/workflows/ci.yml`: install → `pytest` → 4 CLI smokes → honest-empty-replay grep → tracked-artifact guard |
 
 ---
@@ -93,10 +98,12 @@ scored", and every defect that has ever mattered lived on it:
 9. `prediction_arb/arbitrage/two_leg.py::evaluate_two_leg()` — **the core.**
    `find_max_profit_quantity()` walks both ask ladders to the marginal unit,
    `orderbooks/orderbook.py::walk_buy()` produces the real consumed levels,
-   `fees/calculator.py::trade_fee_fills()/settlement_fee()` charge **per fill**
-   (D13) and raise `FeeDataError` when context is incomplete,
-   `normalization/settlement.py` costs the capital lockup (UNKNOWN ⇒ BLOCK),
-   and the result is TRADE / WATCH / BLOCK with explicit `block_reasons`.
+   `fees/calculator.py::trade_fee_fills()/settlement_fee()` can calculate
+   supplied fill slices and raise `FeeDataError` when context is incomplete;
+   all current active production fee schedules are incomplete, and a book walk
+   is not an actual account fill/fee reconciliation. `normalization/settlement.py`
+   costs the capital lockup (UNKNOWN ⇒ BLOCK); the result is TRADE / WATCH /
+   BLOCK with explicit `block_reasons`.
    Each mandatory cost is its own `core.types.CostComponent` inside a
    `CostLedger` (D17): a component that cannot be computed is `amount=None`
    with a reason, the ledger has **no total** while any component is missing,
@@ -176,25 +183,18 @@ pydantic 2.14.0, SQLAlchemy 2.1.4, websockets 17.2, rich 15.0.0,
 cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4 (re-read from
 `pip list` 2026-10-10 — identical to the 2026-10-09 session).
 
-| Check (exact command) | Result — VERIFIED 2026-10-10 |
+| Check (exact command) | Result / recency |
 |---|---|
-| `.venv/bin/pytest` | **348 collected, 348 passed in 26.29 s** — 313 at the 2026-10-09 baseline + the 35 new D17 mandatory-cost tests. All offline |
-| `.venv/bin/pytest --collect-only -q` | 348 tests: arbitrage_engine 9, candidate_generation 27, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 24, polymarket_us 41, safety 26, spec_cases 13, **unavailable_costs 35**, units 40 |
-| `.venv/bin/pytest tests/test_unavailable_costs.py` | **35 passed** |
-| `.venv/bin/pytest tests/test_phase4_recording.py -q` | **25 passed** (schema-version assertion moved 2 → 3; migration 002 tests unchanged) |
-| D17 offline reproduction (fee calculator missing one venue) | Before the fix: `status=BLOCK`, `total_fees=0`, `net_profit=+9.9630`, dashboard `Net $9.96` / `Fees $0.00`, DB `net_profit='9.9630'`. After: `net_profit=None`, `total_fees=None`, `capital_required=None`, dashboard `n/a`, DB `NULL` + `unavailable_costs=["kalshi:trade_fee","settlement_delay"]` |
-| Mutation check — restore `fees = Decimal("0")` on `FeeDataError` | **20 failed, 15 passed** of the 35 D17 tests (calculation, ranking, dashboard, persistence and report layers all fail) |
-| Mutation check — restore `delay_cost = Decimal("0")` on unknown lockup | **2 failed, 33 passed** — the two `TestUnknownSettlementTiming` cases |
-| `python -m prediction_arb.main --status` | exit 0. kalshi=VERIFIED, polymarket_us=API_DOCUMENTED_UNTESTED, forecast_ex=API_DOCUMENTED_UNTESTED; independence matrix kalshi↔polymarket_us = INDEPENDENT; kill switch disengaged |
-| `python -m prediction_arb --status` / `prediction-arb --status` | both exit 0 |
-| `python -m prediction_arb.main --readiness` | exit 0. `0` snapshots, `0` opportunities, "Two live-capable independent venues = 1" → **LIVE MODE: NOT RECOMMENDED YET** |
-| `python -m prediction_arb.main --mode historical --date 2020-01-01` | exit 0, prints "No recorded historical order-book data…", writes an honest empty report — the CI grep still holds |
-| `python -m prediction_arb.main --mode paper --cycles 1` | exit 0; both venues fail to connect (TLS EOF), host rotation behaves as designed, cycle ends "no active-venue markets" |
-| CI tracked-artifact guard (`git ls-files` piped through the `grep -E` filter in `.github/workflows/ci.yml`) | OK — no artifacts, databases, logs or env files tracked |
-| `python scripts/kalshi_smoke.py` | **exit 1** — `TLS/SSL connection has been closed (EOF)` on *both* `external-api.kalshi.com` and `api.elections.kalshi.com`. Evidence row **K9 still stands** |
-| `python scripts/polymarket_us_smoke.py` | **exit 1** — same TLS EOF on `gateway.polymarket.us`. Evidence row **P7 still stands** |
-| Frozen-wall-clock sweep (2026-10-14 / 2027-10-09 / 2031-01-02) | **NOT RE-RUN this session** — INHERITED from 2026-10-09 (313/313 at each date, via a temporary `freezegun` in the ignored `.venv`). The new tests avoid wall-clock dependence by construction: `verified_at` staleness uses 2020-01-01, expiry uses 2020-01-01, effectiveness uses 2099-01-01, and settlement uses the frozen test clock |
-| GitHub Actions CI | **Green for this branch's D17 work on PR #8** — `pull_request` runs `38012787059` and `38012962141` both `success` (47 s each; `tests + CLI smoke` pass), matching `push` runs `38012367502` / `38012959534`. Each run is install → full suite → four CLI smokes → honest-empty replay → artifact guard. The newest run on the PR head supersedes the ones listed. Baseline `796abec` was green as run `38009643994` |
+| `python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'` | **Succeeded 2026-10-10**; Python 3.11.2, including pytest 9.1.1, PyYAML 6.0.3, Rich 15.0.0 and project runtime dependencies |
+| `.venv/bin/pytest` | **352 collected, 352 passed in 28.29 s**, re-run during this fee review on 2026-10-10. All offline; inherited D17 baseline was 348 + 4 focused fee/pair regressions |
+| `.venv/bin/pytest --collect-only -q` | **352 tests:** arbitrage_engine 9, candidate_generation 27, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 25, polymarket_us 41, safety 26, spec_cases 13, unavailable_costs 35, units 43 |
+| Focused YAML load + `FeeCalculator.from_config` | **Succeeded 2026-10-10**. Kalshi, Polymarket US, ForecastEx, and IBKR/ForecastEx parse; all active trade and settlement statuses are `INCOMPLETE`; references are respectively `0.07/0.0175`, `0.0695/-0.0125`, and `$0.01` per executed side. Kalshi's source gives no global effective date, so its reference snapshot date is kept separate and calculations block |
+| `.venv/bin/python -m prediction_arb.main --status` | **Exit 0, re-run 2026-10-10.** kalshi=VERIFIED; polymarket_us=API_DOCUMENTED_UNTESTED; forecast_ex=API_DOCUMENTED_UNTESTED. Matrix reports Kalshi↔Polymarket US, Kalshi↔ForecastEx, and Polymarket US↔ForecastEx all INDEPENDENT; kill switch disengaged |
+| D17 offline reproduction and mutation checks | **Inherited from the D17/PR #8 verification:** original positive-profit-on-BLOCK reproduced, zero-substitution mutation failed 20 tests, zero-lockup mutation failed 2 tests. The full current suite above re-runs all D17 regressions; standalone mutation checks were not repeated in this fee review |
+| `.venv/bin/python -m prediction_arb.main --readiness` | **Exit 0, re-run 2026-10-10:** 0 snapshots, 0 opportunities, one live-capable venue, `LIVE MODE: NOT RECOMMENDED YET` |
+| Historical/paper CLI smokes, tracked-artifact guard, and venue smoke scripts | **Inherited from the D17 handoff, not re-run in this fee review.** Prior recorded results: empty fresh-clone data store; venue API TLS EOF; see date-specific rows in `docs/ROADMAP.md` / `docs/VENUE_RESEARCH.md` |
+| Frozen-wall-clock sweep (2026-10-14 / 2027-10-09 / 2031-01-02) | **Not re-run in this fee review** — inherited from 2026-10-09 (313/313 at each date). The new tests use fixed/reference values and do not change settlement-clock behavior |
+| GitHub Actions CI | **Inherited PR #8 result:** `pull_request` runs `38012787059` and `38012962141` passed; not a CI run for this fee-review working tree. Baseline `796abec` was green as run `38009643994` |
 
 **Environment limitations a fresh agent must assume:**
 
@@ -244,7 +244,7 @@ can be validated against a real venue here. Details and evidence columns:
 | D6 | Cross-venue candidate generation by blocking (§96) | `normalization/contracts.py` |
 | D9 | LLM matcher wired from the mode env file (§97) | `main.py`, `matching/llm_client.py` |
 | D11, D12 | Paper book-freshness gate; fill probability actually applied | `modes/paper/engine.py`, `execution/simulated.py` |
-| D13 | Fees charged per fill from walked levels | `fees/calculator.py::trade_fee_fills`, `arbitrage/two_leg.py` |
+| D13 | Fee arithmetic accepts supplied per-fill slices; current production schedules remain context-incomplete, and an aggregated book walk is not account fee reconciliation | `fees/calculator.py::trade_fee_fills`, `arbitrage/two_leg.py`, `docs/FEE_READINESS.md` |
 | D15 | Only proven-INDEPENDENT pairs may be APPROVED (§33) | `matching/rules_validator.py` |
 | D7 | Venue research refreshed | `docs/VENUE_RESEARCH.md` |
 
@@ -253,19 +253,18 @@ can be validated against a real venue here. Details and evidence columns:
 Recorded here so they are not rediscovered, deliberately **not** added to the
 ROADMAP register because their impact needs an owner/agent decision first:
 
-- **`strict_fee_freshness` is never enabled by any caller.** `grep -rn
-  "strict_freshness\|strict_fee_freshness" prediction_arb/` shows the flag
-  threaded from `modes/shared.py` into `arbitrage/two_leg.py` and
-  `fees/calculator.py`, but no engine ever passes `True`. Consequently
-  `settings.yaml: fees.max_schedule_age_days: 30` is inert at runtime today
-  (only `tests/test_failure_modes.py` exercises it directly). Harmless while
-  live mode is monitor-only; it becomes a real gap the moment live scanning
-  exists (Phase 8). Same family as D12/D14 ("configured value silently
-  ignored").
-- **All fee schedules in `config/fees.yaml` carry `verified_at: 2026-09-13`.**
-  Under a 30-day window they fall out of strict freshness on **2026-10-14**.
-  Nothing breaks today (see the previous bullet), but any live-path work must
-  re-verify the schedules first.
+- **`strict_fee_freshness` is not enabled end-to-end.** The flag is threaded
+  from `modes/shared.py` into `arbitrage/two_leg.py` and `fees/calculator.py`,
+  but paper, historical, and backtest callers do not pass `True`; both scan
+  and two-leg defaults are `False`. Therefore `fees.max_schedule_age_days: 30`
+  is not an active paper/live gate today. Live mode remains monitor-only; a
+  real scanning path must enforce freshness/effective-date selection before
+  any schedule is promoted. See `docs/FEE_READINESS.md`.
+- **Verification dates now differ by route.** Kalshi, Polymarket US,
+  ForecastEx, and IBKR/ForecastEx were directly re-reviewed and dated
+  `2026-10-10`; inactive/unreviewed schedules retain `2026-09-13` and will
+  exceed the configured 30-day age window after 2026-10-13 if strict checking
+  is ever enabled. Current active calculation statuses remain `INCOMPLETE`.
 - **Settlement fixtures are now tied to a deterministic test clock.**
   `tests/conftest.py` freezes only `normalization.settlement.utcnow` at
   `SETTLEMENT_TEST_NOW` and places its default settlement three days later;
@@ -281,38 +280,41 @@ ROADMAP register because their impact needs an owner/agent decision first:
 ## 8. Current critical path (ordered by dependency, then impact)
 
 0. ~~**Stop a BLOCKed opportunity from advertising a positive net profit
-   (D17).**~~ **DONE 2026-10-10** — unavailable mandatory costs are now
-   typed as unavailable, net profit is `None`/`n/a` instead of a fabricated
-   figure, and 34 regression tests pin the calculation, ranking, dashboard,
-   persistence and report layers. **348 passed in 26.29 s.**
+   (D17).**~~ **DONE 2026-10-10** — unavailable mandatory costs are typed as
+   unavailable, net profit is `None`/`n/a`, and the calculation/reporting
+   layers are regression-tested. The inherited baseline was **348 passed in
+   26.29 s**; the fee-readiness change adds four focused regressions (current
+   full count: **352 passed in 28.29 s**, see §12).
 1. ~~**Restore a green baseline (D16).**~~ **DONE 2026-10-09** — 313 passed
-   in 25.01 s with a fixed settlement clock, and at three future wall-clock
-   dates. The reported failure is not present at baseline; the stale default
-   and pipeline fixtures now fail explicit mutation checks. With that closed,
-   **every remaining item on the critical path needs the owner**;
-   nothing further can be verified here without venue access or keys.
-2. **Owner captures venue reachability evidence** — `scripts/kalshi_smoke.py`
-   and `scripts/polymarket_us_smoke.py` from a machine that can reach the
-   venues (no keys needed for the public checks). This converts K9/P7 from
-   UNAVAILABLE to observed and is the gate for promoting Polymarket US out of
-   `API_DOCUMENTED_UNTESTED` — which is what makes collect mode record a
-   second venue at all. *Owner (H4 step 2 / Phase 2 item 2).*
-3. **Owner adds the Kalshi key (H2) and runs a 24 h `--mode collect`** —
-   produces the first real recorded data, closing the Phase 2 operational exit
-   and supplying Phase 4's replay acceptance run. *Owner.*
-4. **Owner adds an LLM key (H7)** — without it no certificate is ever
-   APPROVED, so the arbitrage evaluator is unreachable on real data.
-   *Owner.*
-5. **Phase 5 exit on real two-venue data** — candidate pairs, certificates
-   with statuses, and a human-reviewable false-match rate. *Agent, blocked on
-   2–4.*
-6. **Phase 3 remaining gates** — Utah/account eligibility (R9, UNKNOWN) and
-   the unpublished Polymarket US settlement fee (P12, `INCOMPLETE — BLOCK`).
-   Both are evidence problems, not code problems. *Owner/legal.*
-7. **Phase 6 realism evidence** — the owner's multi-week paper run.
-8. **Phase 8 live readiness** — including D10 (compute the live-capable venue
-   count instead of hardcoding it) and the strict-fee-freshness observation in
-   §7c. Not before Phases 2–7 evidence exists.
+   in 25.01 s with a fixed settlement clock and at three future wall-clock
+   dates; stale fixtures fail mutation checks.
+2. **Fee evidence and readiness (new audit, 2026-10-10).** All three enabled
+   unordered pairs are independent, but 0/3 are end-to-end cost-evaluable.
+   The production schedules for Kalshi, Polymarket US, and ForecastEx have
+   incomplete trade and settlement components. Owner actions, direct sources,
+   and exact missing account/market data are in `docs/FEE_READINESS.md`; do not
+   promote a documented reference rate. Agent implementation/tests can follow
+   once the required evidence is provided.
+3. **Owner captures venue reachability evidence** — run
+   `scripts/kalshi_smoke.py` and `scripts/polymarket_us_smoke.py` from a
+   reachable machine. This changes K9/P7 from UNAVAILABLE only if observed,
+   and can qualify Polymarket US for collection; it does not close fee or
+   eligibility gates. *Owner (H4 step 2 / Phase 2 item 2).*
+4. **Owner supplies authorized fee/account evidence** — complete the Kalshi
+   endpoint/rounding and settlement steps, Polymarket fee-family/fill and
+   settlement reports, and ForecastEx/IBKR account route and settlement
+   evidence in `docs/FEE_READINESS.md`. No credentials or unredacted statements
+   in chat or Git. *Owner/venue/broker; agent integrates after receipt.*
+5. **Owner adds the Kalshi key (H2) and runs a 24 h `--mode collect`** —
+   supplies real recorded data for Phase 4. *Owner.*
+6. **Owner adds an LLM key (H7)** — without it no certificate is APPROVED,
+   so real data cannot reach the arbitrage evaluator. *Owner.*
+7. **Phase 5/6 exits on real two-venue data** — approved/reviewed candidate
+   pairs, false-match review, and the multi-week paper realism run. *Agent,
+   blocked on 3–6.*
+8. **Phase 8 live readiness** — including D10, legal/account eligibility,
+   strict-fee-freshness enforcement, and an explicit owner go-ahead. Not before
+   Phases 2–7 evidence exists; live orders remain prohibited in this session.
 
 Phase-by-phase detail, exit criteria and completion records: `docs/ROADMAP.md`
 §2 and §3.
@@ -335,8 +337,9 @@ request format in `docs/AGENT_KICKOFF.md` ("HOW TO ASK THE OWNER FOR HELP").
 | H3 — IBKR Client Portal Gateway | Only if the owner later selects the IBKR route (not the current route) | OPEN, not on the critical path |
 | H5 — data-retention policy | Recorded data is ~17 MB/day; `.gitignore` keeps it out of git | OPEN (owner decision) |
 | H6 — explicit go-ahead before anything live | Phase 8 | OPEN (and must stay closed in this engagement) |
+| Fee/account/settlement evidence — Kalshi, Polymarket US, ForecastEx/IBKR | All active production fee components; exact owner actions in `docs/FEE_READINESS.md` | OPEN — no account statements/reports or live fee reconciliation |
 | R9 — Utah/account eligibility for Polymarket US non-sports | Phase 3 gate 1; live eligibility generally | UNKNOWN — primary sources silent, secondary sources conflict |
-| P12 — Polymarket US settlement fee | Phase 3; opportunities fail closed until settled | UNVERIFIED (documented by absence only) |
+| P12 — Polymarket US customer settlement-fee treatment | Phase 3; mandatory cost remains blocked | UNVERIFIED — reviewed public material does not establish customer amount |
 | SPEC §33 and §68 | Two reconstructed sections flagged `[I]` INFERRED | Need owner confirmation |
 | Git history still contains a 17 MB SQLite blob | Repo size; needs a history rewrite | Owner decision (Phase 0 leftover) |
 
@@ -415,8 +418,7 @@ change invalidated — same commit.
 
 ```bash
 git add -A && git commit -m "<scope>: <what changed and why>"
-git push origin <your-session-branch>    # e.g. arena/321f09ff-arb; each session
-                                         # lineage is fixed to its own branch
+git push origin arena/57b00329-arb      # fixed branch for this Arena session
 ```
 
 Small, reviewable, single-purpose commits. Never commit secrets, databases,
@@ -434,49 +436,47 @@ counts, doc updates, and the next action. Milestone-end reporting format:
 
 **Most recent meaningful changes** (newest first):
 
-1. **2026-10-10 — D17: unavailable mandatory costs are no longer zeros.**
-   `evaluate_two_leg` costed a blocked opportunity with fabricated free
-   fees (and a free capital lockup), so a `BLOCK` row could advertise
-   `+$9.96` of "net profit" on the dashboard and in the database. Net profit
-   is now `None` whenever any mandatory cost is unavailable, costs are
-   represented as `CostComponent`/`CostLedger` values, gross edge and known
-   costs survive as clearly-labelled research figures, and every reporting
-   surface (dashboard, CLI summaries, SQL NULL + `unavailable_costs`,
-   daily reports) shows `n/a` rather than a number. New
-   `monitoring/formatting.py`, migration 003 (`SCHEMA_VERSION` 3), 35 tests
-   in `tests/test_unavailable_costs.py`; **348 passed in 26.29 s**. The
-   fail-closed fee engine was not touched.
-2. **2026-10-09 — D16 fixtures made repeatable and re-verified.** The
+1. **2026-10-10 — fee readiness and pair audit.** Direct official sources
+   re-reviewed; Polymarket US's 2026-10-07 schedule replaced the stale `0.06`
+   reference, Kalshi's zero-settlement scope was narrowed to simple yes/no,
+   and ForecastEx all-in/settlement completeness was withdrawn. Active
+   production trade and settlement schedules are all `INCOMPLETE`; the
+   three enabled pairs are independent but 0/3 are end-to-end cost-evaluable.
+   Added `docs/FEE_READINESS.md`, updated fee config/tests and current venue,
+   roadmap, trading, README, and handoff claims. Four focused regressions
+   were added; **352 passed in 28.29 s** on Python 3.11.2, and `--status`
+   exited 0. No account/live evidence was available; exact operator actions
+   are documented in the fee-readiness page.
+2. **2026-10-10 — D17: unavailable mandatory costs are no longer zeros.**
+   `evaluate_two_leg` had allowed a BLOCK row to advertise `+$9.96` after
+   substituting free fees and lockup. Net profit is now `None` whenever any
+   mandatory cost is unavailable; typed `CostComponent`/`CostLedger` values,
+   gross edge separation, dashboard/CLI `n/a`, SQL NULL + `unavailable_costs`,
+   and daily report counts are regression-covered. Migration 003
+   (`SCHEMA_VERSION` 3); the inherited baseline was **348 passed in 26.29 s**.
+3. **2026-10-09 — D16 fixtures made repeatable and re-verified.** The
    settlement test clock is fixed, default and candidate fixtures settle in
-   its future, and regression assertions require both positive lockup and
-   positive cost. The reported target and affected tests pass; the full suite
-   is **313 passed in 25.01 s** and passes at three future frozen wall-clock
-   dates. Mutation checks make both stale fixtures fail. Tests/docs only — no
-   production settlement logic changed.
-3. **2026-10-09 — original D16 repair and this handoff created.** Added
+   its future, and assertions require positive lockup/cost. The full suite was
+   **313 passed in 25.01 s** and passed at three future frozen wall-clock
+   dates; mutation checks make stale fixtures fail.
+4. **2026-10-09 — original D16 repair and this handoff created.** Added
    `docs/AGENT_HANDOFF.md`, registered **D16**, and re-verified CI recency and
    sandbox venue reachability (both smoke scripts returned TLS EOF; K9/P7
    remain open).
-4. **2026-09-14 — Phase 5 (PR #5).** D6 candidate blocking (§96), D9 LLM
+5. **2026-09-14 — Phase 5 (PR #5).** D6 candidate blocking (§96), D9 LLM
    client wiring (§97) with a per-cycle budget, D15 provenance gate on
    certificates (§33). 47 new tests.
-5. **2026-09-13 — Phase 2/3 gaps + Phase 4 (PR #4).** Exact Polymarket US fee
-   model (198-value table reproduced), per-fill fees (D13),
-   `scripts/kalshi_smoke.py` + D14, full-contract recording and read-only
-   replay (D3/D4), backtest metric battery, paper realism (D11/D12).
-6. **2026-09-13 — Phases 2 + 3 (PR #3).** Kalshi host migration, failover,
-   streaming, tier-aware limits; Polymarket US adapter + WebSocket + provenance.
+6. **2026-09-13 — Phase 2/3 gaps + Phase 4 (PR #4).** The former Polymarket
+   standard fee arithmetic table and per-fill engine work, `scripts/kalshi_smoke.py`
+   + D14, full-contract recording, read-only replay, backtest metrics, and
+   paper realism work.
 
-**Recommended next task (one):** **Ask the owner to run the two read-only
-smoke scripts and paste the evidence back.** With D16 and D17 closed, the
-repository has no agent-doable item left on its critical path: every
-remaining phase exit (2, 3, 4, 5, 6) is waiting on evidence this sandbox
-physically cannot produce.
-The single highest-leverage request is venue reachability, because it gates
-everything downstream — promoting Polymarket US out of
-`API_DOCUMENTED_UNTESTED` is what makes collect mode record a *second* venue,
-which is the precondition for real candidate pairs, real certificates, and the
-first replayable data set:
+**Recommended next task (one):** the agent-side fee/source audit and focused
+regressions are complete; request the redacted owner evidence listed in
+`docs/FEE_READINESS.md` (plus the two read-only smoke-script outputs). This
+sandbox cannot produce account route, actual fee-report, settlement-statement,
+or venue API evidence. No production fee schedule should be promoted before
+those records are reviewed and reconciled. Reachability commands:
 
 ```bash
 python scripts/polymarket_us_smoke.py    # read-only, no key, no account
@@ -489,7 +489,4 @@ ASK THE OWNER FOR HELP"), one task per message, and state the success
 condition. Bundle the key requests (H2 Kalshi, H7 LLM) only *after* this
 returns, so the owner is never handed five setup steps at once.
 
-*While waiting*, the most useful offline work is re-verifying the §7b
-inherited fixes by mutation — each one's claim can be re-derived here with no
-owner, which converts INHERITED into VERIFIED and would catch any fix that has
-silently regressed. Do **not** start anything in §10.
+**Recommended next task — owner evidence for the selected Kalshi ↔ Polymarket US pair.** Polymarket US is the owner-selected second venue and the only enabled non-Kalshi route with an implemented adapter; its paper API status and both venues' production fee gates still block the pair. From a network-reachable machine, run the two read-only smoke scripts above, then follow the Kalshi steps 1–3 and Polymarket US steps 4–5 in `docs/FEE_READINESS.md` using existing account reports and settled positions. Save only redacted evidence under ignored `reports/evidence/`; never send credentials or create a new live order. If representative account evidence is unavailable, leave both schedules `INCOMPLETE` and record the specific blocker. The agent can integrate verified context and regression tests after evidence arrives. ForecastEx remains a separate stub route; do not treat it as a usable alternate pair yet.

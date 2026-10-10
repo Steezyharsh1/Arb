@@ -1,156 +1,208 @@
-# Versioned fee evidence ledger (§24), re-verified 2026-09-13.
+# Versioned fee evidence ledger (§24). Active-route sources re-reviewed 2026-10-10.
+# `verified_at` remains per-schedule; routes not re-reviewed on that date keep
+# their older verification date. `verification_status: VERIFIED` means the
+# cited public evidence was inspected; it does not mean all-in fees, account
+# state, or executable calculations are verified.
 #
 # Safety rule: a published headline rate is not enough to make a schedule
-# executable. trade_calculation_status / settlement_calculation_status must be
-# COMPLETE before FeeCalculator returns a value. INCOMPLETE always raises
-# FEE_DATA_INCOMPLETE. Context dimensions are recorded even when they are not
-# yet supplied by adapters so no one silently promotes a venue-wide estimate.
+# executable. Both calculation statuses must be COMPLETE before FeeCalculator
+# returns a value. INCOMPLETE always raises FEE_DATA_INCOMPLETE. Rates under
+# `fees` on INCOMPLETE schedules are documentation references only, never
+# execution-facing estimates.
 schema_version: 2
 
 schedules:
   - venue: kalshi
-    version: "2026-07-07-snapshot"
-    effective_date: "2026-07-07"
+    version: "2026-10-10-reference-snapshot"
+    effective_date: null
+    reference_snapshot_date: "2026-10-10"
     expiration_date: null
-    verified_at: "2026-09-13"
+    verified_at: "2026-10-10"
     verification_status: VERIFIED
     documentation_tested: true
     live_test_status: UNAVAILABLE
-    source: "https://kalshi.com/fee-schedule; https://docs.kalshi.com/getting_started/fee_rounding; https://docs.kalshi.com/api-reference/market/get-series; https://docs.kalshi.com/api-reference/exchange/get-series-fee-changes"
+    source: "https://kalshi.com/fee-schedule; https://docs.kalshi.com/getting_started/fee_rounding; https://docs.kalshi.com/api-reference/market/get-series; https://docs.kalshi.com/api-reference/exchange/get-series-fee-changes; https://docs.kalshi.com/api-reference/events/get-event; https://docs.kalshi.com/api-reference/events/get-event-fee-changes; https://docs.kalshi.com/getting_started/market_settlement"
     currency: USD
     trade_calculation_status: INCOMPLETE
-    settlement_calculation_status: COMPLETE
+    settlement_calculation_status: INCOMPLETE
     fee_context:
-      series: "dynamic: series_ticker"
-      listing_cohort: "all current listings; series/event overrides apply"
-      event_status: "event fee override may change over lifecycle"
-      contract_type: "$1 event contract; margin contracts excluded"
-      access_route: "direct Kalshi member route"
-      account_or_fill_state: "balance precision + per-order rounding accumulator"
+      series: "series_ticker fee_type and fee_multiplier; scheduled series changes"
+      listing_cohort: "effective series fee schedule at evaluation time"
+      event_status: "event fee_type_override/fee_multiplier_override and scheduled event changes"
+      contract_type: "binary yes/no versus scalar/sub-cent settlement; market_type"
+      access_route: "direct versus non-direct member account"
+      account_or_fill_state: "member balance precision, actual per-fill prices/quantities, per-order accumulator and balance-alignment adjustments"
     required_context:
-      - series
-      - event_status
-      - contract_type
+      - series_ticker
+      - event_ticker
+      - series_fee_type
+      - series_fee_multiplier
+      - event_fee_type_override
+      - event_fee_multiplier_override
+      - fee_change_effective_timestamp
+      - market_type
       - access_route
-      - fee_type
-      - fee_multiplier
       - account_balance_precision
-      - cumulative_fill_quantity
-      - cumulative_fee_charged
+      - actual_fill_prices_and_quantities
+      - order_fee_accumulator_state
+      - settlement_type
       - metadata_verified_at
-    blocking_reason: "series/event fee type and multiplier, account balance precision, walked fill partition, and per-order rounding accumulator are not supplied to FeeCalculator"
+    blocking_reason: >-
+      Public documentation establishes the reference formula and rounding, but
+      the adapter/calculator do not resolve series and event fee state, member
+      precision, or actual account order-accumulator state. The book is
+      price-aggregated and does not reveal future individual fills. Settlement
+      is documented as zero only for simple yes/no determinations; sub-cent
+      scalar settlement may incur a fee. Keep both components blocked until
+      context is represented and validated.
+    published_settlement_scope:
+      simple_yes_no: "zero settlement fee is documented for simple yes/no determinations"
+      scalar_subcent: "a settlement fee may apply; no general zero-fee claim"
+      execution_use: "reference only; evaluator does not enforce this contract-type boundary"
     fees:
-      # Reference formulas only. The INCOMPLETE status prevents execution use.
+      # Published reference formulas only; INCOMPLETE status blocks use.
       - fee_type: taker_quadratic_reference
         multiplier: "0.07"
         applies_to: taker
       - fee_type: maker_quadratic_reference
         multiplier: "0.0175"
         applies_to: maker
-      - fee_type: settlement
-        fixed_amount: "0.00"
-        applies_to: settlement
 
   - venue: forecast_ex
-    version: "2026-03-24"
-    effective_date: "2026-03-24"
+    version: "2026-03-31-effective"
+    effective_date: "2026-03-31"
     expiration_date: null
-    verified_at: "2026-09-13"
+    verified_at: "2026-10-10"
     verification_status: VERIFIED
     documentation_tested: true
     live_test_status: UNAVAILABLE
-    source: "https://www.cftc.gov/filings/orgrules/rules03022640215.pdf; https://www.cftc.gov/filings/orgrules/rules03242641956.pdf; https://www.interactivebrokers.com/en/pricing/commissions-events.php"
+    source: "https://www.cftc.gov/filings/orgrules/rules03022640215.pdf; https://www.cftc.gov/filings/orgrules/rules03242641956.pdf; https://www.cftc.gov/filings/orgrules/rules09032623612.pdf; https://forecastex.com/faq; https://www.interactivebrokers.com/en/pricing/commissions-events.php"
     currency: USD
-    trade_calculation_status: COMPLETE
-    settlement_calculation_status: COMPLETE
+    trade_calculation_status: INCOMPLETE
+    settlement_calculation_status: INCOMPLETE
     fee_context:
       series: "all ForecastEx $1 forecast-contract series"
-      listing_cohort: "current rulebook"
+      listing_cohort: "current exchange fee schedule; incentive/coupon terms may be account-specific"
       event_status: "all"
       contract_type: "$1 binary Forecast Contract"
-      access_route: "IBKR ForecastTrader / ForecastEx"
+      access_route: "IBKR direct-client page lists $0.00 commission plus the $0.01 exchange fee; other FCM/introduced routes are not established"
+      account_or_fill_state: "per executed contract on each side; member incentives/coupons and account commissions are not applied"
+    required_context:
+      - access_route
+      - account_commission_schedule
+      - executed_contract_quantity
+      - member_incentive_or_coupon_treatment
+      - settlement_fee_treatment
+      - current_rulebook_settlement_provisions
+      - metadata_verified_at
+    blocking_reason: >-
+      The CFTC fee filing and the ForecastEx FAQ fetched 2026-10-10 support a
+      $0.01 exchange transaction fee per executed contract per side. IBKR
+      publishes $0.00 commission plus that exchange fee for its documented
+      direct-client route. This does not
+      prove another FCM/account's all-in cost. The accessible current CFTC-filed
+      rulebook extraction did not verify Rules 416, 417, or 603; no zero
+      settlement fee or universal incentive treatment is established. The
+      adapter is a stub and no account statement was supplied.
+    published_reference:
+      exchange_transaction_fee: "$0.01 per executed contract per side"
+      opposite_bid_pair_threshold: "$1.00; the $0.01 fee is separate, not embedded in the threshold"
+      ibkr_direct_client_commission: "$0.00 published commission, plus the exchange fee"
+      incentive_treatment: "monthly coupons/incentives are not universal per-trade fee reductions"
+      settlement_fee_treatment: UNKNOWN
     fees:
-      # Opposite bids pair at $1.00. This separate fee applies to each
-      # executed side; it is not embedded in a $1.01 pairing threshold.
-      - fee_type: exchange_fee_per_executed_contract
+      # Reference exchange component only; route and settlement remain blocked.
+      - fee_type: exchange_fee_per_executed_contract_reference
         fixed_amount: "0.01"
         applies_to: taker
-      - fee_type: maker_not_distinguished
+      - fee_type: maker_not_distinguished_reference
         fixed_amount: "0.01"
         applies_to: maker
-      - fee_type: settlement
-        fixed_amount: "0.00"
-        applies_to: settlement
 
   # ------------------------------------------------------------------
   # Polymarket US (QCX LLC d/b/a Polymarket US) — direct API route.
+  # Current fee schedule directly re-read 2026-10-10; effective 2026-10-07
+  # at 10:00 ET (not the superseded 2026-07-01 schedule).
   #
-  # Trade fee modelled EXACTLY as documented (docs.polymarket.us/fees,
-  # evidence rows P8 + P11 in docs/VENUE_RESEARCH.md, re-verified
-  # 2026-09-13):
+  # Published reference formulas:
+  #   standard taker Θ = 0.0695; Table Tennis taker Θ = 0.10;
+  #   maker rebate Θ = -0.0125; combos use a separate taker curve and have
+  #   no maker rebate. Standard fee = Θ × C × p × (1-p).
+  #   Combo fee = C × p × [0.0695 × (1-p) + 0.06 × (1-p)^4].
+  # The current adapter/evaluator does not select these fee families, so the
+  # reference coefficients below are NOT execution-ready.
   #
-  #   Fee = Θ × C × p × (1 - p),  taker Θ = 0.06, maker rebate Θ = -0.0125
-  #   * every fee/rebate is rounded to the nearest cent with BANKER'S
-  #     rounding (round half to even) — the FAQ's own examples:
-  #     $0.025 -> $0.02 and $0.035 -> $0.04;
-  #   * when an aggressive order fills against multiple resting orders each
-  #     fill is billed its banker's-rounded fee, adjusted so the total
-  #     collected never exceeds the banker's rounding of the CUMULATIVE
-  #     EXACT fee; the adjustment can only reduce a fill's charge;
-  #   * maker rebates are computed per fill, independently, and are never
-  #     capped;
-  #   * the schedule is EXCHANGE-WIDE from 2026-07-01 12:00 ET, so there is
-  #     no per-market fee selector to carry (this supersedes the Phase 1
-  #     "fee-enabled market selector required" note).
+  # Direct documentation also establishes per-fill banker's rounding, a
+  # cumulative exact-fee cap for aggressive orders (only reduces charges),
+  # and independent per-fill maker rebates. Volume rebates are based on prior
+  # calendar-month taker amount-at-risk (or separately evidenced accelerated
+  # placement) and paid weekly; they are never per-trade discounts. The fee
+  # page lists 10% / 25% / 50% tiers at $250k /
+  # $1m / $10m and defines buy/sell volume as C×p / C×(1-p).
   #
-  # Verified offline against the venue's own published 99-row "Fee Schedule
-  # by Price" 100-lot table (tests/test_polymarket_fees.py reproduces every
-  # row for both the taker and maker columns). live_test_status stays
-  # UNAVAILABLE: no account statement has been reconciled, so this is
-  # documentation-verified, not live-tested.
-  #
-  # Volume rebates are RECORDED but deliberately NEVER APPLIED: the venue
-  # documents them as a weekly payout on prior-calendar-month notional
-  # taker volume, not a per-trade discount. Applying one per order would
-  # understate cost and flatter the strategy.
-  #
-  # Settlement stays INCOMPLETE: the published fee schedule contains only
-  # trading fees, and the settlement page describes a $1.00/$0.00 payout
-  # with no fee line. "No fee documented" is documented-by-absence, not
-  # verification, and an understated settlement cost flatters the strategy
-  # — so it keeps blocking until the exchange rulebook or an owner account
-  # statement settles it. Two-leg evaluation charges settlement fees too,
-  # so polymarket_us opportunities remain BLOCKED until this is resolved.
+  # The 99-row standard 100-lot table and rounding/cap arithmetic are tested
+  # with a test-only synthetic schedule. Production trade AND settlement
+  # statuses remain INCOMPLETE: category/combination fee selection, actual
+  # order/fill context and customer settlement treatment are not established.
   - venue: polymarket_us
-    version: "2026-07-01-effective"
-    effective_date: "2026-07-01"
+    version: "2026-10-07-effective"
+    effective_date: "2026-10-07"
     expiration_date: null
-    verified_at: "2026-09-13"
+    verified_at: "2026-10-10"
     verification_status: VERIFIED
     documentation_tested: true
     live_test_status: UNAVAILABLE
-    source: "https://docs.polymarket.us/fees; https://docs.polymarket.us/fees#fee-rules; https://docs.polymarket.us/fees#fee-schedule-by-price; https://docs.polymarket.us/learn/markets/contract-settlement"
+    source: "https://docs.polymarket.us/fees; https://docs.polymarket.us/changelog; https://docs.polymarket.us/api-reference/market/overview; https://docs.polymarket.us/api-reference/combos/overview; https://docs.polymarket.us/learn/markets/contract-settlement; https://docs.polymarket.us/institutional/funding/overview; https://docs.polymarket.us/api-reference/funding/get-account-balance-ledger; https://docs.polymarket.us/institutional/payments/overview; https://docs.polymarket.us/trader-guide/reporting"
     currency: USD
-    rounding: half_even                     # banker's rounding (P8)
-    order_fee_cap: cumulative_exact_rounded # aggressive-order cap (P8)
-    trade_calculation_status: COMPLETE
+    rounding: half_even
+    order_fee_cap: cumulative_exact_rounded
+    trade_calculation_status: INCOMPLETE
     settlement_calculation_status: INCOMPLETE
     fee_context:
-      series: "exchange-wide — every Polymarket US event contract (fee schedule effective 2026-07-01 12:00 ET)"
-      listing_cohort: "all current listings; no listing-date cohort in the published schedule"
-      event_status: "all; fees are charged only when a trade executes (cancelled/expired/rejected orders are not charged)"
-      contract_type: "$1 event contract, price p in (0.00, 1.00)"
-      access_route: "direct Polymarket US API (QCX DCM)"
-      account_or_fill_state: "per-fill price + quantity; order-level cumulative exact fee for the taker cap"
-    blocking_reason: "settlement fee is not published anywhere reviewed — documented-by-absence is not verification, so settlement keeps blocking (trade fees themselves are exact and verified against the published 100-lot table)"
+      series: "fee family required: standard, Table Tennis, or combo"
+      listing_cohort: "current; schedule effective 2026-10-07 10:00 ET"
+      event_status: "market/product type must be identified; combo uses separate instrument endpoint"
+      contract_type: "standard binary, Table Tennis, or 2-50-leg combo; distinct fee rules"
+      access_route: "direct Polymarket US Retail API (QCX DCM); account fee reports required for reconciliation"
+      account_or_fill_state: "actual fill partition/order cap; maker rebate per fill; prior-month tier or documented accelerated placement is not a per-order discount"
+    required_context:
+      - fee_family
+      - raw_market_fee_classification
+      - combo_instrument_support_or_explicit_exclusion
+      - actual_order_fill_partition
+      - cumulative_exact_order_fee
+      - prior_month_or_approved_accelerated_rebate_tier_for_reporting_only
+      - settlement_fee_treatment
+      - account_fee_report
+      - metadata_verified_at
+    blocking_reason: >-
+      The standard formula alone is not a universal schedule: Table Tennis has
+      a higher taker coefficient and Retail API combos have a separate curve
+      with no maker rebate. The adapter collapses sports to a generic category,
+      the two-leg fee call receives no fee-family context, and combo instruments
+      are not modelled. The reviewed settlement materials do not establish
+      customer settlement-fee treatment. INCOMPLETE prevents using the
+      standard coefficient as an estimate.
+    published_reference:
+      standard_taker_theta: "0.0695"
+      table_tennis_taker_theta: "0.10"
+      maker_rebate_theta: "-0.0125"
+      combo_taker_formula: "C × p × [0.0695 × (1-p) + 0.06 × (1-p)^4]"
+      combo_maker_rebate: "none"
+      volume_rebate_tiers: "10% at $250,000; 25% at $1,000,000; 50% at $10,000,000 prior-calendar-month taker volume"
+      volume_definition: "amount at risk: C×p for buys and C×(1-p) for sells; paid weekly, not per trade"
+      accelerated_tier_placement: "venue permits verifiable trailing-30-day external prediction-market volume to support tier placement; requires account evidence and is not assumed"
+      settlement_fee_treatment: UNKNOWN
     fees:
-      - fee_type: taker_quadratic
-        multiplier: "0.06"
+      # Standard-family arithmetic reference only. Do not promote to COMPLETE
+      # until family selection, order context and settlement are resolved.
+      - fee_type: taker_quadratic_reference
+        multiplier: "0.0695"
         applies_to: taker
-      - fee_type: maker_rebate_quadratic
+      - fee_type: maker_rebate_quadratic_reference
         multiplier: "-0.0125"
         applies_to: maker
-    rebate_policy: "Taker volume rebates (10%/25%/50% above $250k/$1M/$10M prior-calendar-month notional taker volume, paid weekly) are recorded for evidence only and are never applied per order — see the comment above."
+    rebate_policy: "Volume tiers use prior-calendar-month taker amount-at-risk (C×p on buys; C×(1-p) on sells), paid weekly; the venue documents accelerated placement from verifiable trailing-30-day external volume. Both bases require account evidence and are recorded only, never applied as per-order discounts."
     volume_rebate_tiers:
       - threshold: "250000"
         rebate: "0.10"
@@ -240,33 +292,50 @@ schedules:
         applies_to: taker
 
   - venue: ibkr_forecastex
-    version: "snapshot-2026-09-13"
-    effective_date: "2026-09-13"
+    version: "IBKR-2026-10-10-review"
+    effective_date: "2026-03-31"
     expiration_date: null
-    verified_at: "2026-09-13"
+    verified_at: "2026-10-10"
     verification_status: VERIFIED
     documentation_tested: true
     live_test_status: UNAVAILABLE
-    source: "https://www.interactivebrokers.com/en/pricing/commissions-events.php"
+    source: "https://www.interactivebrokers.com/en/pricing/commissions-events.php; https://www.cftc.gov/filings/orgrules/rules03242641956.pdf; https://www.cftc.gov/filings/orgrules/rules09032623612.pdf; https://forecastex.com/faq"
     currency: USD
-    trade_calculation_status: COMPLETE
-    settlement_calculation_status: COMPLETE
+    trade_calculation_status: INCOMPLETE
+    settlement_calculation_status: INCOMPLETE
     fee_context:
       series: "ForecastEx"
-      listing_cohort: "current"
+      listing_cohort: "current exchange schedule effective 2026-03-31"
       event_status: "all"
       contract_type: "$1 Forecast Contract"
-      access_route: "IBKR -> ForecastEx"
+      access_route: "IBKR direct-client pricing is published; individual account/FCM commission evidence is absent"
+      account_or_fill_state: "exchange transaction fee per executed contract per side; no account statement or settlement reconciliation"
+    required_context:
+      - account_commission_schedule
+      - introducing_broker_or_advisor_status
+      - executed_contract_quantity
+      - settlement_fee_treatment
+      - current_rulebook_settlement_provisions
+      - member_incentive_or_coupon_treatment
+      - metadata_verified_at
+    blocking_reason: >-
+      IBKR publishes $0.00 commission plus the $0.01 ForecastEx exchange fee
+      for its documented direct-client route, but this is not evidence for
+      every account/FCM route. The current accessible CFTC-filed rulebook
+      extraction did not establish zero settlement fees or the details of
+      Rules 416, 417, and 603. No account statement was supplied; remain
+      blocked rather than generalizing the direct-client price.
+    published_reference:
+      ibkr_direct_client_commission: "$0.00 per contract, plus $0.01 ForecastEx exchange fee per executed side"
+      route_scope: "direct-client published route only; introducing broker/advisor charges may differ"
+      settlement_fee_treatment: UNKNOWN
     fees:
-      - fee_type: ibkr_commission_plus_exchange_fee
+      - fee_type: ibkr_direct_client_exchange_fee_reference
         fixed_amount: "0.01"
         applies_to: taker
-      - fee_type: ibkr_commission_plus_exchange_fee
+      - fee_type: ibkr_direct_client_exchange_fee_reference
         fixed_amount: "0.01"
         applies_to: maker
-      - fee_type: settlement
-        fixed_amount: "0.00"
-        applies_to: settlement
 
   - venue: ibkr_kalshi
     version: "snapshot-2026-09-13"

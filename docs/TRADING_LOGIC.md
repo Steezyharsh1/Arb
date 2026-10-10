@@ -20,14 +20,32 @@ yes_walk_cost(q) + no_walk_cost(q)
   < payout × q
 ```
 
-- Kalshi's standard taker *model* is `0.07 × M × C × P × (1−P)`, but
-  series/event overrides and account/fill rounding state are contextual.
-  The production Kalshi schedule is therefore `INCOMPLETE` and blocks; the
-  model is not used as a venue-wide execution estimate.
-- ForecastEx: opposite bids pair at **$1.00** and a separate **$0.01 per
-  executed side** fee applies.
+- **Kalshi:** standard taker reference is `0.07 × M × C × P × (1−P)`;
+  maker-enabled series use `0.0175`. Series fee type/multiplier and event
+  overrides are available through official metadata/change endpoints. Fees
+  also depend on actual fill/order state and account balance precision. The
+  production trade schedule is `INCOMPLETE`. Settlement is zero only for
+  documented simple yes/no determinations; sub-cent scalar settlement may
+  incur a fee, so production settlement is also `INCOMPLETE`.
+- **Polymarket US:** current schedule effective 2026-10-07 10:00 ET uses
+  standard taker `Θ=0.0695`, Table Tennis taker `Θ=0.10`, and maker rebate
+  `Θ=-0.0125`; combos have a separate curve and no maker rebate. The adapter
+  does not select the fee family or model combos, and customer settlement
+  treatment remains unresolved. Both production components are `INCOMPLETE`.
+  Published half-even rounding, the aggressive-order cumulative cap, and
+  prior-month weekly (or account-evidenced accelerated-tier) volume-rebate
+  rules are recorded; volume rebates are never applied as per-trade discounts.
+- **ForecastEx:** opposite bids pair at **$1.00**; the published exchange
+  component is **$0.01 per executed contract per side** (effective
+  2026-03-31), separate from the pairing threshold. IBKR publishes `$0.00`
+  commission plus the exchange fee for its documented direct-client route,
+  but no account/FCM evidence establishes universal all-in cost. Settlement
+  fees are not proven zero. Production trade and settlement remain
+  `INCOMPLETE`; monthly incentives are not universal fee reductions.
 - Missing or context-incomplete schedule → `FEE_DATA_INCOMPLETE` → BLOCK.
   Never assumed zero and never replaced by an execution-facing estimate.
+  The audited venue/pair matrix and exact remaining operator evidence are in
+  `docs/FEE_READINESS.md`.
 - Unknown settlement lockup → BLOCK, never zero.
 - Slippage is *inside* the walked cost (real levels consumed); it is
   additionally reported as WAP−best×qty for transparency, not
@@ -105,10 +123,12 @@ the adapter remains an untested structured stub.
 ## Pre-trade checklist (§33) mapping
 
 Implemented across: match certificate (APPROVED required),
-independence (INDEPENDENT required; UNKNOWN blocks), fee freshness
-(strict mode for live), book freshness (aggregator staleness +
-firewall), liquidity (walker), capital (risk limits + per-venue
-non-fungible capital), eligibility (compliance module; Utah-aware),
-API health (HealthMonitor), kill switch, order-type appropriateness
-(limit-only; market orders prohibited on illiquid books), settlement
-timing (delay spread limit).
+independence (INDEPENDENT required; UNKNOWN blocks), book freshness
+(aggregator staleness + firewall), liquidity (walker), capital (risk limits
++ per-venue non-fungible capital), eligibility (compliance module;
+Utah-aware), API health (HealthMonitor), kill switch, order-type
+appropriateness (limit-only; market orders prohibited on illiquid books),
+and settlement timing (delay spread limit). **Fee freshness is not currently
+enforced end-to-end:** `strict_fee_freshness` defaults to `False`, and paper,
+historical, and backtest callers do not override it; live mode is monitor-only.
+See `docs/FEE_READINESS.md` for the exact gap and release criterion.
