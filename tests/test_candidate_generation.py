@@ -24,6 +24,7 @@ import pytest
 
 from .conftest import SETTLEMENT_TEST_NOW, make_book, make_contract
 
+from prediction_arb.matching.deterministic_matcher import deterministic_match
 from prediction_arb.matching.llm_matcher import LLMMatcher
 from prediction_arb.modes.shared import run_arbitrage_scan, run_matching
 from prediction_arb.normalization.contracts import (
@@ -117,12 +118,12 @@ class TestContentTokens:
 
 
 class TestBlockingKeys:
-    def test_settlement_emits_three_neighbour_buckets(self):
+    def test_settlement_is_not_a_blocking_key(self):
+        """§96 revised 2026-10-10: settlement is a pairwise window in
+        `candidate_pairs`, never a shared bucket. Shared buckets chained clustered
+        expiries into one giant component (1,000 contracts → 1 group)."""
         c = make_contract()
-        settle = [k for k in blocking_keys(c) if k.startswith("settle:")]
-        buckets = sorted(int(k.split(":")[1]) for k in settle)
-        assert len(buckets) == 3
-        assert buckets[1] - buckets[0] == 1 and buckets[2] - buckets[1] == 1
+        assert not [k for k in blocking_keys(c) if k.startswith(("settle:", "cat:"))]
 
     def test_no_settlement_no_settle_key(self):
         c = make_contract(settlement=SETTLE - timedelta(days=400))
@@ -150,16 +151,24 @@ class TestGrouping:
         assert len(groups) == 1
 
     def test_settlement_across_day_boundary_still_groups(self):
-        """23:00 UTC vs 01:00 UTC next day: same event, different UTC dates.
+        """23:00 UTC vs 01:00 UTC next day: same event, different UTC dates, 2h
+        apart. The matcher's 6h window, not the UTC date, decides adjacency."""
+        a = make_contract(venue="kalshi", event=POLY_TITLE,
+                          settlement=SETTLE - timedelta(hours=1))
+        b = make_contract(venue="forecast_ex", event=POLY_TITLE,
+                          settlement=SETTLE + timedelta(hours=1))
+        assert a.settlement_time.date() != b.settlement_time.date()
+        assert len(group_by_event([a, b])) == 1
 
-        The exact-date key split this pair; the ±1 bucket neighbourhood
-        keeps it together (the ±6h deterministic check still bounds it)."""
+    def test_settlement_24h_apart_does_not_group(self):
+        """Replaces the earlier 'day boundary' case, which asserted a pair 24h apart.
+        The matcher rejects that pair (> 6h), so retrieval must not propose it."""
         a = make_contract(venue="kalshi", event=POLY_TITLE,
                           settlement=SETTLE - timedelta(hours=21))
         b = make_contract(venue="forecast_ex", event=POLY_TITLE,
                           settlement=SETTLE + timedelta(hours=3))
-        groups = group_by_event([a, b])
-        assert len(groups) == 1
+        assert not deterministic_match(a, b).passed
+        assert len(group_by_event([a, b])) == 2
 
     def test_truly_unrelated_contracts_stay_apart(self):
         a = make_contract(venue="kalshi", contract_id="A",
@@ -170,10 +179,23 @@ class TestGrouping:
                           category="UKPOL", settlement=SETTLE + timedelta(days=120))
         assert len(group_by_event([a, b])) == 2
 
-    def test_threshold_alone_is_enough_to_become_candidates(self):
-        """No shared words, numbers, category or date — the threshold family
-        still proposes the pair. The deterministic matcher then rejects it;
-        grouping must only ever widen, never approve."""
+    def test_threshold_alone_is_enough_to_become_candidates_within_the_window(self):
+        """No shared words, numbers, category: the threshold family alone proposes
+        the pair when both settle together. The deterministic matcher then rejects it
+        (different events); grouping only widens and never approves."""
+        a = make_contract(venue="kalshi", contract_id="A",
+                          event="Will the pipeline project finish on schedule",
+                          category="INFRA", threshold=Decimal("10000"),
+                          threshold_op=">", units="USD")
+        b = make_contract(venue="forecast_ex", contract_id="B",
+                          event="Zebra population exceeds nine thousand nine hundred",
+                          category="WILDLIFE", threshold=Decimal("10000"),
+                          threshold_op=">", units="USD")
+        assert len(group_by_event([a, b])) == 1
+
+    def test_threshold_alone_does_not_propose_across_the_window(self):
+        """The same threshold 90 days apart is no longer a candidate (§96 revised):
+        it is outside the matcher's settlement tolerance and would be rejected."""
         a = make_contract(venue="kalshi", contract_id="A",
                           event="Will the pipeline project finish on schedule",
                           category="INFRA", threshold=Decimal("10000"),
@@ -183,8 +205,7 @@ class TestGrouping:
                           category="WILDLIFE", threshold=Decimal("10000"),
                           threshold_op=">", units="USD",
                           settlement=SETTLE + timedelta(days=90))
-        groups = group_by_event([a, b])
-        assert len(groups) == 1
+        assert len(group_by_event([a, b])) == 2
 
     def test_grouping_is_deterministic_under_reordering(self):
         contracts = [

@@ -1,0 +1,137 @@
+{
+  "source": "synthetic",
+  "contracts": 1000,
+  "seed": 20261010,
+  "notes": {
+    "calendar_skew": 2.5
+  },
+  "truth": {
+    "cross_venue_pairs": 333296,
+    "equivalent_pairs": 301,
+    "det_pass_pairs": 1675,
+    "equivalent_and_det_pass_pairs": 256,
+    "equivalent_but_det_reject": 45
+  },
+  "impls": {
+    "legacy": {
+      "impl": "legacy",
+      "contracts": 1000,
+      "all_pairs": 499500,
+      "cross_venue_pairs": 333296,
+      "candidate_pairs": 333296,
+      "candidate_fraction_of_cross": 1.0,
+      "det_pass_pairs_total": 1675,
+      "det_pass_pairs_proposed": 1675,
+      "equivalent_pairs_total": 301,
+      "equivalent_pairs_proposed": 301,
+      "recall_equivalent": 1.0,
+      "equivalent_and_det_pass_total": 256,
+      "equivalent_and_det_pass_proposed": 256,
+      "recall_equivalent_and_det_pass": 1.0,
+      "recall_det_pass": 1.0,
+      "equivalent_but_det_reject": 45,
+      "components": 1,
+      "largest_component": 1000,
+      "top5_component_sizes": [
+        1000
+      ],
+      "singleton_contracts": 0,
+      "lost_vs_current": [],
+      "lost_vs_current_count": 0,
+      "recall_vs_current": 1.0,
+      "runtime_s_median": 0.1847,
+      "runtime_s_runs": [
+        0.1847,
+        0.2574,
+        0.1719
+      ],
+      "peak_python_heap_mb": 44.61,
+      "end_to_end": {
+        "budget_200": {
+          "llm_budget": 200,
+          "llm_calls": 200,
+          "pairs_considered": 333296,
+          "pairs_deterministic_pass": 1675,
+          "approved": 51,
+          "approved_equivalent": 51,
+          "approved_non_equivalent": 0,
+          "equivalent_pairs_total": 301,
+          "approved_recall_vs_all_equivalent": 0.1694
+        },
+        "unbudgeted": {
+          "llm_budget": null,
+          "llm_calls": 1675,
+          "pairs_considered": 333296,
+          "pairs_deterministic_pass": 1675,
+          "approved": 256,
+          "approved_equivalent": 256,
+          "approved_non_equivalent": 0,
+          "equivalent_pairs_total": 301,
+          "approved_recall_vs_all_equivalent": 0.8505
+        }
+      }
+    },
+    "retrieval": {
+      "impl": "retrieval",
+      "contracts": 1000,
+      "all_pairs": 499500,
+      "cross_venue_pairs": 333296,
+      "candidate_pairs": 3289,
+      "candidate_fraction_of_cross": 0.0099,
+      "det_pass_pairs_total": 1675,
+      "det_pass_pairs_proposed": 873,
+      "equivalent_pairs_total": 301,
+      "equivalent_pairs_proposed": 256,
+      "recall_equivalent": 0.8505,
+      "equivalent_and_det_pass_total": 256,
+      "equivalent_and_det_pass_proposed": 256,
+      "recall_equivalent_and_det_pass": 1.0,
+      "recall_det_pass": 0.5212,
+      "equivalent_but_det_reject": 45,
+      "components": 118,
+      "largest_component": 80,
+      "top5_component_sizes": [
+        80,
+        74,
+        67,
+        52,
+        48
+      ],
+      "singleton_contracts": 0,
+      "lost_vs_current": [],
+      "lost_vs_current_count": 0,
+      "recall_vs_current": 1.0,
+      "runtime_s_median": 0.0382,
+      "runtime_s_runs": [
+        0.0379,
+        0.0943,
+        0.0382
+      ],
+      "peak_python_heap_mb": 2.28,
+      "end_to_end": {
+        "budget_200": {
+          "llm_budget": 200,
+          "llm_calls": 200,
+          "pairs_considered": 3289,
+          "pairs_deterministic_pass": 873,
+          "approved": 128,
+          "approved_equivalent": 128,
+          "approved_non_equivalent": 0,
+          "equivalent_pairs_total": 301,
+          "approved_recall_vs_all_equivalent": 0.4252
+        },
+        "unbudgeted": {
+          "llm_budget": null,
+          "llm_calls": 873,
+          "pairs_considered": 3289,
+          "pairs_deterministic_pass": 873,
+          "approved": 256,
+          "approved_equivalent": 256,
+          "approved_non_equivalent": 0,
+          "equivalent_pairs_total": 301,
+          "approved_recall_vs_all_equivalent": 0.8505
+        }
+      }
+    }
+  }
+}

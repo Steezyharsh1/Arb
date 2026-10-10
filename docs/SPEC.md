@@ -757,23 +757,26 @@ and are conservative (guaranteed-only arbitrage, limit orders only, market
 orders disallowed, UNKNOWN blocking enabled).
 **Evidence.** `config/settings.yaml`, `prediction_arb/core/config.py`.
 
-### §96 — Cross-venue candidate blocking  `[C,T]`
+### §96 — Cross-venue candidate proposal  `[C,T]`
 **Requirement.** Added 2026-09-14 (defect D6 fix; replaces exact-title
-grouping). The normalization layer MUST generate cross-venue candidate
-groups by deterministic blocking, not by exact event text: contracts share
-a group when they share at least one blocking key from the families —
-settlement 24-hour UTC buckets (own bucket ±1), normalized
-category/product code, threshold + operator + units with canonicalized
-numbers, canonical numeric tokens from the title, and plural-folded
-stopword-filtered content words. Blocking MUST be recall-oriented and
-MUST only propose candidates: it never decides equivalence, never
-promotes a pair past the deterministic filter (§18, REJECT final), and
-never approves anything. Component ids MUST be stable across runs and
-input orderings.
+grouping). Revised 2026-10-10 (Arb.8): the earlier settlement-bucket keys with
+union-find grouping produced one giant component. The normalization layer MUST
+propose cross-venue candidate pairs with these rules: a pair is proposed only
+if (1) the two contracts are on different venues, (2) both have a settlement time
+and the times differ by at most the deterministic matcher's settlement tolerance
+(§18), and (3) they share a discriminative key (exact normalized threshold +
+operator + units, a canonical numeric title token, or a plural-folded content
+word) that is not dense at that settlement moment. Proposal MUST NOT be
+transitive. Components MAY be used only to group contracts for the scan, never
+as a claim of equivalence. Proposal MUST be recall-oriented and MUST only propose
+candidates: it never decides equivalence, never promotes a pair past the
+deterministic filter (§18, REJECT final), and never approves anything. Group
+ids MUST be stable across runs and input orderings.
 **Evidence.** `prediction_arb/normalization/contracts.py`
-(`blocking_keys`, `group_by_event`, `numeric_tokens`,
-`content_tokens`, `canonical_number`),
-`tests/test_candidate_generation.py`,
+(`blocking_keys`, `candidate_pairs`, `component_indices`, `groups_from_pairs`,
+`group_by_event`, `numeric_tokens`, `content_tokens`, `canonical_number`),
+`tests/test_candidate_generation.py`, `tests/test_candidate_retrieval.py`,
+`benchmarks/candidate_retrieval/`, `docs/CANDIDATE_RETRIEVAL.md`,
 `docs/LLM_MATCHING.md`, `docs/ROADMAP.md` (defect D6).
 
 ### §97 — LLM client wiring and comparison budget  `[C,T]`

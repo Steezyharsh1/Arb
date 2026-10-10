@@ -1,0 +1,145 @@
+{
+  "source": "reference",
+  "contracts": 50,
+  "seed": null,
+  "notes": {
+    "labelling": "Equivalence classes were assigned by hand by the author from the wording and settlement terms in this file. Not independently reviewed. Two listings share a class iff they describe the same event with the same outcome direction, threshold, operator, units and payout, and their settlement moments agree up to venue timing disagreement.",
+    "boundary_cases": "eq ref-fed-hold-375-oct26: a 5h50m settlement disagreement (inside the matcher's 6h tolerance). ref-spx-gt6500-dec18: 5h59m. ref-cpi-mom-03-oct26: 6h01m, labelled equivalent but deterministically rejected by the settlement tolerance, so no retrieval design can approve it.",
+    "limitation": "Operators are written in the normalized form the matcher expects (\">\", \">=\", \"=\"). Production adapters do not yet emit a shared operator vocabulary (Kalshi strike_type, Polymarket None); that is a matcher-side issue outside this benchmark.",
+    "known_miss": "ref-paraphrase-no-shared-token-oct1 (K22, P18): a genuine paraphrase with no shared content word or number after stopword removal. Retrieval proposes nothing for it by design (no shared key). It is kept in the reference set so the recall figure is not inflated. Recovering it needs a retrieval signal beyond exact keys (for example a learned or embedding similarity), which must remain a proposal-only score."
+  },
+  "truth": {
+    "cross_venue_pairs": 796,
+    "equivalent_pairs": 17,
+    "det_pass_pairs": 29,
+    "equivalent_and_det_pass_pairs": 16,
+    "equivalent_but_det_reject": 1
+  },
+  "impls": {
+    "legacy": {
+      "impl": "legacy",
+      "contracts": 50,
+      "all_pairs": 1225,
+      "cross_venue_pairs": 796,
+      "candidate_pairs": 796,
+      "candidate_fraction_of_cross": 1.0,
+      "det_pass_pairs_total": 29,
+      "det_pass_pairs_proposed": 29,
+      "equivalent_pairs_total": 17,
+      "equivalent_pairs_proposed": 17,
+      "recall_equivalent": 1.0,
+      "equivalent_and_det_pass_total": 16,
+      "equivalent_and_det_pass_proposed": 16,
+      "recall_equivalent_and_det_pass": 1.0,
+      "recall_det_pass": 1.0,
+      "equivalent_but_det_reject": 1,
+      "components": 1,
+      "largest_component": 50,
+      "top5_component_sizes": [
+        50
+      ],
+      "singleton_contracts": 0,
+      "lost_vs_current": [],
+      "lost_vs_current_count": 0,
+      "recall_vs_current": 1.0,
+      "runtime_s_median": 0.002,
+      "runtime_s_runs": [
+        0.0021,
+        0.002,
+        0.002
+      ],
+      "peak_python_heap_mb": 0.13,
+      "end_to_end": {
+        "budget_200": {
+          "llm_budget": 200,
+          "llm_calls": 29,
+          "pairs_considered": 796,
+          "pairs_deterministic_pass": 29,
+          "approved": 16,
+          "approved_equivalent": 16,
+          "approved_non_equivalent": 0,
+          "equivalent_pairs_total": 17,
+          "approved_recall_vs_all_equivalent": 0.9412
+        },
+        "unbudgeted": {
+          "llm_budget": null,
+          "llm_calls": 29,
+          "pairs_considered": 796,
+          "pairs_deterministic_pass": 29,
+          "approved": 16,
+          "approved_equivalent": 16,
+          "approved_non_equivalent": 0,
+          "equivalent_pairs_total": 17,
+          "approved_recall_vs_all_equivalent": 0.9412
+        }
+      }
+    },
+    "retrieval": {
+      "impl": "retrieval",
+      "contracts": 50,
+      "all_pairs": 1225,
+      "cross_venue_pairs": 796,
+      "candidate_pairs": 36,
+      "candidate_fraction_of_cross": 0.0452,
+      "det_pass_pairs_total": 29,
+      "det_pass_pairs_proposed": 26,
+      "equivalent_pairs_total": 17,
+      "equivalent_pairs_proposed": 15,
+      "recall_equivalent": 0.8824,
+      "equivalent_and_det_pass_total": 16,
+      "equivalent_and_det_pass_proposed": 15,
+      "recall_equivalent_and_det_pass": 0.9375,
+      "recall_det_pass": 0.8966,
+      "equivalent_but_det_reject": 1,
+      "components": 22,
+      "largest_component": 6,
+      "top5_component_sizes": [
+        6,
+        5,
+        5,
+        3,
+        3
+      ],
+      "singleton_contracts": 0,
+      "lost_vs_current": [
+        [
+          48,
+          49
+        ]
+      ],
+      "lost_vs_current_count": 1,
+      "recall_vs_current": 0.9375,
+      "runtime_s_median": 0.002,
+      "runtime_s_runs": [
+        0.002,
+        0.0021,
+        0.0018
+      ],
+      "peak_python_heap_mb": 0.12,
+      "end_to_end": {
+        "budget_200": {
+          "llm_budget": 200,
+          "llm_calls": 26,
+          "pairs_considered": 36,
+          "pairs_deterministic_pass": 26,
+          "approved": 15,
+          "approved_equivalent": 15,
+          "approved_non_equivalent": 0,
+          "equivalent_pairs_total": 17,
+          "approved_recall_vs_all_equivalent": 0.8824
+        },
+        "unbudgeted": {
+          "llm_budget": null,
+          "llm_calls": 26,
+          "pairs_considered": 36,
+          "pairs_deterministic_pass": 26,
+          "approved": 15,
+          "approved_equivalent": 15,
+          "approved_non_equivalent": 0,
+          "equivalent_pairs_total": 17,
+          "approved_recall_vs_all_equivalent": 0.8824
+        }
+      }
+    }
+  }
+}

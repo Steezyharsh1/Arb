@@ -194,7 +194,11 @@ _Status note (original 2026-09-13; fee addendum 2026-10-10): the owner selected 
 
 ### M4 — Make matching able to match (Phase 5, defects D6 + D9) · **CODE COMPLETE 2026-09-14 — exit evidence owner-gated**
 _Status note (2026-09-14, second pass): **D6, D9 and D15 are fixed.**
-D6: `group_by_event` builds candidate groups by deterministic blocking
+_Revised 2026-10-10 (Arb.8): the blocking described below was replaced by
+pairwise, bounded retrieval (§96); see `docs/CANDIDATE_RETRIEVAL.md`. The
+settlement-bucket union-find that this note describes produced one giant
+component on the benchmark._
+D6 (as first fixed): `group_by_event` builds candidate groups by deterministic blocking
 (§96: settlement 24h buckets ±1, category, threshold+operator+units,
 canonical numeric title tokens, plural-folded content words) instead of
 exact canonical title + settlement date, so differently-phrased

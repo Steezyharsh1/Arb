@@ -111,13 +111,17 @@ live mode is monitor-only by construction.
   `INCOMPLETE — BLOCK` until per-series/event, account/fill, and settlement
   context is represented. A fresh sandbox network smoke test was
   **UNAVAILABLE**, not reported as live-tested.
-- Cross-venue **candidate generation now works**: contracts are grouped by
-  deterministic blocking (settlement-window buckets, category, threshold +
-  operator + units, numeric tokens and content words of the titles) instead
-  of exact title text, so the same real-world event phrased differently on
-  two venues actually becomes a candidate pair. Blocking only proposes
-  candidates — the deterministic matcher still rejects on any hard
-  mismatch, and its REJECT is final.
+- Cross-venue **candidate generation now works**: a pair is proposed when
+  the two contracts are on different venues, settle within 6 hours of each
+  other, and share a discriminative key (exact normalized threshold, numeric
+  token, or content word of the title). This replaces the earlier
+  settlement-bucket grouping, which chained a 1,000-contract benchmark into one
+  component. Proposals are bounded by a local density rule and are never
+  transitive. On the synthetic 1,000-contract benchmark this is 3,262 pairs
+  instead of 333,296, with every deterministically passable equivalent pair
+  kept. Retrieval only proposes candidates. The deterministic matcher still
+  rejects on any hard mismatch, and its REJECT is final. Benchmark, design and
+  known misses: `docs/CANDIDATE_RETRIEVAL.md`.
 - **The LLM matcher is now wired** (optional, owner-supplied key): put
   `LLM_API_BASE` / `LLM_API_KEY` / `LLM_MODEL` in `.env.paper` and any
   OpenAI-compatible endpoint can approve cross-venue matches — with
@@ -126,8 +130,8 @@ live mode is monitor-only by construction.
   on every certificate. With **no** key configured everything still runs,
   but every ambiguous pair ends in REVIEW and nothing is ever evaluated
   for arbitrage — never auto-APPROVED.
-- Full paper/collect pipeline: discovery → normalization → blocking-based
-  candidate generation → deterministic + LLM-gated matching → certificates
+- Full paper/collect pipeline: discovery → normalization → bounded candidate
+  proposal → deterministic + LLM-gated matching → certificates
   → order-book walking → fee/slippage/settlement costing → risk checks →
   simulated execution. Incomplete fees
   now block rather than becoming estimates, so direct Kalshi opportunities

@@ -135,6 +135,8 @@ tolerated → 1. The whole suite also passes with the fee clock frozen at
 `verified_at` in the shared fixtures, now derived from the fee engine's own
 clock (`conftest.fresh_verification_date()`).
 
+**Candidate retrieval (§96, Arb.8)** (`test_candidate_retrieval.py`, 31 tests; `test_candidate_generation.py`, 29 tests): settlement window and day boundary; numeric normalization (`100k` = `100,000`); different wording; generic words that must not link; non-transitivity; proposal is not approval; labelled reference set including the pinned known miss (K22/P18); synthetic recall at 300 contracts (pinned); the frozen 1,000-contract baseline (1 component, pinned). The 1,000-contract recall figures are in committed artifacts, not in a test. Offline. Benchmark and results: `docs/CANDIDATE_RETRIEVAL.md`.
+
 **Arbitrage** (`test_arbitrage_engine.py`): marginal sizing stops at
 payout; profitable path yields TRADE; reproducibility (identical inputs
 → identical outputs); search requires APPROVED certificates; SAME_VENUE
