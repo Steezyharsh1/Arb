@@ -13,10 +13,11 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 class Base(DeclarativeBase):
@@ -220,6 +221,61 @@ class OrderBookSnapshotRow(Base):
     contract_observed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True)
     contract_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class PipelineCounterRow(Base):
+    """Daily pipeline counters (migration 005, §103).
+
+    One row per (mode, UTC day, metric, label). The engine upserts each
+    cycle's tally into these rows, so storage is bounded by days times the
+    closed label vocabulary, never by the number of cycles or opportunities.
+    """
+    __tablename__ = "pipeline_counters"
+    __table_args__ = (UniqueConstraint(
+        "mode", "day", "metric", "label", name="uq_pipeline_counter"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    mode: Mapped[str] = mapped_column(String(16), index=True)
+    day: Mapped[str] = mapped_column(String(10), index=True)
+    metric: Mapped[str] = mapped_column(String(48))
+    label: Mapped[str] = mapped_column(String(64), default="")
+    value: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ExecutionAttemptRow(Base):
+    """One row per simulated execution attempt (migration 005, §103).
+
+    The lifecycle record for an opportunity: what was submitted on each leg,
+    what filled, how far apart the legs were, whether a hedge completed or
+    exposure remained, and which limits were involved. Nullable columns are
+    NULL when the value was not observed (for example no leg B was sent), so
+    an absent measurement is never stored as zero.
+    """
+    __tablename__ = "execution_attempts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    opportunity_id: Mapped[str] = mapped_column(String(64), index=True)
+    mode: Mapped[str] = mapped_column(String(16), index=True)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True)
+    outcome: Mapped[str] = mapped_column(String(32), index=True)
+    hedge_state: Mapped[str] = mapped_column(String(24))
+    leg_a_venue: Mapped[str] = mapped_column(String(32), default="")
+    leg_a_contract_id: Mapped[str] = mapped_column(String(128), default="")
+    leg_a_status: Mapped[str] = mapped_column(String(24), default="")
+    leg_a_filled: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    leg_a_avg_price: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    leg_b_venue: Mapped[str] = mapped_column(String(32), default="")
+    leg_b_contract_id: Mapped[str] = mapped_column(String(128), default="")
+    leg_b_status: Mapped[str] = mapped_column(String(24), default="")
+    leg_b_filled: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    leg_b_avg_price: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    time_between_legs_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    unhedged_remaining: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    recovery_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    recovery_resolution: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    risk_violations: Mapped[str] = mapped_column(Text, default="[]")
+    kill_switch_engaged: Mapped[bool] = mapped_column(Boolean, default=False)
+    notes: Mapped[str] = mapped_column(Text, default="")
 
 
 class MetaRow(Base):

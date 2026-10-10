@@ -42,6 +42,9 @@ class RecoveryOutcome:
     unwound_quantity: Decimal = Decimal("0")
     open_hedged_quantity: Decimal = Decimal("0")
     resolution: str = "UNRESOLVED"
+    #: Recovery orders submitted (hedge retries plus unwind). Telemetry only:
+    #: an operator reads recovery effort from here, not from the notes.
+    attempts: int = 0
     notes: list[str] = field(default_factory=list)
 
 
@@ -105,6 +108,7 @@ class PartialFillHandler:
                 limit_price=min(Decimal("0.99"), base_price + concession),
                 client_order_id=str(uuid.uuid4()), mode=unfilled_leg.mode)
             try:
+                outcome.attempts += 1
                 result = await engine.submit_order(retry)
             except Exception as exc:
                 outcome.notes.append(f"hedge retry {attempt} error: {exc}")
@@ -143,6 +147,7 @@ class PartialFillHandler:
                 limit_price=Decimal("0.01"),  # sell to displayed bids only
                 client_order_id=str(uuid.uuid4()), mode=filled_leg.mode)
             try:
+                outcome.attempts += 1
                 result = await engine.submit_order(unwind)
                 if result.status in (OrderStatus.FILLED,
                                      OrderStatus.PARTIALLY_FILLED):

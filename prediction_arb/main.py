@@ -9,6 +9,8 @@ Usage (after `pip install -e .` from the repository root):
   python -m prediction_arb.main --unkill         # disengage kill switch
   python -m prediction_arb.main --status         # venue/API/provenance status
   python -m prediction_arb.main --readiness      # derived per-mode readiness (advisory)
+  python -m prediction_arb.main --pipeline-report [--date YYYY-MM-DD] [--opportunity ID]
+                                                 # why opportunities stall; read-only (§103)
 
 Equivalent shortcuts: `python -m prediction_arb ...` and, once installed,
 the console script `prediction-arb ...`.
@@ -238,6 +240,36 @@ def _max_schedule_age_days(config: AppConfig) -> int:
     return int(config.settings.get("fees", {}).get("max_schedule_age_days", 30))
 
 
+def cmd_pipeline_report(config: AppConfig, day: Optional[str],
+                        opportunity_id: Optional[str]) -> int:
+    """§103 — read-only operator view of the pipeline telemetry.
+
+    Opens the store read-only and never creates it, so asking for a report
+    cannot start a database. A missing store is reported as UNAVAILABLE.
+    """
+    from prediction_arb.monitoring.pipeline_report import (
+        build_lifecycle, build_pipeline_report, print_lifecycle,
+        print_pipeline_report)
+    from prediction_arb.core.clock import utcnow
+    try:
+        chosen = date.fromisoformat(day).isoformat() if day else \
+            utcnow().date().isoformat()
+    except ValueError:
+        console.print(f"[red]--date must be YYYY-MM-DD, got {day!r}[/red]")
+        return 2
+    path = config.database_file
+    if not path.exists():
+        console.print(f"[yellow]UNAVAILABLE: no {config.mode.value} store at "
+                      f"{path}; nothing has been recorded yet.[/yellow]")
+        return 0
+    repo = Repository(path, config.mode, read_only=True)
+    print_pipeline_report(console, build_pipeline_report(repo, chosen))
+    if opportunity_id:
+        console.print()
+        print_lifecycle(console, build_lifecycle(repo, opportunity_id))
+    return 0
+
+
 def cmd_readiness(config: AppConfig) -> int:
     """§58 readiness — advisory, and derived from verified state (§98, §99).
 
@@ -385,6 +417,10 @@ def main() -> int:
     parser.add_argument("--unkill", action="store_true")
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--readiness", action="store_true")
+    parser.add_argument("--pipeline-report", action="store_true",
+                        help="daily pipeline telemetry (read-only, §103)")
+    parser.add_argument("--opportunity", default=None,
+                        help="with --pipeline-report: one opportunity's lifecycle")
     args = parser.parse_args()
 
     if args.kill:
@@ -406,6 +442,8 @@ def main() -> int:
         return cmd_status(config)
     if args.readiness:
         return cmd_readiness(config)
+    if args.pipeline_report:
+        return cmd_pipeline_report(config, args.date, args.opportunity)
 
     if kill_switch.is_engaged() and config.mode == Mode.LIVE:
         console.print("[red]Kill switch engaged — live mode refused. "

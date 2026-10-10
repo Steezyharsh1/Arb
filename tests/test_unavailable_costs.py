@@ -512,7 +512,7 @@ class TestPersistenceKeepsUnavailableCosts:
         )
         from sqlalchemy import create_engine
 
-        assert [v for v, _d, _f in MIGRATIONS] == [1, 2, 3, 4]
+        assert [v for v, _d, _f in MIGRATIONS] == [1, 2, 3, 4, 5]
         path = tmp_path / "legacy.sqlite3"
         engine = create_engine(f"sqlite:///{path}", future=True)
         with engine.begin() as conn:
@@ -563,7 +563,7 @@ class TestPersistenceKeepsUnavailableCosts:
             assert "unavailable_costs" in notnull
             versions = [row[0] for row in conn.execute(
                 text("SELECT version FROM schema_migrations"))]
-            assert versions == [1, 2, 3, 4]
+            assert versions == [1, 2, 3, 4, 5]
             # the recorded row survived the rebuild unchanged
             kept = conn.execute(text(
                 "SELECT opportunity_id, net_profit, fees FROM opportunities"

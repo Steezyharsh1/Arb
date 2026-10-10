@@ -75,6 +75,9 @@ class ScanResult:
     events_grouped: int = 0
     pairs_considered: int = 0
     pairs_deterministic_pass: int = 0
+    #: Deterministic rejections by the failing check name (§103). A pair that
+    #: fails several checks counts once under each failing check.
+    deterministic_rejects: dict[str, int] = field(default_factory=dict)
     certificates: list[MatchCertificate] = field(default_factory=list)
     opportunities: list[Opportunity] = field(default_factory=list)
 
@@ -114,6 +117,10 @@ async def run_matching(contracts: list[NormalizedContract],
         result.pairs_considered += 1
         det = deterministic_match(a, b)
         if not det.passed:
+            for check, ok in det.checks.items():
+                if not ok:
+                    result.deterministic_rejects[check] = (
+                        result.deterministic_rejects.get(check, 0) + 1)
             continue
         result.pairs_deterministic_pass += 1
 

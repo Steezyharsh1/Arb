@@ -11,6 +11,7 @@ from ...core.clock import utcnow
 from ...core.paths import reports_dir
 from ...database.models import OpportunityRow, TradeRow
 from ...database.repository import Repository
+from ...monitoring.pipeline_report import build_pipeline_report
 
 _REPORT_DIR = reports_dir("paper")
 
@@ -38,6 +39,9 @@ def generate_daily_report(repo: Repository) -> Path:
         "opportunities_tradeable": int(tradeable),
         "opportunities_without_verified_net_profit": int(unpriced),
         "trades_executed": int(trades),
+        # §103: the same view `--pipeline-report` prints, so the saved daily
+        # file and the console never disagree.
+        "pipeline": build_pipeline_report(repo, today),
         "generated_at": utcnow().isoformat(),
     }
     _REPORT_DIR.mkdir(parents=True, exist_ok=True)

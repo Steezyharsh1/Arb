@@ -7,12 +7,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional
+from typing import Mapping, Optional
 
 from sqlalchemy import create_engine, func, inspect, or_, select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from ..core.clock import ensure_utc, utcnow
@@ -30,8 +31,10 @@ from .models import (
     ContractMatchRow,
     MarketRow,
     MetaRow,
+    ExecutionAttemptRow,
     OpportunityRow,
     OrderBookSnapshotRow,
+    PipelineCounterRow,
     PositionRow,
     TradeRow,
     VenueProvenanceRow,
@@ -466,3 +469,95 @@ class Repository:
         with self.engine.connect() as conn:
             return [OrderBookSnapshotRow(**dict(row))
                     for row in conn.execute(q).mappings()]
+
+    # ------------------------------------------------ pipeline telemetry (§103)
+    def pipeline_store_ready(self) -> bool:
+        """True when the store has the migration-005 telemetry tables.
+
+        A store recorded before migration 005 has no telemetry, and the
+        pipeline report says so rather than presenting zeros.
+        """
+        names = set(inspect(self.engine).get_table_names())
+        return {"pipeline_counters", "execution_attempts"} <= names
+
+    def add_pipeline_counts(self, day: str,
+                            counts: Mapping[tuple[str, str], int]) -> None:
+        """Upsert one cycle's tally into the daily counter rows.
+
+        Adds to the existing value, so repeated cycles on the same UTC day
+        accumulate into a single row per (metric, label). Refused on a
+        read-only handle, like every other write.
+        """
+        if not counts:
+            return
+        now = utcnow()
+        with Session(self.engine) as s:
+            for (metric, label), n in counts.items():
+                stmt = sqlite_insert(PipelineCounterRow).values(
+                    mode=self.mode.value, day=day, metric=metric,
+                    label=label, value=int(n), updated_at=now)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["mode", "day", "metric", "label"],
+                    set_={"value": PipelineCounterRow.value + stmt.excluded.value,
+                          "updated_at": stmt.excluded.updated_at})
+                s.execute(stmt)
+            s.commit()
+
+    def pipeline_counts(self, day: str) -> dict[tuple[str, str], int]:
+        with Session(self.engine) as s:
+            rows = s.execute(select(
+                PipelineCounterRow.metric, PipelineCounterRow.label,
+                PipelineCounterRow.value).where(
+                    PipelineCounterRow.mode == self.mode.value,
+                    PipelineCounterRow.day == day)).all()
+        return {(m, l): int(v) for m, l, v in rows}
+
+    def record_execution_attempt(self, **fields) -> None:
+        with Session(self.engine) as s:
+            s.add(ExecutionAttemptRow(mode=self.mode.value, **fields))
+            s.commit()
+
+    @staticmethod
+    def _day_bounds(day: str) -> tuple[datetime, datetime]:
+        start = datetime.fromisoformat(day)
+        return start, start + timedelta(days=1)
+
+    def opportunity_summaries_for_day(self, day: str) -> list[tuple]:
+        """(opportunity_id, status, gross, fees, net) for one UTC day.
+
+        One tuple per evaluated observation. The same opportunity recurs
+        once per cycle in which it was seen, so callers must not count rows
+        as distinct opportunities.
+        """
+        start, end = self._day_bounds(day)
+        with Session(self.engine) as s:
+            return list(s.execute(select(
+                OpportunityRow.opportunity_id, OpportunityRow.status,
+                OpportunityRow.gross_profit, OpportunityRow.fees,
+                OpportunityRow.net_profit).where(
+                    OpportunityRow.mode == self.mode.value,
+                    OpportunityRow.timestamp >= start,
+                    OpportunityRow.timestamp < end)).all())
+
+    def execution_attempts_for_day(self, day: str) -> list[ExecutionAttemptRow]:
+        start, end = self._day_bounds(day)
+        with Session(self.engine) as s:
+            return list(s.scalars(select(ExecutionAttemptRow).where(
+                ExecutionAttemptRow.mode == self.mode.value,
+                ExecutionAttemptRow.timestamp >= start,
+                ExecutionAttemptRow.timestamp < end)))
+
+    def opportunity_history(self, opportunity_id: str) -> list[OpportunityRow]:
+        with Session(self.engine) as s:
+            return list(s.scalars(select(OpportunityRow).where(
+                OpportunityRow.mode == self.mode.value,
+                OpportunityRow.opportunity_id == opportunity_id).order_by(
+                    OpportunityRow.id)))
+
+    def attempts_for_opportunity(self, opportunity_id: str
+                                 ) -> list[ExecutionAttemptRow]:
+        with Session(self.engine) as s:
+            return list(s.scalars(select(ExecutionAttemptRow).where(
+                ExecutionAttemptRow.mode == self.mode.value,
+                ExecutionAttemptRow.opportunity_id == opportunity_id).order_by(
+                    ExecutionAttemptRow.id)))

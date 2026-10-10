@@ -148,6 +148,8 @@ class PolymarketUSAdapter(PredictionMarketAdapter):
             _clamped(writes_per_sec, PUBLISHED_AUTHED_RPS, rate_limit_headroom))
         self._retry = RetryPolicy()
         self._private_key = None
+        # §103: every 429 seen, including ones the retry policy absorbs.
+        self.rate_limit_events = 0
         self._feed: Optional[PolymarketWebSocketFeed] = None
         self._streamed_markets: set[str] = set()
         self._market_rules: dict[str, PolymarketMarketRules] = {}
@@ -277,6 +279,7 @@ class PolymarketUSAdapter(PredictionMarketAdapter):
         if resp.status_code == 429:
             # Documented remedy (P5): stop, wait >=1s, exponential backoff.
             # Surfaced as a transport error so RetryPolicy backs off.
+            self.rate_limit_events += 1   # §103: counted even if retried
             raise httpx.TransportError(
                 f"rate limited (429) from {urlparse(base).netloc}")
         resp.raise_for_status()

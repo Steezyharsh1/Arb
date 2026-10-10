@@ -10,6 +10,7 @@ from typing import Optional
 from rich.console import Console
 
 from ...adapters.base import PredictionMarketAdapter
+from ...core.clock import utcnow
 from ...core.config import AppConfig
 from ...core.logging import get_logger
 from ...core.types import (
@@ -28,8 +29,10 @@ from ...fees.calculator import FeeCalculator
 from ...matching.llm_matcher import LLMMatcher
 from ...monitoring.alerts import ConsoleAlertSink
 from ...monitoring.dashboard import opportunities_table, print_block_reasons
+from ...monitoring import pipeline as tel
 from ...monitoring.health import HealthMonitor
 from ...orderbooks.aggregator import OrderBookAggregator
+from ...orderbooks.orderbook import age_ms
 from ...orderbooks.validation import order_book_problems
 from ...risk import kill_switch
 from ...risk.exposure import ExposureTracker
@@ -135,6 +138,10 @@ class PaperEngine:
             engine=self.execution, exposure=self.exposure,
             partial_fill_handler=PartialFillHandler(self.limits, self.alerts),
             mode=Mode.PAPER, limits=self.limits, risk_state=self.risk_state)
+        # §103 telemetry. Observations accumulate here from anywhere (including
+        # WebSocket callbacks between cycles) and are flushed once per cycle.
+        self._pending = tel.PipelineTally()
+        self._last_adapter_counts: dict[tuple[str, str], int] = {}
 
     async def run(self, cycles: Optional[int] = None) -> None:
         arb = self.config.settings.get("arbitrage", {})
@@ -151,6 +158,16 @@ class PaperEngine:
                 await asyncio.sleep(interval)
 
     async def _cycle(self, cycle: int, arb: dict, scan: dict) -> None:
+        self._count(tel.SCAN_CYCLES)
+        try:
+            await self._cycle_body(cycle, arb, scan)
+        finally:
+            # Flushed even when the cycle fails part-way, so an exception does
+            # not erase the observations that explain it.
+            self._sample_adapters()
+            self._flush_pipeline_counts()
+
+    async def _cycle_body(self, cycle: int, arb: dict, scan: dict) -> None:
         contracts = await self._discover()
         await self._reap_vanished(contracts)
         if not contracts:
@@ -158,6 +175,7 @@ class PaperEngine:
             return
 
         approved, match_result = await run_matching(contracts, self.llm)
+        self._record_matching(match_result)
         await self._ensure_streaming(contracts)
         books = await self._fetch_books(contracts)
         # Merge: streamed books (updated in real time by WS callbacks) stay
@@ -172,6 +190,7 @@ class PaperEngine:
         # quietly sees nothing looks identical to a quiet market.
         fresh = await self.aggregator.fresh_snapshot()
         stale = await self.aggregator.stale_keys()
+        self._record_book_ages(await self.aggregator.snapshot())
         if stale:
             self.console.print(
                 f"[yellow][cycle {cycle}] {len(stale)} order book(s) older "
@@ -190,6 +209,8 @@ class PaperEngine:
 
         for op in ops:
             self.repo.save_opportunity(op)
+            for metric, label in tel.opportunity_observations(op, fresh):
+                self._count(metric, label)
         for cert in match_result.certificates:
             self.repo.save_match_certificate(
                 cert.match_id, cert.contract_a, cert.contract_b,
@@ -231,6 +252,7 @@ class PaperEngine:
                 await self.health.record_success(venue)
             except Exception as exc:
                 await self.health.record_error(venue, str(exc))
+                self._count(tel.ADAPTER_ERROR, venue)
                 continue
             for m in ms:
                 decision = check_contract_eligibility(
@@ -270,6 +292,7 @@ class PaperEngine:
                     f"{c.market_id} via WebSocket (sub-second updates)")
             except Exception as exc:
                 self._streaming_failed_venues.add(c.venue)
+                self._count(tel.ADAPTER_STREAM_FALLBACK, c.venue)
                 log.warning("streaming unavailable for %s/%s (%s: %s); "
                             "falling back to REST polling for this venue",
                             c.venue, c.market_id,
@@ -287,6 +310,7 @@ class PaperEngine:
         if problems:
             await self.health.record_error(
                 key[0], "invalid streamed book: " + "; ".join(problems))
+            self._count(tel.ADAPTER_ERROR, key[0])
             log.warning("%s/%s: ignoring invalid streamed order book: %s",
                         key[0], key[1], "; ".join(problems))
             return
@@ -326,6 +350,7 @@ class PaperEngine:
                 book = await adapter.get_order_book(c.market_id)
             except Exception as exc:
                 await self.health.record_error(c.venue, str(exc))
+                self._count(tel.ADAPTER_ERROR, c.venue)
                 continue
             if book is not None:
                 problems = order_book_problems(book)
@@ -339,11 +364,15 @@ class PaperEngine:
     async def _maybe_execute(self, op: Opportunity) -> None:
         if kill_switch.is_engaged():
             self.console.print("[red]kill switch engaged — no new trades[/red]")
+            self._record_attempt(op, tel.blocked_summary(
+                tel.OUTCOME_KILL_SWITCH_BLOCKED))
             return
         venues = [l.venue for l in op.legs]
         ok, why = await self.health.trading_allowed(venues)
         if not ok:
             log.warning(f"skipping {op.opportunity_id}: {why}")
+            self._record_attempt(op, tel.blocked_summary(
+                tel.OUTCOME_HEALTH_BLOCKED))
             return
         # Runtime risk enforcement and reservation live inside the coordinator
         # so direct execution callers cannot bypass them.
@@ -351,7 +380,98 @@ class PaperEngine:
         if report.risk_violations:
             log.warning("risk blocked/breached %s: %s",
                         op.opportunity_id, report.risk_violations)
+        self._record_attempt(op, tel.classify_execution(report))
         await self.alerts.alert(
             "PAPER EXECUTION" + (" OK" if report.success else " INCOMPLETE"),
             f"opportunity {op.opportunity_id}: success={report.success}; "
             f"notes={report.notes}")
+
+    # ------------------------------------------------- telemetry (§103)
+    def _count(self, metric: str, label: str = "", n: int = 1) -> None:
+        self._pending.add(metric, label, n)
+
+    def _record_matching(self, match_result) -> None:
+        self._count(tel.PAIRS_CONSIDERED, n=match_result.pairs_considered)
+        self._count(tel.PAIRS_DET_PASSED,
+                    n=match_result.pairs_deterministic_pass)
+        for check, n in match_result.deterministic_rejects.items():
+            self._count(tel.PAIRS_DET_REJECTED, check, n)
+        for cert in match_result.certificates:
+            self._count(tel.MATCH_STATUS, cert.status)
+
+    def _record_book_ages(self, books) -> None:
+        now = utcnow()
+        for book in books.values():
+            self._count(tel.BOOK_AGE, tel.book_age_bucket(
+                age_ms(book.timestamp, now)))
+
+    def _record_attempt(self, op: Opportunity,
+                        summary: tel.ExecutionSummary) -> None:
+        """One lifecycle row per attempt plus its counters.
+
+        Counters are the aggregate view; the attempt row is the drill-down an
+        operator reads for one opportunity. A failed write is logged, never
+        raised: telemetry must not change whether a trade is attempted.
+        """
+        tel.tally_execution(self._pending, summary)
+        try:
+            self.repo.record_execution_attempt(**tel.attempt_record(
+                op.opportunity_id, utcnow(), summary))
+        except Exception as exc:
+            log.error(f"execution attempt for {op.opportunity_id} not "
+                      f"recorded: {exc}")
+
+    def _sample_adapters(self) -> None:
+        """Adapter disconnects, recovery and 429s, as deltas per cycle.
+
+        Each family is reported as observed or unavailable. An adapter without
+        a counter yields ``unavailable``, never an implied zero, so a quiet
+        venue cannot be mistaken for an uninstrumented one.
+        """
+        for venue, adapter in self.adapters.items():
+            if hasattr(adapter, "rate_limit_events"):
+                self._count(tel.ADAPTER_TELEMETRY, f"{venue}:rate_limit=observed")
+                self._count_delta(tel.ADAPTER_RATE_LIMITED, venue,
+                                  "rate_limit_events",
+                                  int(adapter.rate_limit_events))
+            else:
+                self._count(tel.ADAPTER_TELEMETRY,
+                            f"{venue}:rate_limit=unavailable")
+            feed = "unavailable"
+            stats_fn = getattr(adapter, "streaming_stats", None)
+            if callable(stats_fn):
+                try:
+                    snapshot = stats_fn()
+                except Exception as exc:
+                    log.warning("streaming stats for %s unavailable: %s",
+                                venue, exc)
+                    snapshot = None
+                stats = (snapshot or {}).get("stats") \
+                    if isinstance(snapshot, dict) else None
+                if stats is None:
+                    feed = "polled"          # no WebSocket session this run
+                else:
+                    feed = "streaming"
+                    if "reconnects" in stats:
+                        self._count_delta(tel.ADAPTER_FEED_RECONNECT, venue,
+                                          "feed.reconnects",
+                                          int(stats["reconnects"]))
+            self._count(tel.ADAPTER_TELEMETRY, f"{venue}:feed={feed}")
+
+    def _count_delta(self, metric: str, venue: str, key: str,
+                     value: int) -> None:
+        last = self._last_adapter_counts.get((venue, key), 0)
+        delta = value - last if value >= last else value   # reset ⇒ restart
+        self._last_adapter_counts[(venue, key)] = value
+        self._count(metric, venue, delta)
+
+    def _flush_pipeline_counts(self) -> None:
+        pending, self._pending = self._pending, tel.PipelineTally()
+        if not pending:
+            return
+        try:
+            self.repo.add_pipeline_counts(utcnow().date().isoformat(),
+                                          pending.items())
+        except Exception as exc:
+            log.error(f"pipeline counters not persisted: {exc}")
+
