@@ -5,10 +5,12 @@ permanent entry point for a fresh agent session with no memory of prior
 conversations. It tells you what the project is, what is true *right now*,
 what is broken, what you may work on, and what you must not touch.
 
-- **Last updated:** 2026-10-10 (UTC) by the fee-readiness review on branch
-  `arena/57b00329-arb`; it also carries forward the D17 mandatory-cost repair.
+- **Last updated:** 2026-10-10 (UTC) by the D18 settlement-timing review on
+  branch `arena/206e5211-arb`; it carries forward the fee-readiness review and
+  the D17 mandatory-cost repair.
 - **Evidence discipline:** verification dates are per claim. Active-route fee
-  documents were opened directly on 2026-10-10; no venue API, account, fill,
+  documents and venue settlement-timing documents were opened directly on
+  2026-10-10; no venue API, account, fill,
   or settlement statement was available. Test and CLI results below are marked
   with their actual command/date. Anything inherited and not re-run is
   labelled INHERITED; never promote it to VERIFIED without evidence.
@@ -32,7 +34,9 @@ producing real, costed arbitrage candidates in paper mode."* No real money is
 traded in this engagement under any circumstances. Current fee audit:
 three enabled venue pairs are provenance-independent, but **0/3 are
 end-to-end cost-evaluable**; all active trade and settlement schedules are
-`INCOMPLETE`. Do not turn the documented rates into estimates.
+`INCOMPLETE`. Do not turn the documented rates into estimates. Settlement
+timing (capital lockup) is evidenced only for Kalshi (DOCUMENTED per-market
+bound); Polymarket US and ForecastEx are `UNKNOWN` and block (D18).
 
 Authoritative context: `README.md` (what works / what is stubbed),
 `docs/ROADMAP.md` (phase map + defect register),
@@ -47,11 +51,11 @@ Authoritative context: `README.md` (what works / what is stubbed),
 | Item | Value |
 |---|---|
 | Repo | `Steezyharsh1/Arb` (package name `prediction_arb`) |
-| Working branch (fixed for this Arena session) | `arena/57b00329-arb` |
-| Baseline commit | `06399ba66e169764bb27cf30401bf7bd71384972` — merge commit for PR #8 (D17 mandatory-cost fix); this fee review branched from it |
-| Working tree at session start | clean (`git status --porcelain` empty) — VERIFIED 2026-10-10 before this review's edits |
+| Working branch (fixed for this Arena session) | `arena/206e5211-arb` |
+| Baseline commit | `caa57c8ee19c61c33f1e31418719e0ef843e9e8e` — merge commit for PR #9 (fee-readiness review); this D18 settlement-timing review branched from it |
+| Working tree at session start | clean (`git status --porcelain` empty) — VERIFIED 2026-10-10 before this review's edits; baseline `pytest` **352 passed in 26.19 s** |
 | Clone depth | **shallow (depth 1)**: `git log` shows a single commit. Run `git fetch --unshallow` if you need real history (e.g. to blame a regression) |
-| Merged PRs to date | #1 Phase 0, #2 Phase 1, #3 Phases 2+3, #4 Phase 2/3 gaps + Phase 4, #5 Phase 5, #6 D16 baseline recovery, #7 deterministic settlement fixtures, #8 D17 mandatory-cost fail-closed repair |
+| Merged PRs to date | #1 Phase 0, #2 Phase 1, #3 Phases 2+3, #4 Phase 2/3 gaps + Phase 4, #5 Phase 5, #6 D16 baseline recovery, #7 deterministic settlement fixtures, #8 D17 mandatory-cost fail-closed repair, #9 fee-readiness review |
 | CI | `.github/workflows/ci.yml`: install → `pytest` → 4 CLI smokes → honest-empty-replay grep → tracked-artifact guard |
 
 ---
@@ -102,8 +106,10 @@ scored", and every defect that has ever mattered lived on it:
    supplied fill slices and raise `FeeDataError` when context is incomplete;
    all current active production fee schedules are incomplete, and a book walk
    is not an actual account fill/fee reconciliation. `normalization/settlement.py`
-   costs the capital lockup (UNKNOWN ⇒ BLOCK); the result is TRADE / WATCH /
-   BLOCK with explicit `block_reasons`.
+   costs the capital lockup to the last leg's evidenced *capital-release
+   time* from `PRODUCTION_SETTLEMENT_TIMING` (each venue entry has meaning,
+   status, sources, review date; UNKNOWN or passed ⇒ BLOCK, D18); the result
+   is TRADE / WATCH / BLOCK with explicit `block_reasons`.
    Each mandatory cost is its own `core.types.CostComponent` inside a
    `CostLedger` (D17): a component that cannot be computed is `amount=None`
    with a reason, the ledger has **no total** while any component is missing,
@@ -186,15 +192,17 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4 (re-read from
 | Check (exact command) | Result / recency |
 |---|---|
 | `python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'` | **Succeeded 2026-10-10**; Python 3.11.2, including pytest 9.1.1, PyYAML 6.0.3, Rich 15.0.0 and project runtime dependencies |
-| `.venv/bin/pytest` | **352 collected, 352 passed in 28.29 s**, re-run during this fee review on 2026-10-10. All offline; inherited D17 baseline was 348 + 4 focused fee/pair regressions |
-| `.venv/bin/pytest --collect-only -q` | **352 tests:** arbitrage_engine 9, candidate_generation 27, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 25, polymarket_us 41, safety 26, spec_cases 13, unavailable_costs 35, units 43 |
+| `.venv/bin/pytest -o addopts=""` | **396 collected, 396 passed in 25.99 s**, re-run after the D18 changes on 2026-10-10 (baseline at `caa57c8` before edits: **352 passed in 26.19 s**). All offline. Note: the project's `addopts = "-q"` plus `-q` on the command line suppresses the summary line; use `-o addopts=""` to see the count |
+| `.venv/bin/pytest --collect-only -q` | **396 tests:** arbitrage_engine 9, candidate_generation 27, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 25, polymarket_us 41, safety 26, settlement_timing 44, spec_cases 13, unavailable_costs 35, units 43 |
+| D18 baseline reproduction and mutation checks | **Run 2026-10-10.** In a worktree at `caa57c8`, a past-dated Kalshi/ForecastEx pair with synthetic complete fees returned `TRADE`, `settlement_delay_cost=0.0000`, `net_profit=7.3200`; same script on this branch → `BLOCK`, `None`. Eight mutations (Kalshi back to expected+0, past clamp, Polymarket US 0-day, ForecastEx 0-day, ignoring `evaluation_time` in the evaluator, half-even rounding, compounded cost, dropping it in `run_arbitrage_scan`) fail 6 / 5 / 3 / 2 / 1 / 1 / 12 / 1 tests respectively (counts for the first seven taken before the 44th test was added); source restored and diff-checked afterwards |
 | Focused YAML load + `FeeCalculator.from_config` | **Succeeded 2026-10-10**. Kalshi, Polymarket US, ForecastEx, and IBKR/ForecastEx parse; all active trade and settlement statuses are `INCOMPLETE`; references are respectively `0.07/0.0175`, `0.0695/-0.0125`, and `$0.01` per executed side. Kalshi's source gives no global effective date, so its reference snapshot date is kept separate and calculations block |
-| `.venv/bin/python -m prediction_arb.main --status` | **Exit 0, re-run 2026-10-10.** kalshi=VERIFIED; polymarket_us=API_DOCUMENTED_UNTESTED; forecast_ex=API_DOCUMENTED_UNTESTED. Matrix reports Kalshi↔Polymarket US, Kalshi↔ForecastEx, and Polymarket US↔ForecastEx all INDEPENDENT; kill switch disengaged |
+| `.venv/bin/python -m prediction_arb.main --status` | **Exit 0, re-run 2026-10-10 after D18.** kalshi=VERIFIED; polymarket_us=API_DOCUMENTED_UNTESTED; forecast_ex=API_DOCUMENTED_UNTESTED. Matrix reports Kalshi↔Polymarket US, Kalshi↔ForecastEx, and Polymarket US↔ForecastEx all INDEPENDENT; kill switch disengaged |
 | D17 offline reproduction and mutation checks | **Inherited from the D17/PR #8 verification:** original positive-profit-on-BLOCK reproduced, zero-substitution mutation failed 20 tests, zero-lockup mutation failed 2 tests. The full current suite above re-runs all D17 regressions; standalone mutation checks were not repeated in this fee review |
-| `.venv/bin/python -m prediction_arb.main --readiness` | **Exit 0, re-run 2026-10-10:** 0 snapshots, 0 opportunities, one live-capable venue, `LIVE MODE: NOT RECOMMENDED YET` |
-| Historical/paper CLI smokes, tracked-artifact guard, and venue smoke scripts | **Inherited from the D17 handoff, not re-run in this fee review.** Prior recorded results: empty fresh-clone data store; venue API TLS EOF; see date-specific rows in `docs/ROADMAP.md` / `docs/VENUE_RESEARCH.md` |
-| Frozen-wall-clock sweep (2026-10-14 / 2027-10-09 / 2031-01-02) | **Not re-run in this fee review** — inherited from 2026-10-09 (313/313 at each date). The new tests use fixed/reference values and do not change settlement-clock behavior |
-| GitHub Actions CI | **Inherited PR #8 result:** `pull_request` runs `38012787059` and `38012962141` passed; not a CI run for this fee-review working tree. Baseline `796abec` was green as run `38009643994` |
+| `.venv/bin/python -m prediction_arb.main --readiness` | **Exit 0, re-run 2026-10-10 after D18:** 0 snapshots, 0 opportunities, one live-capable venue, `LIVE MODE: NOT RECOMMENDED YET` |
+| `.venv/bin/python -m prediction_arb.main --mode historical --date 2020-01-01` | **Exit 0, re-run 2026-10-10 after D18:** honestly empty ("No recorded historical order-book data … will NOT fabricate data"); `data/`, `logs/`, `reports/` deleted afterwards |
+| Paper CLI smoke, tracked-artifact guard, and venue smoke scripts | **Inherited from the D17 handoff, not re-run in the fee or D18 reviews.** Prior recorded results: empty fresh-clone data store; venue API TLS EOF; see date-specific rows in `docs/ROADMAP.md` / `docs/VENUE_RESEARCH.md` |
+| Frozen-wall-clock sweep (2026-10-14 / 2027-10-09 / 2031-01-02) | **Not re-run in the fee or D18 reviews** — inherited from 2026-10-09 (313/313 at each date). The new tests use fixed/reference values and do not change settlement-clock behavior |
+| GitHub Actions CI | **Not run for the D18 working tree.** Inherited PR #8 result: `pull_request` runs `38012787059` and `38012962141` passed; not a CI run for this fee-review working tree. Baseline `796abec` was green as run `38009643994` |
 
 **Environment limitations a fresh agent must assume:**
 
@@ -224,8 +232,9 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4 (re-read from
 
 | ID | Defect | Reproduction / evidence | State |
 |---|---|---|---|
+| **D18** | **Settlement-delay inputs had no meaning or evidence; passed and long-dated settlement could be costed as (near-)immediate** (inherited report: Polymarket US missing from `_EXPECTED_SETTLEMENT_DELAY_DAYS` — confirmed 2026-10-10) | The table held unsourced `kalshi: 0`, `forecast_ex: 0`, added to `settlement_time` (Kalshi's *expected* expiration, not a bound). A passed time clamped to zero lockup: past-dated pair with synthetic complete fees → `TRADE`, delay cost `0.0000`, net `7.32` (worktree at `caa57c8`). Historical/backtest measured lockup from the wall clock. Days via `float` | **FIXED 2026-10-10** (production + tests): `PRODUCTION_SETTLEMENT_TIMING` evidence registry (meaning, basis, delay, status, sources, review date, gaps; UNKNOWN cannot carry an estimator). Kalshi DOCUMENTED per market (`latest_expiration_time + settlement_timer_seconds` from the payload; round-trips the store); Polymarket US present as explicit UNKNOWN; ForecastEx 0-day withdrawn → UNKNOWN. Passed release ⇒ UNKNOWN; `evaluation_time` threaded, replay uses the frame time; lockup reason always reported; Decimal days; cost rounds up. 44 tests, 8 mutation checks. Evidence table: `docs/TRADING_LOGIC.md` |
 | **D17** | **A BLOCKed opportunity could expose a positive "verified" net profit** (inherited review, reproduced 2026-10-10). `evaluate_two_leg` caught `FeeDataError` and substituted `fees = Decimal("0")`, and substituted `delay_cost = Decimal("0")` for an unknown settlement lockup, so the profit test ran on fabricated free costs | Offline synthetic scan with a fee calculator missing one venue returned `status=BLOCK`, `total_fees=0`, `net_profit=+9.9630`, `return_on_capital=0.1107`; the dashboard printed `Net $9.96` beside `Fees $0.00`; `Repository.save_opportunity` stored `net_profit='9.9630'`, `fees='0'`. Only the *first* fee failure was reported, because one `FeeDataError` aborted the whole fee sum | **FIXED 2026-10-10** (production + tests): each mandatory cost is now a `core.types.CostComponent` in a `CostLedger` with no total while any component is missing; `net_profit`, `net_profit_per_contract`, `return_on_capital`, `total_fees`, `settlement_delay_cost` and `capital_required` become `None` (UNVERIFIED); components are evaluated independently so every failure is reported; `gross_edge`/`known_costs` stay available as pre-cost research figures; cost-of-capital is unavailable when fees are. Downstream: `optimizer.score()` refuses unpriced opportunities and `rank()` sorts them last, `Opportunity.is_executable` gates paper execution, metrics withhold a fee-drag ratio over a partially costed set, dashboard/CLI print `n/a`, `OpportunityRow` stores NULL + `unavailable_costs` (`SCHEMA_VERSION` 2 → 3, migration 003), paper/live reports count `opportunities_without_verified_net_profit`. 35 new tests, mutation-verified (20 fail on the fee mutation, 2 on the delay mutation). Fee engine untouched |
-| **D16** | **The inherited review reported one expired settlement fixture.** The old `tests/conftest.py` date was `2026-09-15T20:00Z`; after it passed, `capital_lockup_days()` correctly clamped lockup to zero, so `TestSettlementTiming::test_lockup_and_cost` failed and other tests silently stopped charging delay cost. Production behavior was correct — an already-settled contract locks no capital | Prior handoff recorded `pytest` → `310 passed, 1 failed`. In this session the reported test passed at the baseline commit; an explicit calculation with settlement `2026-09-15T20:00Z` and test clock `2026-10-09T00:00Z` returned `0.0`, confirming the cause | **FIXED / RE-VERIFIED 2026-10-09** (tests only): replaced the wall-clock-relative default with frozen `SETTLEMENT_TEST_NOW` and a default settlement three days later; `test_lockup_and_cost` pins the exact 3-day lockup and `$0.0411` cost. Found and fixed the same silent failure in the candidate-generation scan: its expired 2026-09 fixture had produced zero delay cost without failing; it now settles after the frozen test clock and asserts positive cost. Four settlement-timing tests and 27 candidate tests pass; full suite **313 passed in 25.01 s** and at each of 2026-10-14 / 2027-10-09 / 2031-01-02 under a frozen wall clock. Mutation-verified: restoring either stale fixture makes its regression test fail; last-leg and past-settlement clamp tests still pin the intended arithmetic. No production code changed |
+| **D16** | **The inherited review reported one expired settlement fixture.** The old `tests/conftest.py` date was `2026-09-15T20:00Z`; after it passed, `capital_lockup_days()` correctly clamped lockup to zero, so `TestSettlementTiming::test_lockup_and_cost` failed and other tests silently stopped charging delay cost. Production behavior was correct — an already-settled contract locks no capital | Prior handoff recorded `pytest` → `310 passed, 1 failed`. In this session the reported test passed at the baseline commit; an explicit calculation with settlement `2026-09-15T20:00Z` and test clock `2026-10-09T00:00Z` returned `0.0`, confirming the cause | **FIXED / RE-VERIFIED 2026-10-09** (tests only): replaced the wall-clock-relative default with frozen `SETTLEMENT_TEST_NOW` and a default settlement three days later; `test_lockup_and_cost` pins the exact 3-day lockup and `$0.0411` cost. Found and fixed the same silent failure in the candidate-generation scan: its expired 2026-09 fixture had produced zero delay cost without failing; it now settles after the frozen test clock and asserts positive cost. Four settlement-timing tests and 27 candidate tests pass; full suite **313 passed in 25.01 s** and at each of 2026-10-14 / 2027-10-09 / 2031-01-02 under a frozen wall clock. Mutation-verified: restoring either stale fixture makes its regression test fail; last-leg and past-settlement clamp tests still pin the intended arithmetic. No production code changed. *Superseded in part by D18 (2026-10-10): the zero clamp itself was replaced — a passed release time is now UNKNOWN and blocks* |
 | **D10** (open, inherited and re-confirmed) | Live mode is monitor-only and `--readiness` hardcodes the two-venue check | `main.py::cmd_readiness` contains the literal `False`; `--readiness` printed "NOT YET: Two live-capable independent venues = 1"; `modes/live/engine.py::run` refuses to scan | **OPEN.** Correct-but-dishonest: the check cannot ever pass, even when two verified venues exist. Phase 8 work |
 
 ### 7b. Inherited as FIXED — regression tests pass, but exit evidence is still owner-gated
@@ -274,6 +283,21 @@ ROADMAP register because their impact needs an owner/agent decision first:
   data only (no time-sensitive lockup path). The whole suite also passes with
   the wall clock frozen at 2026-10-14 / 2027-10-09 / 2031-01-02. New timing
   tests should keep using an explicit `now=` or a frozen settlement clock.
+- **Tests run against a TEST-ONLY ForecastEx settlement-timing entry (D18).**
+  The autouse `synthetic_settlement_timing` fixture in `tests/conftest.py`
+  swaps `normalization.settlement._ACTIVE_TIMING` for the production registry
+  plus a labelled synthetic ForecastEx entry, the same way engine tests use
+  synthetic fee schedules; Kalshi fixtures carry synthetic
+  `latest_expiration_time`/`settlement_timer_seconds=0` payload fields. Use
+  the `production_settlement_timing` fixture or
+  `sources=PRODUCTION_SETTLEMENT_TIMING` when a test is about production
+  evidence.
+- **Kalshi's lockup bound is conservative and may be long.** It uses the
+  documented *latest* expiration, which can be far later than the expected
+  one; that lengthens lockup cost and the leg spread (5-day limit), so some
+  pairs will block or lose margin by design. Disputed/amended markets can
+  still settle later than the bound (not modelled). Observed payload values
+  (K9) have not been checked.
 
 ---
 
@@ -285,6 +309,10 @@ ROADMAP register because their impact needs an owner/agent decision first:
    layers are regression-tested. The inherited baseline was **348 passed in
    26.29 s**; the fee-readiness change adds four focused regressions (current
    full count: **352 passed in 28.29 s**, see §12).
+0b. ~~**Make settlement timing evidence-backed (D18).**~~ **DONE 2026-10-10**
+   — Kalshi DOCUMENTED per-market bound; Polymarket US and ForecastEx
+   explicit UNKNOWN (still blocking); passed/long-dated timing no longer
+   costed as immediate; **396 passed in 25.99 s**.
 1. ~~**Restore a green baseline (D16).**~~ **DONE 2026-10-09** — 313 passed
    in 25.01 s with a fixed settlement clock and at three future wall-clock
    dates; stale fixtures fail mutation checks.
@@ -305,6 +333,9 @@ ROADMAP register because their impact needs an owner/agent decision first:
    settlement reports, and ForecastEx/IBKR account route and settlement
    evidence in `docs/FEE_READINESS.md`. No credentials or unredacted statements
    in chat or Git. *Owner/venue/broker; agent integrates after receipt.*
+   The same settled-position records should show resolution time and the
+   time the payout reached cash, which is the evidence Polymarket US and
+   ForecastEx settlement timing needs (`docs/TRADING_LOGIC.md`, D18).
 5. **Owner adds the Kalshi key (H2) and runs a 24 h `--mode collect`** —
    supplies real recorded data for Phase 4. *Owner.*
 6. **Owner adds an LLM key (H7)** — without it no certificate is APPROVED,
@@ -339,6 +370,7 @@ request format in `docs/AGENT_KICKOFF.md` ("HOW TO ASK THE OWNER FOR HELP").
 | H6 — explicit go-ahead before anything live | Phase 8 | OPEN (and must stay closed in this engagement) |
 | Fee/account/settlement evidence — Kalshi, Polymarket US, ForecastEx/IBKR | All active production fee components; exact owner actions in `docs/FEE_READINESS.md` | OPEN — no account statements/reports or live fee reconciliation |
 | R9 — Utah/account eligibility for Polymarket US non-sports | Phase 3 gate 1; live eligibility generally | UNKNOWN — primary sources silent, secondary sources conflict |
+| Settlement timing — Polymarket US and ForecastEx (D18) | Capital-lockup cost for every pair involving them; both are UNKNOWN and block | UNKNOWN — no published resolution bound or settlement delay (Polymarket US); exchange-level next-day schedule only, customer crediting undocumented (ForecastEx). Needs contract terms/API field or redacted settled-position records |
 | P12 — Polymarket US customer settlement-fee treatment | Phase 3; mandatory cost remains blocked | UNVERIFIED — reviewed public material does not establish customer amount |
 | SPEC §33 and §68 | Two reconstructed sections flagged `[I]` INFERRED | Need owner confirmation |
 | Git history still contains a 17 MB SQLite blob | Repo size; needs a history rewrite | Owner decision (Phase 0 leftover) |
@@ -406,7 +438,7 @@ status + source + date. If you did not verify it, say so.
 **D. Update `docs/ROADMAP.md` when — and only when — it is demonstrably stale**
 
 The ROADMAP is the register of record for phases and defects. Correct a status
-you *proved* wrong, add a defect you *reproduced* (next free ID; D17 is
+you *proved* wrong, add a defect you *reproduced* (next free ID; D18 is
 taken),
 record a completion with its evidence. Do not redesign it, do not add
 aspirational plans, do not mark anything DONE whose exit criterion is
@@ -418,7 +450,7 @@ change invalidated — same commit.
 
 ```bash
 git add -A && git commit -m "<scope>: <what changed and why>"
-git push origin arena/57b00329-arb      # fixed branch for this Arena session
+git push origin <your session branch>   # e.g. arena/206e5211-arb for the D18 session
 ```
 
 Small, reviewable, single-purpose commits. Never commit secrets, databases,
@@ -436,6 +468,20 @@ counts, doc updates, and the next action. Milestone-end reporting format:
 
 **Most recent meaningful changes** (newest first):
 
+0. **2026-10-10 — D18: settlement timing made evidence-backed.** Confirmed
+   the reported missing Polymarket US delay entry, and found the whole
+   delay table unsupported (unsourced 0-day Kalshi/ForecastEx constants on
+   Kalshi's *expected* expiration, passed times clamped to zero lockup,
+   replay measured from the wall clock). Replaced it with
+   `PRODUCTION_SETTLEMENT_TIMING`: Kalshi DOCUMENTED per market
+   (`latest_expiration_time + settlement_timer_seconds`), Polymarket US and
+   ForecastEx explicit UNKNOWN with sources and missing evidence recorded.
+   No unknown delay became zero. `evaluate_two_leg(evaluation_time=…)`;
+   historical/backtest pass frame time. 44 new tests
+   (`tests/test_settlement_timing.py`), D16 clamp test replaced; **396
+   passed in 25.99 s**; eight mutation checks. Docs: TRADING_LOGIC
+   (evidence table), ROADMAP D18, SPEC §28 evidence, TESTING, README,
+   FEE_READINESS note.
 1. **2026-10-10 — fee readiness and pair audit.** Direct official sources
    re-reviewed; Polymarket US's 2026-10-07 schedule replaced the stale `0.06`
    reference, Kalshi's zero-settlement scope was narrowed to simple yes/no,
@@ -471,8 +517,8 @@ counts, doc updates, and the next action. Milestone-end reporting format:
    + D14, full-contract recording, read-only replay, backtest metrics, and
    paper realism work.
 
-**Recommended next task (one):** the agent-side fee/source audit and focused
-regressions are complete; request the redacted owner evidence listed in
+**Recommended next task (one):** the agent-side fee/source audit, the D18
+settlement-timing review, and their focused regressions are complete; request the redacted owner evidence listed in
 `docs/FEE_READINESS.md` (plus the two read-only smoke-script outputs). This
 sandbox cannot produce account route, actual fee-report, settlement-statement,
 or venue API evidence. No production fee schedule should be promoted before
@@ -489,4 +535,4 @@ ASK THE OWNER FOR HELP"), one task per message, and state the success
 condition. Bundle the key requests (H2 Kalshi, H7 LLM) only *after* this
 returns, so the owner is never handed five setup steps at once.
 
-**Recommended next task — owner evidence for the selected Kalshi ↔ Polymarket US pair.** Polymarket US is the owner-selected second venue and the only enabled non-Kalshi route with an implemented adapter; its paper API status and both venues' production fee gates still block the pair. From a network-reachable machine, run the two read-only smoke scripts above, then follow the Kalshi steps 1–3 and Polymarket US steps 4–5 in `docs/FEE_READINESS.md` using existing account reports and settled positions. Save only redacted evidence under ignored `reports/evidence/`; never send credentials or create a new live order. If representative account evidence is unavailable, leave both schedules `INCOMPLETE` and record the specific blocker. The agent can integrate verified context and regression tests after evidence arrives. ForecastEx remains a separate stub route; do not treat it as a usable alternate pair yet.
+**Recommended next task — owner evidence for the selected Kalshi ↔ Polymarket US pair.** Polymarket US is the owner-selected second venue and the only enabled non-Kalshi route with an implemented adapter; its paper API status and both venues' production fee gates still block the pair. From a network-reachable machine, run the two read-only smoke scripts above, then follow the Kalshi steps 1–3 and Polymarket US steps 4–5 in `docs/FEE_READINESS.md` using existing account reports and settled positions. Save only redacted evidence under ignored `reports/evidence/`; never send credentials or create a new live order. If representative account evidence is unavailable, leave both schedules `INCOMPLETE` and record the specific blocker. Ask for the settled-position records to show both the market's resolution time and the time the payout reached cash: Polymarket US settlement timing stays `UNKNOWN` (and blocks the pair) until such evidence or a documented per-contract settlement date exists. The agent can integrate verified context and regression tests after evidence arrives. ForecastEx remains a separate stub route; do not treat it as a usable alternate pair yet.

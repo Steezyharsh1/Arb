@@ -8,6 +8,7 @@ Identical across historical/paper/live modes:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -82,6 +83,7 @@ async def run_arbitrage_scan(
     cost_of_capital_annual: Decimal,
     max_quantity: Optional[Decimal] = None,
     strict_fee_freshness: bool = False,
+    evaluation_time: Optional[datetime] = None,
 ) -> list[Opportunity]:
     contracts = [with_normalized_keys(c) for c in contracts]
     groups = group_by_event(contracts)
@@ -96,5 +98,6 @@ async def run_arbitrage_scan(
             maximum_settlement_delay_days=maximum_settlement_delay_days,
             cost_of_capital_annual=cost_of_capital_annual,
             max_quantity=max_quantity,
-            strict_fee_freshness=strict_fee_freshness))
+            strict_fee_freshness=strict_fee_freshness,
+            evaluation_time=evaluation_time))
     return out

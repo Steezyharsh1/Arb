@@ -271,7 +271,8 @@ UNKNOWN lockup MUST block the opportunity (never cost as zero), and a spread
 beyond the configured maximum MUST block it.
 **Evidence.** `prediction_arb/normalization/settlement.py`,
 `arbitrage/two_leg.py`, `tests/test_spec_cases.py` (case 9),
-`docs/TRADING_LOGIC.md`.
+`tests/test_settlement_timing.py`, `docs/TRADING_LOGIC.md` ("Settlement
+timing and capital lockup": per-venue capital-release evidence, D18).
 
 ---
 

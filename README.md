@@ -39,7 +39,10 @@ eligibility is **UNKNOWN**. Context-incomplete fees fail closed. Of the three
 enabled venue pairs, all are provenance-independent but **none is currently
 end-to-end cost-evaluable**: Kalshi, Polymarket US, and ForecastEx each have
 at least one mandatory fee/settlement component marked `INCOMPLETE`; only
-Kalshi currently passes the paper API-status gate. See
+Kalshi currently passes the paper API-status gate. Capital-lockup timing is
+evidenced only for Kalshi (documented per-market bound); Polymarket US and
+ForecastEx settlement timing is `UNKNOWN`, so their legs also block on
+lockup (`docs/TRADING_LOGIC.md`, D18). See
 `docs/FEE_READINESS.md` for the auditable pair matrix, direct evidence,
 calculation states, and exact operator actions; broader claim-level venue
 research is in `docs/VENUE_RESEARCH.md`.
@@ -155,8 +158,15 @@ live mode is monitor-only by construction.
   Books that fail the freshness gate are counted and reported, never
   silently dropped.
 - Mode isolation, kill switch, crash-recovery intents, and all ten mandatory
-  spec cases are covered by the test suite (`pytest` — **352 passing** on
+  spec cases are covered by the test suite (`pytest` — **396 passing** on
   Python 3.11.2, all offline; last run 2026-10-10).
+- Capital lockup runs to each leg's evidenced capital-release time (venue
+  resolution bound + documented settlement delay), not to the event time.
+  Every venue's timing input carries a meaning, evidence status, sources and
+  review date; unknown timing, a passed release time, or a payload missing
+  the documented fields blocks instead of costing zero, long-dated
+  contracts are charged for their full lockup, and replay measures lockup
+  from the recorded frame time (D18, `tests/test_settlement_timing.py`).
 - An opportunity whose mandatory costs cannot be computed has **no** net
   profit — `None`/`n/a`, never a fabricated zero fee and never a positive
   figure next to a BLOCK verdict (D17). Gross edge and the costs that could

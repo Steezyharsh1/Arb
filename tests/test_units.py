@@ -439,29 +439,34 @@ class TestSettlementTiming:
         b = make_contract(venue="forecast_ex",
                           settlement=now + timedelta(days=5))
         lockup = capital_lockup_days([a, b], now=now)
-        # The LAST leg to settle decides, plus that venue's 0-day delay.
+        # The LAST leg to release capital decides (Kalshi's synthetic
+        # payload has a 0 s settlement timer; ForecastEx uses the TEST-ONLY
+        # synthetic timing entry from conftest).
         assert lockup == Decimal("5")
         # 365 * 0.05 * 5 / 365
         assert settlement_delay_cost(Decimal("365"), lockup,
                                      Decimal("0.05")) == Decimal("0.25")
 
-    def test_already_settled_contract_locks_no_capital(self):
-        """Zero here is correct behaviour, not a missing value.
+    def test_passed_release_time_is_unknown_not_zero(self):
+        """A passed capital-release time no longer clamps to zero (D18).
 
-        This is the clamp that made the old absolute-date fixture fail (D16):
-        capital is already returned, so the lockup is 0 — distinct from
-        UNKNOWN, which is None and blocks.
+        D16 relied on this clamp returning 0 for a settled contract. But the
+        engine only evaluates contracts it is pricing off live books, which
+        are by definition unsettled; a passed release bound means the
+        documented timing has already failed, so the remaining lockup is
+        UNKNOWN (None, blocking) — never zero, never "immediate".
         """
         from prediction_arb.normalization.settlement import (
-            capital_lockup_days, settlement_delay_cost,
+            assess_lockup, capital_lockup_days, settlement_delay_cost,
         )
         now = datetime(2026, 1, 10, tzinfo=timezone.utc)
         settled = make_contract(venue="kalshi",
                                 settlement=now - timedelta(days=4))
-        lockup = capital_lockup_days([settled], now=now)
-        assert lockup == Decimal("0")
-        assert settlement_delay_cost(Decimal("100"), lockup,
-                                     Decimal("0.05")) == Decimal("0")
+        assert capital_lockup_days([settled], now=now) is None
+        assert settlement_delay_cost(Decimal("100"), None,
+                                     Decimal("0.05")) is None
+        reasons = assess_lockup([settled], now=now).reasons
+        assert any("not after evaluation time" in r for r in reasons)
 
     def test_unknown_venue_lockup_none(self):
         from prediction_arb.normalization.settlement import (

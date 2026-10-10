@@ -81,7 +81,7 @@ class BacktestEngine:
         for ts, contracts, books in frames:
             reconstructed += len(contracts)
             approved, _scan = await run_matching(contracts, self.llm)
-            ops = await self._scan(contracts, books, approved)
+            ops = await self._scan(contracts, books, approved, ts)
             per_frame.append((ts, ops))
 
         risk = self.settings.get("risk", {})
@@ -93,8 +93,8 @@ class BacktestEngine:
             contracts_reconstructed=reconstructed,
             contracts_unreconstructable=len(self.provider.under_recorded))
 
-    async def _scan(self, contracts, books,
-                    approved) -> list[Opportunity]:
+    async def _scan(self, contracts, books, approved,
+                    evaluation_time) -> list[Opportunity]:
         arb = self.settings.get("arbitrage", {})
         return await run_arbitrage_scan(
             contracts, books, approved, self.fee_calc, Mode.HISTORICAL,
@@ -104,4 +104,6 @@ class BacktestEngine:
             maximum_settlement_delay_days=Decimal(str(
                 arb.get("maximum_settlement_delay_days", 5))),
             cost_of_capital_annual=Decimal(str(self.settings.get(
-                "cost_of_capital", {}).get("annual_rate", 0.05))))
+                "cost_of_capital", {}).get("annual_rate", 0.05))),
+            # Lockup from the recorded frame time, not the wall clock (D18).
+            evaluation_time=evaluation_time)
