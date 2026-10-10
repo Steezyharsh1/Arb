@@ -33,7 +33,7 @@ Status tags used throughout:
 
 | Check | Result |
 |---|---|
-| `pytest` | **582 passed in 27.75s** — full suite re-run 2026-10-10 on `arena/732e107e-arb` after Arb.8 candidate retrieval (`tests/test_candidate_retrieval.py`, 31 tests; `test_candidate_generation.py` now 29). Before Arb.8: **549 passed in 26.52s**, the full suite re-run 2026-10-10 on Python 3.11.2 after D20 paper-risk enforcement (534-test D10/D19 baseline + 15 in `tests/test_risk_enforcement.py`). The 534-test predecessor, not the new D20 tests, was also green with the fee clock frozen at 2026-10-14 / 2027-10-09 / 2031-01-02. Current collection: arbitrage_engine 9, candidate_generation 27, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 25, polymarket_us 41, readiness 138, risk_enforcement 15, safety 26, settlement_timing 44, spec_cases 13, unavailable_costs 35, units 43. All offline: mock HTTP transports and a scripted local WebSocket server. Settlement tests use a fixed test clock; readiness tests use stub adapters, synthetic fee schedules whose `verified_at` is derived from the fee engine's own clock, and a `tmp_path` copy of the real `config/`. Kalshi fixtures carry the two documented timing fields, and engine-math tests use a TEST-ONLY ForecastEx timing entry (production ForecastEx timing is UNKNOWN) |
+| `pytest` | **597 passed in 29.23s** — full suite re-run 2026-10-10 on `arena/a5c3486d-arb` after Arb.9 matching budget & dedup (`tests/test_matching_arb9.py`, 15 tests). Before Arb.9: **582 passed in 27.75s** on `arena/732e107e-arb` after Arb.8 candidate retrieval (`tests/test_candidate_retrieval.py`, 31 tests; `test_candidate_generation.py` 29). Before Arb.8: **549 passed in 26.52s** after D20 paper-risk enforcement. Current collection: arbitrage_engine 9, candidate_generation 29, candidate_retrieval 31, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, matching_arb9 15, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 25, polymarket_us 41, readiness 138, risk_enforcement 15, safety 26, settlement_timing 44, spec_cases 13, unavailable_costs 35, units 43. All offline: mock HTTP transports and a scripted local WebSocket server. Settlement tests use a fixed test clock; readiness tests use stub adapters, synthetic fee schedules whose `verified_at` is derived from the fee engine's own clock, and a `tmp_path` copy of the real `config/`. Kalshi fixtures carry the two documented timing fields, and engine-math tests use a TEST-ONLY ForecastEx timing entry (production ForecastEx timing is UNKNOWN) |
 | Settlement-timing readiness | **Kalshi DOCUMENTED** (per market: `latest_expiration_time` + `settlement_timer_seconds`; not observed), **Polymarket US UNKNOWN**, **ForecastEx UNKNOWN** — so every enabled pair still blocks on lockup, independently of the fee gate (D18, 2026-10-10). Evidence table: `docs/TRADING_LOGIC.md` |
 | `python -m prediction_arb.main --status` | Re-run 2026-10-10, exit 0: kalshi=VERIFIED, polymarket_us=API_DOCUMENTED_UNTESTED, forecast_ex=API_DOCUMENTED_UNTESTED. Matrix reports all 3 enabled unordered pairs `INDEPENDENT`; this is not fee or book readiness. |
 | `python -m prediction_arb.main --readiness` | Re-run 2026-10-10 after D10/D19, exit 0: four per-mode blocks of **derived** criteria (COLLECT 3, HISTORICAL 6, PAPER 9, LIVE 12), each `PASS / WARN / BLOCKED label = observed value — reason`. `COLLECT: READY`; `HISTORICAL: NOT READY — 1 blocker(s)` (no recorded store); `PAPER: NOT READY — 5 blocker(s)`; `LIVE: NOT READY — 8 blocker(s)` (1 live-capable venue, no independent pair, matcher unconfigured, 0/3 complete fee schedules, settlement UNKNOWN for polymarket_us + forecast_ex, 0 recorded snapshots/opportunities, eligibility UNKNOWN ×3, no `.env.live`), then **LIVE MODE: NOT RECOMMENDED YET**. Fee freshness PASSES today (all three schedules verified 2026-10-10, limit 30 days) — it is a real gate now, not a constant. The run creates no `data/`, `logs/` or `reports/` (asserted in tests and in CI). (The 13,801-snapshot figure below was from the previous engineer's working copy — the DB is git-ignored, so a fresh clone starts empty.) |
@@ -57,6 +57,22 @@ position-reducing simulated unwind. Fifteen offline fault-injection regressions
 bring the suite to **549 passed in 26.52 s**. D21–D24 explicitly record the
 remaining partial/disconnected limits; no live or generic emergency path was
 enabled. See `docs/RISK_MANAGEMENT.md`.
+
+**Updated 2026-10-10 — Arb.9 matching budget & deduplication:** verified
+per-cycle budget consumption (counter reset in `run_matching`, cache hits never
+consume, budget-exhausted REVIEW not cached so remains eligible). Candidate
+ordering was discovery-order (sorted index pairs); replaced with deterministic
+prioritization by independence (INDEPENDENT first), shared blocking keys
+(thr>num>tok), settlement proximity, with lexical tie-breakers. No gross edge or
+unverified LLM output used for ordering; deterministic REJECT final; semantic
+matching cannot approve a pair that fails independence. Fixed cache keys to
+include contract versions + matcher/prompt/model versions; fixed match_id to
+include versions and to be sorted, so version changes create new rows preserving
+history. Fixed persistence deduplication: `save_match_certificate` skips writes
+when meaningful fields unchanged, preventing unbounded duplicate REVIEW records;
+meaningful changes still update. Documented smallest viable migration for full
+verdict-change history (audit log table) in `docs/MATCHING_DEDUP_MIGRATION.md`.
+Added 15 tests in `tests/test_matching_arb9.py`; **597 passed in 29.23 s**.
 
 **Bottom line:** the D17 zero-substitution defect is fixed, but **the fee
 readiness gate is reopened** after the current Polymarket US schedule and

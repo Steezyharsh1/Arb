@@ -35,11 +35,39 @@ any identity field false). Any rejection == no match. LLM outages ==
 no match. No LLM configured == no match (v1 default) — pairs end in
 REVIEW for human handling, never auto-APPROVED.
 
-## Caching & versioning (§82, §87)
+## Caching & versioning (§82, §87, Arb.9)
 
-Results cached by (venue:contract_id:contract_version) pair key;
-re-run only when a contract's rules change. Certificates record
-matcher_version, llm_model_version, llm_prompt_version.
+Results cached by (venue:contract_id:contract_version, matcher_version,
+prompt_version, model_version) — sensitive to contract versions and matching
+implementation versions for correctness. A version change invalidates the
+cache and forces re-evaluation. Certificates record matcher_version,
+llm_model_version, llm_prompt_version and, via match_id, contract versions
+and model version; a version change creates a new match_id → new row,
+preserving the previous version's row for auditability.
+
+## Deterministic prioritization & deduplication (Arb.9)
+
+`run_matching` no longer processes pairs in discovery order. After the
+deterministic filter, surviving pairs are scored by defensible pre-LLM
+evidence:
+
+- venue independence (INDEPENDENT first, SAME_VENUE last — SAME_VENUE can
+  never be APPROVED, §33, so it should not consume budget first);
+- shared blocking keys (thr=20, num=5, tok=1);
+- settlement-time proximity (smaller delta first).
+
+Ordering is fully deterministic: `(-priority, delta_seconds, sorted_contract_a,
+sorted_contract_b, version_a, version_b)`. No gross edge or unverified LLM
+output is used for ordering, and deterministic REJECT remains final.
+
+Persistence deduplication: `Repository.save_match_certificate` skips writes
+when all meaningful fields (status, score, independence, versions) are
+identical to the existing row, preventing unbounded duplicate REVIEW records
+on every scan cycle. Meaningful changes (verdict, model/prompt/matcher version)
+update the row; version changes create a new row via new match_id. Full
+verdict-change history requires the audit-log migration documented in
+`docs/MATCHING_DEDUP_MIGRATION.md` — the smallest viable migration if full
+history is later required.
 
 ## Client wiring & budget (§97, added 2026-09-14)
 
