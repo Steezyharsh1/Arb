@@ -67,6 +67,23 @@ profitable. 35 tests. Verified by mutation: restoring the zero fee substitution 
 20 of them (20 failed / 15 passed) and restoring the zero delay-cost
 substitution fails 2 (the `TestUnknownSettlementTiming` pair).
 
+**Settlement timing and capital lockup** (`test_settlement_timing.py`, D18,
+2026-10-10 — offline): every production timing entry states meaning,
+evidence status, `https` sources and review date, and an UNKNOWN entry
+cannot carry an estimator; Polymarket US and ForecastEx are explicit
+UNKNOWN and block; Kalshi uses `latest_expiration_time +
+settlement_timer_seconds` from the payload, survives the adapter and the
+recorded-store codec, and blocks when either field is missing/invalid or
+inconsistent; a release time at or before evaluation time is UNKNOWN, not
+zero; replay measures from the frame time; long-dated bounds are costed in
+full (a three-year pair loses its TRADE verdict); lockup follows the last
+leg and spread compares release times; the simple annual cost is exact,
+linear, rounded up and rejects negative inputs; the scan entry point
+threads the frame time. 44 tests. Engine-math tests
+use a TEST-ONLY ForecastEx timing entry from `tests/conftest.py`; the
+`production_settlement_timing` fixture restores production. Mutation-verified
+(each of eight reverts fails at least one test; see ROADMAP D18).
+
 **Arbitrage** (`test_arbitrage_engine.py`): marginal sizing stops at
 payout; profitable path yields TRADE; reproducibility (identical inputs
 → identical outputs); search requires APPROVED certificates; SAME_VENUE

@@ -46,7 +46,9 @@ yes_walk_cost(q) + no_walk_cost(q)
   Never assumed zero and never replaced by an execution-facing estimate.
   The audited venue/pair matrix and exact remaining operator evidence are in
   `docs/FEE_READINESS.md`.
-- Unknown settlement lockup → BLOCK, never zero.
+- Unknown settlement lockup → BLOCK, never zero. Lockup runs to the last
+  leg's evidenced *capital-release time*, not to the event time — see
+  "Settlement timing and capital lockup" below.
 - Slippage is *inside* the walked cost (real levels consumed); it is
   additionally reported as WAP−best×qty for transparency, not
   double-counted.
@@ -90,6 +92,62 @@ Rules this enforces:
   a positive gross edge can never be mistaken for an executable
   opportunity.
 
+## Settlement timing and capital lockup (§28, D18)
+
+Three different moments are kept apart and never substituted for each
+other:
+
+| Moment | Meaning | Used for |
+|---|---|---|
+| `NormalizedContract.settlement_time` | Venue's event/expected time as mapped by the adapter (Kalshi: `expected_expiration_time`; Polymarket US: `endDate`) | Matching and blocking keys only |
+| Resolution basis | Venue-documented time the outcome is determined by, ideally a *bound* | Anchor of the lockup estimate |
+| Capital-release time | Resolution basis + documented post-resolution settlement delay: when the payout is back in the **venue account** | Lockup and cost of capital |
+
+Bank withdrawal time is a further, slower step and is not modelled.
+
+```
+lockup_days     = max over legs(capital_release_time) − evaluation_time
+spread_days     = max(capital_release_time) − min(capital_release_time)
+settlement_cost = capital_required × annual_rate × lockup_days / 365
+                  (simple, not compounded; rounded UP to $0.0001)
+capital_required = walked cost of both legs + all fees
+```
+
+`evaluation_time` is the current time for live/paper and the recorded frame time for
+historical replay and backtests. Day counts are Decimal (no float).
+`maximum_settlement_delay_days` limits the **spread** between legs; it is
+not a cap on total lockup — a long lockup is instead charged in full, and
+a lockup above 36,500 days blocks as implausible.
+
+**Evidence registry** (`normalization/settlement.py::PRODUCTION_SETTLEMENT_TIMING`;
+sources re-read 2026-10-10; no account, settlement statement or live
+payload was available, so nothing is OBSERVED):
+
+| Venue | Status | Resolution basis | Post-resolution delay | Gaps / missing evidence |
+|---|---|---|---|---|
+| Kalshi | **DOCUMENTED** (not observed) | Per market `latest_expiration_time` — "Latest possible time for this market to expire" ([Get Market](https://docs.kalshi.com/api-reference/market/get-market.md)) | Per market `settlement_timer_seconds` — "The amount of time after determination that the market settles"; settlement means "funds transferred" ([Market Settlement](https://docs.kalshi.com/getting_started/market_settlement)) | Conservative bound, not the expected time. Disputed/amended markets and manual review can settle later ("timing can vary based on market type, data source availability, and manual review requirements") and are not modelled. Payload must carry both fields or the leg blocks. K9 (observed payload) still open |
+| Polymarket US | **UNKNOWN** — blocks | None. `endDate` is documented only as "Market end date", and "Markets stay open until the outcome is known" ([Resolution](https://docs.polymarket.us/learn/markets/market-resolution.md), [Get Market](https://docs.polymarket.us/api-reference/markets/get-market-by-slug.md)) | None published. Settlement "begins once a market's outcome is finalized"; Portfolio "updates automatically when settlement completes" ([Settlement](https://docs.polymarket.us/learn/markets/contract-settlement)). Clearing Settlement Date is "established under the terms of a Contract" ([Clearing Rulebook filing](https://www.cftc.gov/filings/orgrules/rules12312536031.pdf)) | Needs a per-contract documented resolution bound and settlement date, or redacted settled-position records showing resolution→cash timing. Exchange rulebook Chapter 10 and current clearing Rule 5.3 were not readable here (30-page PDF limit) |
+| ForecastEx | **UNKNOWN** — blocks | None established: the adapter is a stub; Resolution Time can be delayed by the source agency or an event review ([FES terms](https://data.forecastex.com/regulatory/FESTermsandConditions.pdf)) | Exchange level only: settlement "no later than the day following Expiration Time" unless under review; Rule 603 settles daily at 13:00 CST to the Member's Collateral Account ([Rulebook](https://data.forecastex.com/regulatory/ForecastEx_LLC_Rulebook.pdf)) | IBKR/FCM customer crediting not documented. The former unsourced 0-day value was withdrawn |
+| Any other venue | No entry — blocks | — | — | — |
+
+Rules this enforces:
+
+- A venue enters the registry with a number only when the meaning of its
+  basis and delay is explicit and sourced; an `UNKNOWN` entry cannot carry
+  an estimator. No delay is ever changed from unknown to zero to let an
+  opportunity through.
+- Missing settlement fields, an inconsistent payload (Kalshi expected
+  expiration after its latest expiration), or any unknown leg → lockup and
+  spread `None` → `settlement lockup UNKNOWN` BLOCK, with the per-leg reason.
+- A capital-release time at or before `evaluation_time` is **unknown, not
+  zero**: the leg is still being priced off a live book, so it has not
+  settled, and the documented timing has already failed for it.
+- Kalshi's expected expiration passing does not end the lockup; the
+  documented bound plus timer still does.
+- Tests use a clearly labelled TEST-ONLY ForecastEx timing entry for
+  engine arithmetic (as they use synthetic fee schedules); production
+  ForecastEx timing remains UNKNOWN.
+
 ## Sizing
 
 `find_max_profit_quantity` merges both ask ladders and stops at the
@@ -128,7 +186,8 @@ independence (INDEPENDENT required; UNKNOWN blocks), book freshness
 + per-venue non-fungible capital), eligibility (compliance module;
 Utah-aware), API health (HealthMonitor), kill switch, order-type
 appropriateness (limit-only; market orders prohibited on illiquid books),
-and settlement timing (delay spread limit). **Fee freshness is not currently
+and settlement timing (evidenced capital-release time per leg; unknown
+lockup blocks; delay spread limit). **Fee freshness is not currently
 enforced end-to-end:** `strict_fee_freshness` defaults to `False`, and paper,
 historical, and backtest callers do not override it; live mode is monitor-only.
 See `docs/FEE_READINESS.md` for the exact gap and release criterion.

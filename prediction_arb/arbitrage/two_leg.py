@@ -24,6 +24,7 @@ profitable executable opportunity.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from typing import Callable, Optional
 
@@ -45,11 +46,7 @@ from ..core.types import (
     WalkResult,
 )
 from ..fees.calculator import FeeCalculator, FillSlice
-from ..normalization.settlement import (
-    capital_lockup_days,
-    settlement_delay_cost,
-    settlement_delay_spread_days,
-)
+from ..normalization.settlement import assess_lockup, settlement_delay_cost
 from ..orderbooks.orderbook import slippage_vs_best, walk_buy
 from ..provenance.independence import (
     contracts_independent,
@@ -126,6 +123,7 @@ def evaluate_two_leg(
     cost_of_capital_annual: Decimal = Decimal("0.05"),
     max_quantity: Optional[Decimal] = None,
     strict_fee_freshness: bool = False,
+    evaluation_time: Optional[datetime] = None,
 ) -> Optional[Opportunity]:
     """Evaluate buying YES on yes_contract's venue and NO on no_contract's.
 
@@ -137,6 +135,10 @@ def evaluate_two_leg(
     opportunity is BLOCK and ``net_profit`` is ``None`` (UNVERIFIED) — the
     missing cost is never assumed to be zero, and the gross edge that made
     the pair worth sizing is reported separately as research data.
+
+    ``evaluation_time`` is the instant the books describe. It defaults to
+    now; replay passes the recorded frame time so lockup is measured from
+    when the opportunity existed, not from the wall clock (D18).
     """
     payout = yes_contract.payout
     if no_contract.payout != payout or yes_contract.currency != no_contract.currency:
@@ -231,15 +233,25 @@ def evaluate_two_leg(
     slippage = (slippage_vs_best(yes_walk, yes_best)
                 + slippage_vs_best(no_walk, no_best))
 
-    lockup = capital_lockup_days([yes_contract, no_contract])
-    spread_days = settlement_delay_spread_days([yes_contract, no_contract])
+    # Capital lockup runs to the LAST leg's evidenced capital-release time
+    # (resolution basis + post-resolution settlement delay), not to the
+    # event time; see normalization/settlement.py (§28, D18).
+    timing = assess_lockup([yes_contract, no_contract], evaluation_time)
+    lockup = timing.lockup_days
+    spread_days = timing.spread_days
+    lockup_detail = "; ".join(timing.reasons)
     if spread_days is None:
         block.append("settlement delay spread UNKNOWN")
     elif spread_days > maximum_settlement_delay_days:
         block.append(
             f"settlement delay spread {spread_days} days exceeds limit "
             f"{maximum_settlement_delay_days}")
-    if lockup is not None and lockup > Decimal("36500"):
+    if lockup is None:
+        # Reported whether or not fees are known: every mandatory-cost
+        # failure is listed (D17), and an unknown lockup is its own failure.
+        block.append(f"settlement lockup UNKNOWN — cannot cost capital "
+                     f"delay ({lockup_detail})")
+    elif lockup > Decimal("36500"):
         block.append("implausible settlement lockup")
 
     if capital is None:
@@ -252,14 +264,13 @@ def evaluate_two_leg(
             "cost-of-capital base unknown — mandatory trade/settlement fees "
             "are unavailable")
         block.append(f"settlement delay cost unavailable — {delay.reason}")
+    elif lockup is None:
+        delay = CostComponent("settlement_delay", None,
+                              f"settlement lockup UNKNOWN ({lockup_detail})")
     else:
-        amount = settlement_delay_cost(capital, lockup, cost_of_capital_annual)
-        if amount is None:
-            delay = CostComponent("settlement_delay", None,
-                                  "settlement lockup UNKNOWN")
-            block.append("settlement lockup UNKNOWN — cannot cost capital delay")
-        else:
-            delay = CostComponent("settlement_delay", amount)
+        delay = CostComponent(
+            "settlement_delay",
+            settlement_delay_cost(capital, lockup, cost_of_capital_annual))
 
     costs = CostLedger(fee_components + (delay,))
     total_cost = costs.total          # None ⇒ a mandatory cost is unknown

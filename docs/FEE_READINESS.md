@@ -18,7 +18,7 @@
 | **Kalshi ↔ ForecastEx** | **INDEPENDENT** — distinct DCM, issuer, matching/book, and settlement identities | Kalshi `VERIFIED`; ForecastEx is an implemented **stub**, not a verified feed | Kalshi trade **INCOMPLETE**, settlement **INCOMPLETE**; ForecastEx trade **INCOMPLETE**, settlement **INCOMPLETE** | **Not evaluable in paper.** ForecastEx has no book adapter; both venues' required fee components block. |
 | **Polymarket US ↔ ForecastEx** | **INDEPENDENT** — QCX and ForecastEx have distinct DCM, issuer, matching/book, and settlement identities | Polymarket US `API_DOCUMENTED_UNTESTED`; ForecastEx stub | Both venues' trade and settlement components **INCOMPLETE** | **Not evaluable in paper.** Neither route supplies a verified pair of books, and every mandatory fee component is blocked. |
 
-There are **3 unordered** provenance-independent pairs (and 6 ordered YES/NO directions if both orientations are considered). There are currently **0 real, two-venue opportunities costed by the running paper pipeline**. Do not report the independence matrix as a count of tradeable or cost-evaluable pairs.
+There are **3 unordered** provenance-independent pairs (and 6 ordered YES/NO directions if both orientations are considered). There are currently **0 real, two-venue opportunities costed by the running paper pipeline**. Do not report the independence matrix as a count of tradeable or cost-evaluable pairs. Separately from fees, the capital-lockup cost is evaluable only where settlement timing is evidenced: Kalshi DOCUMENTED, Polymarket US and ForecastEx UNKNOWN (2026-10-10, D18; `docs/TRADING_LOGIC.md`), so every pair above would still block on lockup even with complete fees.
 
 ## Venue/component evidence ledger
 

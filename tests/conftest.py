@@ -40,13 +40,27 @@ SETTLE = SETTLEMENT_TEST_NOW + timedelta(days=3)
 
 def make_contract(venue: str = "kalshi", contract_id: str = "TEST-1",
                   event: str = "Fed raises rates in September 2026",
-                  settlement: datetime = SETTLE,
+                  settlement: datetime | None = SETTLE,
                   payout: Decimal = Decimal("1.00"),
                   threshold=None, threshold_op=None, units=None,
                   resolution_source: str = "Federal Reserve statement",
                   early_resolution: str = "",
                   underlying: str = "", category: str = "KXFED",
+                  raw=None,
+                  kalshi_latest_expiration: datetime | None = None,
+                  kalshi_settlement_timer_seconds: int = 0,
                   ) -> NormalizedContract:
+    """Build a synthetic contract.
+
+    For Kalshi, ``raw`` defaults to the two documented Market fields the
+    settlement module reads (D18): ``latest_expiration_time`` (default: the
+    contract's ``settlement``) and ``settlement_timer_seconds`` (default 0,
+    a synthetic value). Pass ``raw={}`` to model a payload without them.
+    """
+    if raw is None and venue == "kalshi" and settlement is not None:
+        latest = kalshi_latest_expiration or settlement
+        raw = {"latest_expiration_time": latest.isoformat(),
+               "settlement_timer_seconds": kalshi_settlement_timer_seconds}
     if not underlying:
         underlying = {"kalshi": "kalshi_dcm", "webull": "kalshi_dcm",
                       "moomoo": "kalshi_dcm",
@@ -58,7 +72,8 @@ def make_contract(venue: str = "kalshi", contract_id: str = "TEST-1",
         outcome_type=OutcomeType.BINARY, outcome="YES",
         normalized_outcome="", outcome_count=2, all_outcomes=("YES", "NO"),
         settlement_time=settlement, timezone="UTC",
-        cutoff_time=settlement - timedelta(hours=1),
+        cutoff_time=(settlement - timedelta(hours=1)
+                     if settlement is not None else None),
         resolution_source=resolution_source, resolution_method="",
         threshold=threshold, threshold_operator=threshold_op, units=units,
         payout=payout, currency="USD",
@@ -68,7 +83,8 @@ def make_contract(venue: str = "kalshi", contract_id: str = "TEST-1",
         jurisdiction_requirements="US", category=category,
         market_microstructure=MarketMicrostructure(
             type=MicrostructureType.CLOB, has_order_book=True),
-        supported_order_types=OrderTypeSupport(limit=True, gtc=True))
+        supported_order_types=OrderTypeSupport(limit=True, gtc=True),
+        raw=raw)
 
 
 @pytest.fixture(autouse=True)
@@ -80,6 +96,60 @@ def freeze_settlement_clock(monkeypatch):
     """
     from prediction_arb.normalization import settlement
     monkeypatch.setattr(settlement, "utcnow", lambda: SETTLEMENT_TEST_NOW)
+
+
+def _synthetic_forecast_ex_release(contract):
+    """TEST-ONLY: capital released exactly at ``settlement_time``."""
+    from prediction_arb.normalization.settlement import CapitalRelease
+    if contract.settlement_time is None:
+        return CapitalRelease(contract.venue, contract.contract_id, None,
+                              None, None, "synthetic: no settlement_time")
+    return CapitalRelease(contract.venue, contract.contract_id,
+                          contract.settlement_time, timedelta(0),
+                          contract.settlement_time)
+
+
+def _synthetic_test_timing():
+    from prediction_arb.normalization.settlement import (
+        PRODUCTION_SETTLEMENT_TIMING,
+        SettlementTimingSource,
+        TimingEvidenceStatus,
+    )
+    synthetic = SettlementTimingSource(
+        venue="forecast_ex",
+        status=TimingEvidenceStatus.DOCUMENTED,
+        release_meaning="TEST-ONLY synthetic: release at settlement_time",
+        resolution_basis="TEST-ONLY synthetic: NormalizedContract.settlement_time",
+        post_resolution_delay="TEST-ONLY synthetic: zero",
+        sources=("tests/conftest.py synthetic deterministic test fixture",),
+        reviewed_on="n/a",
+        evidence="none — production forecast_ex timing is UNKNOWN",
+        gaps="not evidence; never used outside tests",
+        estimator=_synthetic_forecast_ex_release)
+    return {**PRODUCTION_SETTLEMENT_TIMING, "forecast_ex": synthetic}
+
+
+@pytest.fixture(autouse=True)
+def synthetic_settlement_timing(monkeypatch):
+    """Give engine-math tests a known second venue, like synthetic fees.
+
+    Production ForecastEx capital-release timing is UNKNOWN (D18), so every
+    kalshi/forecast_ex pair would block on lockup. Engine arithmetic tests
+    therefore use a clearly-labelled TEST-ONLY ForecastEx entry; Kalshi and
+    Polymarket US keep their production entries. Tests about production
+    timing evidence use the ``production_settlement_timing`` fixture or
+    pass ``sources=PRODUCTION_SETTLEMENT_TIMING`` explicitly.
+    """
+    from prediction_arb.normalization import settlement
+    monkeypatch.setattr(settlement, "_ACTIVE_TIMING", _synthetic_test_timing())
+
+
+@pytest.fixture
+def production_settlement_timing(monkeypatch, synthetic_settlement_timing):
+    """Restore the production settlement-timing registry for one test."""
+    from prediction_arb.normalization import settlement
+    monkeypatch.setattr(settlement, "_ACTIVE_TIMING",
+                        settlement.PRODUCTION_SETTLEMENT_TIMING)
 
 
 def make_book(venue: str, contract_id: str,

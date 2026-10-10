@@ -118,7 +118,10 @@ class HistoricalEngine:
                 maximum_settlement_delay_days=Decimal(str(
                     arb.get("maximum_settlement_delay_days", 5))),
                 cost_of_capital_annual=Decimal(str(self.config.settings.get(
-                    "cost_of_capital", {}).get("annual_rate", 0.05))))
+                    "cost_of_capital", {}).get("annual_rate", 0.05))),
+                # Lockup is measured from the recorded frame, not the wall
+                # clock: a replayed contract was unsettled at `ts` (D18).
+                evaluation_time=ts)
             total_ops += len(ops)
             # "Survived fees" means a VERIFIED positive net profit. An
             # opportunity whose mandatory costs could not be computed has no
