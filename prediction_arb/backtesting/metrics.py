@@ -33,6 +33,21 @@ from ..core.types import Opportunity
 # therefore useless as a cross-frame identity — defect noted in ROADMAP.)
 
 
+def decision_was_trade(op: Opportunity) -> bool:
+    """The strategy's own verdict was TRADE *and* its net profit is a
+    verified number rather than an unavailable one.
+
+    Deliberately not :attr:`Opportunity.is_executable`, which also requires
+    a positive net profit: the equity curve and capital statistics must
+    include losing trades. Dropping an opportunity because its verified net
+    profit turned out negative would flatter the curve and understate the
+    capital the strategy would have locked up — the exact optimism this
+    module exists to avoid. An unavailable net profit is excluded because it
+    is not a number, never because it is small.
+    """
+    return op.status.value == "TRADE" and op.net_profit is not None
+
+
 def opportunity_key(op: Opportunity) -> tuple[str, ...]:
     """Stable cross-frame identity: the sorted leg pair."""
     return tuple(sorted(
@@ -76,7 +91,12 @@ class CapitalStats:
 class FeeDrag:
     gross_cost: Decimal = Decimal("0")
     total_fees: Decimal = Decimal("0")
-    #: total_fees / gross_cost. None when nothing was costed.
+    #: Opportunities whose fees could not be computed. Their fees are
+    #: excluded from ``total_fees``, and they make ``drag_ratio``
+    #: unreportable: a ratio over a partial set would understate real drag.
+    uncosted_opportunities: int = 0
+    #: total_fees / gross_cost. None when nothing was costed, or when any
+    #: opportunity's fees were unavailable.
     drag_ratio: Optional[float] = None
 
 
@@ -148,6 +168,8 @@ class BacktestResult:
             "fee_drag": {
                 "gross_cost": d(self.fee_drag.gross_cost),
                 "total_fees": d(self.fee_drag.total_fees),
+                "uncosted_opportunities":
+                    self.fee_drag.uncosted_opportunities,
                 "drag_ratio": self.fee_drag.drag_ratio,
             },
             "modelled_equity": {
@@ -219,11 +241,21 @@ def compute_duration_stats(
 
 
 def compute_fee_drag(opportunities: list[Opportunity]) -> FeeDrag:
+    """Measured fee drag over opportunities whose fees are known.
+
+    An opportunity whose fees could not be computed contributes no fees and
+    is counted in ``uncosted_opportunities``. Its fees are not treated as
+    zero — the ratio is withheld instead, because averaging over a subset
+    would report a smaller drag than the strategy would really pay.
+    """
     drag = FeeDrag()
     for op in opportunities:
         drag.gross_cost += op.gross_cost
+        if op.total_fees is None:
+            drag.uncosted_opportunities += 1
+            continue
         drag.total_fees += op.total_fees
-    if drag.gross_cost > 0:
+    if drag.gross_cost > 0 and drag.uncosted_opportunities == 0:
         drag.drag_ratio = float(drag.total_fees / drag.gross_cost)
     return drag
 
@@ -234,8 +266,14 @@ def compute_capital_stats(
     """Measured: peak capital the executable set would have needed."""
     stats = CapitalStats(max_total_capital=max_total_capital)
     for _ts, ops in frames:
+        # Only opportunities the strategy decided to trade lock capital.
+        # `capital_required` is None when fees are unknown, which a TRADE
+        # cannot be; the guard keeps a defect from reading as $0 of locked
+        # capital instead of raising.
         needed = sum((op.capital_required for op in ops
-                      if op.status.value == "TRADE"), Decimal("0"))
+                      if decision_was_trade(op)
+                      and op.capital_required is not None),
+                     Decimal("0"))
         if stats.peak_capital_required is None or needed > stats.peak_capital_required:
             stats.peak_capital_required = needed
     if (stats.peak_capital_required is not None and max_total_capital
@@ -255,7 +293,12 @@ def compute_equity_curve(
     peak = Decimal("0")
     for ts, ops in frames:
         for op in ops:
-            if op.status.value != "TRADE":
+            # Only opportunities the strategy decided to trade enter the
+            # curve, and only with a VERIFIED net profit — losses included,
+            # because a curve of winners only is not a curve. An unavailable
+            # net profit is skipped, never counted as zero and never
+            # replaced by the gross edge.
+            if not decision_was_trade(op) or op.net_profit is None:
                 continue
             equity += op.net_profit
             curve.points.append((ts, equity))
@@ -286,7 +329,7 @@ def summarize_frames(
         last_frame=frames[-1][0] if frames else None,
         opportunities_observed=len(all_ops),
         executable_observed=sum(1 for o in all_ops
-                                if o.status.value == "TRADE"),
+                                if decision_was_trade(o)),
         fills=compute_fill_stats(all_ops),
         durations=compute_duration_stats(frames),
         fee_drag=compute_fee_drag(all_ops),

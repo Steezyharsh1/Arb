@@ -23,6 +23,12 @@ def generate_daily_report(repo: Repository) -> Path:
         tradeable = s.scalar(select(func.count(OpportunityRow.id)).where(
             OpportunityRow.mode == "paper",
             OpportunityRow.status == "TRADE")) or 0
+        # net_profit IS NULL ⇒ a mandatory cost was unavailable, so the
+        # opportunity has no verified net profit. Reported explicitly: an
+        # unpriced opportunity is neither profitable nor zero-profit (D17).
+        unpriced = s.scalar(select(func.count(OpportunityRow.id)).where(
+            OpportunityRow.mode == "paper",
+            OpportunityRow.net_profit.is_(None))) or 0
         trades = s.scalar(select(func.count(TradeRow.id)).where(
             TradeRow.mode == "paper")) or 0
     report = {
@@ -30,6 +36,7 @@ def generate_daily_report(repo: Repository) -> Path:
         "date": today,
         "opportunities_detected": int(total_ops),
         "opportunities_tradeable": int(tradeable),
+        "opportunities_without_verified_net_profit": int(unpriced),
         "trades_executed": int(trades),
         "generated_at": utcnow().isoformat(),
     }

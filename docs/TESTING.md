@@ -47,6 +47,26 @@ FEE_DATA_INCOMPLETE blocks (never zero); strict fee freshness;
 insufficient sim cash; limit-price respected; historical no-data
 honesty; backtest stub raises; capital non-fungibility.
 
+**Unavailable mandatory costs** (`test_unavailable_costs.py`, D17,
+2026-10-10 — all offline, synthetic fee schedules): an opportunity whose
+fees or settlement timing cannot be computed has **no** net profit rather
+than a flattering one. Incomplete trade fees, incomplete settlement fees,
+context-required fees, missing / expired / not-yet-effective / stale
+(strict) / unverified schedules, a missing settlement time, and a venue
+with no settlement-delay model each yield `status=BLOCK`,
+`net_profit=None`, `total_fees=None`, `capital_required=None` and a named
+unavailable `CostComponent`; gross edge and the costs that *were*
+computable stay available and separate. Also pins: `CostLedger` has no
+total while a component is missing (an empty ledger is not complete);
+`score()` refuses an unpriced opportunity and `rank()` puts a huge
+unpriced gross edge last; the dashboard renders `n/a`; the database stores
+NULL plus `unavailable_costs`; migration 003 relaxes the cost columns on a
+v2 database without touching its rows; and the paper report / historical
+summary count unpriced opportunities instead of implying they are
+profitable. 35 tests. Verified by mutation: restoring the zero fee substitution fails
+20 of them (20 failed / 15 passed) and restoring the zero delay-cost
+substitution fails 2 (the `TestUnknownSettlementTiming` pair).
+
 **Arbitrage** (`test_arbitrage_engine.py`): marginal sizing stops at
 payout; profitable path yields TRADE; reproducibility (identical inputs
 → identical outputs); search requires APPROVED certificates; SAME_VENUE

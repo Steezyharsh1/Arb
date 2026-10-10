@@ -16,7 +16,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class Base(DeclarativeBase):
@@ -131,14 +131,25 @@ class OpportunityRow(Base):
     contracts: Mapped[str] = mapped_column(Text)     # JSON legs
     venues: Mapped[str] = mapped_column(String(128))
     gross_profit: Mapped[str] = mapped_column(String(32))
-    fees: Mapped[str] = mapped_column(String(32))
+    # NULL, not "0": these three depend on mandatory costs (fees, and the
+    # fees-inclusive capital base for net profit), so a NULL means the cost
+    # could not be computed and the figure is UNVERIFIED. Writing "0" here
+    # would record an unknown fee as a free one, and a positive net profit
+    # next to a BLOCK status (defect D17).
+    fees: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     slippage: Mapped[str] = mapped_column(String(32))
-    net_profit: Mapped[str] = mapped_column(String(32))
+    net_profit: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     quantity: Mapped[str] = mapped_column(String(32))
-    capital_required: Mapped[str] = mapped_column(String(32))
+    capital_required: Mapped[Optional[str]] = mapped_column(
+        String(32), nullable=True)
     independence: Mapped[str] = mapped_column(String(24))
     status: Mapped[str] = mapped_column(String(16))
     block_reasons: Mapped[str] = mapped_column(Text, default="")
+    #: JSON list of the mandatory cost components that were unavailable
+    #: (e.g. ["kalshi:trade_fee", "settlement_delay"]). NULL when every
+    #: component could be computed.
+    unavailable_costs: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True)
     first_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

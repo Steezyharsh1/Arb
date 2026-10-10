@@ -199,6 +199,73 @@ class WalkResult:
     fully_filled: bool
 
 
+@dataclass(frozen=True)
+class CostComponent:
+    """One mandatory cost input to the profit test (§24, §28) — or the
+    fact that it could not be computed.
+
+    ``amount is None`` means UNAVAILABLE. It never means zero: a mandatory
+    cost that cannot be computed makes the whole profit test unverifiable,
+    so the component carries the reason it is missing instead of a number.
+    """
+    name: str
+    amount: Optional[Decimal] = None
+    #: Why the amount is unavailable. Empty when the amount is known.
+    reason: str = ""
+
+    @property
+    def available(self) -> bool:
+        return self.amount is not None
+
+
+@dataclass(frozen=True)
+class CostLedger:
+    """Typed result of costing an opportunity.
+
+    The ledger is *complete* only when every mandatory component carries
+    an amount. An incomplete ledger has **no total**: :attr:`total` is
+    ``None``, and any net profit derived from it is ``None`` too. That is
+    the whole point — an unavailable mandatory cost must never be replaced
+    by zero, because zero is a claim that the cost is free.
+
+    :attr:`known_total` sums the components that *are* known. It is a
+    research figure and is deliberately **not** a cost total: the missing
+    components are not zero, so it is a lower bound of unknown tightness.
+    """
+    components: tuple[CostComponent, ...] = ()
+
+    @property
+    def complete(self) -> bool:
+        """True when at least one component exists and none is missing.
+
+        An empty ledger is *not* complete: an opportunity that was never
+        costed has not been shown to be free of mandatory costs.
+        """
+        return bool(self.components) and all(
+            c.available for c in self.components)
+
+    @property
+    def total(self) -> Optional[Decimal]:
+        """The full mandatory cost, or ``None`` if any part is unknown."""
+        if not self.complete:
+            return None
+        return sum((c.amount for c in self.components), Decimal("0"))
+
+    @property
+    def known_total(self) -> Decimal:
+        """Sum of the components that could be computed. Research only —
+        this is a partial cost, never a total and never a profit."""
+        return sum((c.amount for c in self.components if c.available),
+                   Decimal("0"))
+
+    @property
+    def unavailable(self) -> tuple[CostComponent, ...]:
+        return tuple(c for c in self.components if not c.available)
+
+    def missing_names(self) -> tuple[str, ...]:
+        return tuple(c.name for c in self.unavailable)
+
+
 @dataclass
 class Leg:
     venue: str
@@ -213,6 +280,24 @@ class Leg:
 
 @dataclass
 class Opportunity:
+    """One evaluated two-leg candidate.
+
+    Money fields that depend on a mandatory cost are ``Optional`` and are
+    ``None`` when that cost could not be computed (§24, §28):
+
+    * ``total_fees`` / ``settlement_delay_cost`` — the cost itself,
+      ``None`` when its schedule or its inputs are incomplete;
+    * ``capital_required`` — ``gross_cost + fees``, so ``None`` whenever
+      fees are unknown (an understated capital figure would hide how much
+      cash the trade really needs);
+    * ``net_profit`` / ``net_profit_per_contract`` / ``return_on_capital``
+      — the profit test. ``None`` means UNVERIFIED, not zero and not
+      "small".
+
+    :attr:`gross_edge` is the only always-available money figure and it is
+    explicitly **not** profit: it is the payout minus the walked purchase
+    cost, before fees and before the cost of locked capital.
+    """
     opportunity_id: str
     mode: Mode
     opportunity_type: OpportunityType
@@ -222,13 +307,13 @@ class Opportunity:
     payout_per_contract: Decimal
     quantity: Decimal
     gross_cost: Decimal
-    total_fees: Decimal
+    total_fees: Optional[Decimal]
     slippage: Decimal
-    settlement_delay_cost: Decimal
-    net_profit: Decimal
-    net_profit_per_contract: Decimal
-    capital_required: Decimal
-    return_on_capital: Decimal
+    settlement_delay_cost: Optional[Decimal]
+    net_profit: Optional[Decimal]
+    net_profit_per_contract: Optional[Decimal]
+    capital_required: Optional[Decimal]
+    return_on_capital: Optional[Decimal]
     independence: Independence
     match_id: Optional[str]
     match_confidence: Optional[float]
@@ -236,6 +321,56 @@ class Opportunity:
     block_reasons: list[str] = field(default_factory=list)
     first_seen: Optional[datetime] = None
     last_seen: Optional[datetime] = None
+    #: Typed per-component cost result. ``costs.complete`` is the only
+    #: warrant that ``net_profit`` is a verified number. Always populated
+    #: by ``evaluate_two_leg``; hand-built opportunities default to an
+    #: empty (therefore incomplete) ledger.
+    costs: CostLedger = field(default_factory=CostLedger)
+
+    # ------------------------------------------------------------ metrics
+    @property
+    def gross_edge(self) -> Decimal:
+        """Payout minus walked purchase cost — BEFORE fees and before the
+        cost of capital. Always computable from the walks, and always a
+        research figure: a positive gross edge says nothing about whether
+        the trade is executable or profitable."""
+        return self.payout_per_contract * self.quantity - self.gross_cost
+
+    @property
+    def known_costs(self) -> Decimal:
+        """Sum of the mandatory costs that could be computed. Research
+        only — it excludes the costs that are unavailable, so it is not a
+        cost total and subtracting it from ``gross_edge`` is not a profit."""
+        return self.costs.known_total
+
+    @property
+    def costs_complete(self) -> bool:
+        """Every mandatory cost was computed, so ``net_profit`` is a
+        verified number rather than an unavailable one."""
+        return self.costs.complete and self.net_profit is not None
+
+    @property
+    def net_profit_is_verified(self) -> bool:
+        """``net_profit`` is a real number, not UNAVAILABLE."""
+        return self.net_profit is not None
+
+    @property
+    def profitable_after_all_costs(self) -> bool:
+        """Verified positive net profit. False — never True — when net
+        profit is unavailable, however large the gross edge is."""
+        return self.net_profit is not None and self.net_profit > 0
+
+    @property
+    def is_executable(self) -> bool:
+        """The only opportunities execution may act on: a TRADE verdict
+        whose net profit is a verified positive number and whose capital
+        requirement is known. A positive gross edge with an incomplete
+        cost ledger does not qualify."""
+        return (self.status == OpportunityStatus.TRADE
+                and self.net_profit is not None
+                and self.net_profit > 0
+                and self.capital_required is not None
+                and not self.block_reasons)
 
 
 @dataclass

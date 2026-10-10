@@ -9,15 +9,28 @@ INDEPENDENT venues. Guaranteed profit iff, for the executable quantity q:
 Everything is computed from actual order-book walks — never headline
 prices. Missing fee data or unknown settlement lockup BLOCKS the
 opportunity (never treated as zero).
+
+An unavailable mandatory cost is never substituted with a number, so an
+opportunity whose fees or settlement timing cannot be computed has
+``net_profit=None`` — UNVERIFIED — and not a flattering positive figure.
+Each cost component is evaluated independently and recorded in a
+:class:`~prediction_arb.core.types.CostLedger`: the components that *can*
+be computed stay available for research, the ones that cannot carry their
+reason, and the ledger has no total until all of them are known. Gross
+edge (payout minus walked cost, before any cost) is always reported and is
+kept semantically separate from net profit: a positive gross edge is not a
+profitable executable opportunity.
 """
 from __future__ import annotations
 
 import uuid
 from decimal import Decimal
-from typing import Optional
+from typing import Callable, Optional
 
 from ..core.clock import utcnow
 from ..core.types import (
+    CostComponent,
+    CostLedger,
     FeeDataError,
     Independence,
     Leg,
@@ -118,6 +131,12 @@ def evaluate_two_leg(
 
     Returns None when there is no gross edge at all; otherwise an
     Opportunity whose status is TRADE / WATCH / BLOCK with reasons.
+
+    Net profit is only ever a number when every mandatory cost could be
+    computed. If a fee schedule or the settlement lockup is unavailable the
+    opportunity is BLOCK and ``net_profit`` is ``None`` (UNVERIFIED) — the
+    missing cost is never assumed to be zero, and the gross edge that made
+    the pair worth sizing is reported separately as research data.
     """
     payout = yes_contract.payout
     if no_contract.payout != payout or yes_contract.currency != no_contract.currency:
@@ -152,40 +171,67 @@ def evaluate_two_leg(
 
     gross_cost = yes_walk.total_cost + no_walk.total_cost
 
-    # fees — taker on both legs (conservative). Charged PER FILL from the
+    # --- mandatory costs, each computed independently -------------------
+    #
+    # Fees — taker on both legs (conservative). Charged PER FILL from the
     # levels each walk actually consumed: a venue bills each fill of a
     # walking order separately, rounds each fill, and may cap the order
     # total. One fee at the walk's weighted-average price is not what the
     # venue charges (defect D13).
-    try:
-        fees = (
-            fee_calc.trade_fee_fills(
+    #
+    # A component that cannot be computed is recorded as UNAVAILABLE with
+    # its reason — never as zero (§24). Components are evaluated one at a
+    # time so a single missing schedule cannot hide the others: every
+    # mandatory-cost failure is reported, and every cost that *is* known
+    # stays available for research.
+    def _component(name: str,
+                   compute: Callable[[], Decimal]) -> CostComponent:
+        try:
+            return CostComponent(name=name, amount=compute())
+        except FeeDataError as exc:
+            # One reason per distinct message: a venue with no schedule at
+            # all makes both of its components unavailable for the same
+            # cause, and repeating it would bury the other failures. The
+            # ledger still names every unavailable component.
+            if str(exc) not in block:
+                block.append(str(exc))
+            return CostComponent(name=name, amount=None, reason=str(exc))
+
+    fee_components = (
+        _component(
+            f"{yes_contract.venue}:trade_fee",
+            lambda: fee_calc.trade_fee_fills(
                 yes_contract.venue, _fill_slices(yes_walk), is_taker=True,
-                strict_freshness=strict_fee_freshness).total
-            + fee_calc.trade_fee_fills(
+                strict_freshness=strict_fee_freshness).total),
+        _component(
+            f"{no_contract.venue}:trade_fee",
+            lambda: fee_calc.trade_fee_fills(
                 no_contract.venue, _fill_slices(no_walk), is_taker=True,
-                strict_freshness=strict_fee_freshness).total
-            + fee_calc.settlement_fee(yes_contract.venue, qty,
-                                      strict_freshness=strict_fee_freshness)
-            + fee_calc.settlement_fee(no_contract.venue, qty,
-                                      strict_freshness=strict_fee_freshness)
-        )
-    except FeeDataError as e:
-        fees = Decimal("0")
-        block.append(str(e))
+                strict_freshness=strict_fee_freshness).total),
+        _component(
+            f"{yes_contract.venue}:settlement_fee",
+            lambda: fee_calc.settlement_fee(
+                yes_contract.venue, qty,
+                strict_freshness=strict_fee_freshness)),
+        _component(
+            f"{no_contract.venue}:settlement_fee",
+            lambda: fee_calc.settlement_fee(
+                no_contract.venue, qty,
+                strict_freshness=strict_fee_freshness)),
+    )
+    # None whenever any fee component is unavailable: an unknown fee is not
+    # a zero fee, so the fee total is unknown too.
+    fees = CostLedger(fee_components).total
+    # Capital locked = purchase cost + fees. Unknown fees ⇒ unknown capital
+    # (a gross-cost-only figure would understate the cash the trade needs).
+    capital = (gross_cost + fees) if fees is not None else None
 
     yes_best = yes_book.best_ask().price if yes_book.best_ask() else None
     no_best = no_book.best_ask().price if no_book.best_ask() else None
     slippage = (slippage_vs_best(yes_walk, yes_best)
                 + slippage_vs_best(no_walk, no_best))
 
-    capital = gross_cost + fees
-
     lockup = capital_lockup_days([yes_contract, no_contract])
-    delay_cost = settlement_delay_cost(capital, lockup, cost_of_capital_annual)
-    if delay_cost is None:
-        delay_cost = Decimal("0")
-        block.append("settlement lockup UNKNOWN — cannot cost capital delay")
     spread_days = settlement_delay_spread_days([yes_contract, no_contract])
     if spread_days is None:
         block.append("settlement delay spread UNKNOWN")
@@ -196,19 +242,61 @@ def evaluate_two_leg(
     if lockup is not None and lockup > Decimal("36500"):
         block.append("implausible settlement lockup")
 
+    if capital is None:
+        # The cost of capital is charged on locked capital, and locked
+        # capital includes fees. With unknown fees the base is unknown, so
+        # the delay cost is unavailable — it is not computed on a
+        # fee-free capital figure that would understate it.
+        delay = CostComponent(
+            "settlement_delay", None,
+            "cost-of-capital base unknown — mandatory trade/settlement fees "
+            "are unavailable")
+        block.append(f"settlement delay cost unavailable — {delay.reason}")
+    else:
+        amount = settlement_delay_cost(capital, lockup, cost_of_capital_annual)
+        if amount is None:
+            delay = CostComponent("settlement_delay", None,
+                                  "settlement lockup UNKNOWN")
+            block.append("settlement lockup UNKNOWN — cannot cost capital delay")
+        else:
+            delay = CostComponent("settlement_delay", amount)
+
+    costs = CostLedger(fee_components + (delay,))
+    total_cost = costs.total          # None ⇒ a mandatory cost is unknown
+    delay_cost = delay.amount
+
     guaranteed_payout = payout * qty
     # NOTE: slippage is already inside gross_cost (walk uses real levels).
     # It is reported separately but not double-counted.
-    net_profit = guaranteed_payout - gross_cost - fees - delay_cost
-    net_per_contract = (net_profit / qty) if qty else Decimal("0")
-    roc = (net_profit / capital) if capital > 0 else Decimal("0")
+    #
+    # gross_edge is the pre-cost research figure; net_profit is the profit
+    # test. They are never the same thing, and net_profit is None whenever
+    # any mandatory cost is unavailable.
+    gross_edge = guaranteed_payout - gross_cost
+    net_profit = (gross_edge - total_cost) if total_cost is not None else None
+    net_per_contract = ((net_profit / qty)
+                        if net_profit is not None and qty else None)
+    if net_profit is None or capital is None:
+        roc = None
+    elif capital > 0:
+        roc = net_profit / capital
+    else:
+        roc = Decimal("0")
 
     status = OpportunityStatus.TRADE
     if block:
         status = OpportunityStatus.BLOCK
+    elif net_profit is None or roc is None or delay_cost is None:
+        # Unreachable by construction: every unavailable component above
+        # appends a block reason. It stays because "TRADE/WATCH without a
+        # verified net profit" is the one outcome this module must never
+        # produce, so the safe verdict is asserted here rather than hoped
+        # for upstream.
+        status = OpportunityStatus.BLOCK
+        block.append("net profit unavailable — mandatory costs incomplete")
     elif net_profit < minimum_net_profit or roc < minimum_net_return:
         status = OpportunityStatus.WATCH
-    if net_profit <= 0:
+    if net_profit is not None and net_profit <= 0:
         status = OpportunityStatus.BLOCK
         block.append("net profit not positive after all costs")
 
@@ -245,4 +333,5 @@ def evaluate_two_leg(
         block_reasons=block,
         first_seen=now,
         last_seen=now,
+        costs=costs,
     )

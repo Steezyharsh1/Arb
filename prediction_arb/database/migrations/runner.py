@@ -80,10 +80,95 @@ def _m002_market_contract_fields(engine: Engine) -> None:
             "ON markets (settlement_time)"))
 
 
+# D17: opportunity money columns that must be able to hold NULL. A NULL
+# means "this mandatory cost could not be computed, so this figure is
+# UNVERIFIED" — the opposite of the "0" that used to be written there.
+_M003_NULLABLE = ("fees", "net_profit", "capital_required")
+
+# The rebuilt table definition. Keep it in sync with
+# `models.OpportunityRow`: a fresh database is created by `create_all` from
+# the model, an existing one by this migration, and both must agree.
+_M003_OPPORTUNITIES_DDL = """
+CREATE TABLE opportunities_v3 (
+    id INTEGER NOT NULL,
+    opportunity_id VARCHAR(64) NOT NULL,
+    mode VARCHAR(16) NOT NULL,
+    opportunity_type VARCHAR(32) NOT NULL,
+    timestamp DATETIME NOT NULL,
+    normalized_event TEXT NOT NULL,
+    contracts TEXT NOT NULL,
+    venues VARCHAR(128) NOT NULL,
+    gross_profit VARCHAR(32) NOT NULL,
+    fees VARCHAR(32),
+    slippage VARCHAR(32) NOT NULL,
+    net_profit VARCHAR(32),
+    quantity VARCHAR(32) NOT NULL,
+    capital_required VARCHAR(32),
+    independence VARCHAR(24) NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    block_reasons TEXT NOT NULL,
+    unavailable_costs TEXT,
+    first_seen DATETIME,
+    last_seen DATETIME,
+    PRIMARY KEY (id)
+)
+"""
+
+
+def _m003_opportunity_unavailable_costs(engine: Engine) -> None:
+    """Let the opportunity cost columns hold NULL, and record which
+    mandatory costs were unavailable (D17).
+
+    ``fees``, ``net_profit`` and ``capital_required`` are NULL when a
+    mandatory cost could not be computed, so the stored row can never
+    claim a verified positive net profit for a BLOCKed opportunity.
+    ``unavailable_costs`` names the missing components for research.
+
+    SQLite cannot relax a NOT NULL column in place, so an existing table is
+    rebuilt with the documented procedure and its rows copied across.
+    Nothing is rewritten: a stored number keeps its value and a NULL is
+    never back-filled with zero. Idempotent — a database created fresh by
+    migration 001 already has the nullable columns and the extra column, so
+    only the `ADD COLUMN` guard and the `PRAGMA` check run.
+    """
+    with engine.begin() as conn:
+        info = conn.execute(
+            text("PRAGMA table_info(opportunities)")).fetchall()
+    if not info:
+        return
+    present = {row[1]: row[3] for row in info}   # column name -> notnull flag
+    with engine.begin() as conn:
+        if "unavailable_costs" not in present:
+            conn.execute(text(
+                "ALTER TABLE opportunities ADD COLUMN unavailable_costs "
+                "TEXT"))
+    if not any(present.get(name) for name in _M003_NULLABLE):
+        return  # already nullable (fresh database) — nothing to rebuild
+
+    shared = [name for name in present if name != "unavailable_costs"]
+    columns = ", ".join(shared)
+    with engine.begin() as conn:
+        conn.execute(text(_M003_OPPORTUNITIES_DDL))
+        conn.execute(text(
+            f"INSERT INTO opportunities_v3 ({columns}) "
+            f"SELECT {columns} FROM opportunities"))
+        conn.execute(text("DROP TABLE opportunities"))
+        conn.execute(text(
+            "ALTER TABLE opportunities_v3 RENAME TO opportunities"))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_opportunities_opportunity_id "
+            "ON opportunities (opportunity_id)"))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_opportunities_mode "
+            "ON opportunities (mode)"))
+
+
 MIGRATIONS: list[Migration] = [
     (1, "create initial schema", _m001_create_all),
     (2, "markets: full NormalizedContract fields + raw payload (D4)",
      _m002_market_contract_fields),
+    (3, "opportunities: nullable cost columns + unavailable_costs (D17)",
+     _m003_opportunity_unavailable_costs),
 ]
 
 

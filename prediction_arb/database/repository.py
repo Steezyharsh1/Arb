@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
@@ -42,6 +43,16 @@ from .models import (
 #: (read-only). Replay must be able to see what collect recorded — that is
 #: the whole point of collecting — but it may never write into that store.
 _REPLAY_READABLE_TAGS = frozenset({"collect", "paper"})
+
+
+def _stored_amount(value: Optional[Decimal]) -> Optional[str]:
+    """Stored form of a money amount.
+
+    ``None`` stays ``None`` (SQL NULL): an unavailable mandatory cost is
+    recorded as UNVERIFIED, never as ``"0"`` — a zero fee column next to a
+    positive net profit is exactly the misleading row D17 removed.
+    """
+    return None if value is None else str(value)
 
 
 class Repository:
@@ -236,11 +247,20 @@ class Repository:
 
     # ------------------------------------------------------ opportunities
     def save_opportunity(self, op: Opportunity) -> None:
+        """Persist one evaluated opportunity (§40).
+
+        Money that depends on a mandatory cost is written as NULL when it
+        could not be computed — never as ``"0"`` (D17). A row therefore
+        cannot claim a verified positive net profit for an opportunity the
+        evaluator blocked for incomplete costs, and `unavailable_costs`
+        records exactly which components were missing.
+        """
         legs = [{
             "venue": l.venue, "contract_id": l.contract.contract_id,
             "side": l.side.value, "quantity": str(l.quantity),
             "wap": str(l.walk.weighted_average_price) if l.walk else None,
         } for l in op.legs]
+        missing = list(op.costs.missing_names())
         with Session(self.engine) as s:
             s.add(OpportunityRow(
                 opportunity_id=op.opportunity_id, mode=op.mode.value,
@@ -249,13 +269,14 @@ class Repository:
                 normalized_event=op.normalized_event,
                 contracts=json.dumps(legs),
                 venues=",".join(sorted({l.venue for l in op.legs})),
-                gross_profit=str(op.payout_per_contract * op.quantity
-                                 - op.gross_cost),
-                fees=str(op.total_fees), slippage=str(op.slippage),
-                net_profit=str(op.net_profit), quantity=str(op.quantity),
-                capital_required=str(op.capital_required),
+                gross_profit=str(op.gross_edge),
+                fees=_stored_amount(op.total_fees), slippage=str(op.slippage),
+                net_profit=_stored_amount(op.net_profit),
+                quantity=str(op.quantity),
+                capital_required=_stored_amount(op.capital_required),
                 independence=op.independence.value, status=op.status.value,
                 block_reasons=json.dumps(op.block_reasons),
+                unavailable_costs=(json.dumps(missing) if missing else None),
                 first_seen=op.first_seen, last_seen=op.last_seen))
             s.commit()
 
