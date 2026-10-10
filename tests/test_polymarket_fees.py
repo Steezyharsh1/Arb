@@ -29,6 +29,8 @@ from prediction_arb.fees.calculator import (
 )
 from prediction_arb.orderbooks.orderbook import walk_buy
 
+from .conftest import fresh_verification_date
+
 VENUE = "polymarket_us"
 
 # Transcribed from the current standard "Fee Schedule by Price" table
@@ -125,7 +127,7 @@ def polymarket_style_calc():
             "venue": venue,
             "version": "test-quadratic-v1",
             "effective_date": "2020-01-01",
-            "verified_at": "2026-09-13",
+            "verified_at": fresh_verification_date(),
             "verification_status": "VERIFIED",
             "documentation_tested": True,
             "source": "synthetic deterministic test fixture",

@@ -27,7 +27,7 @@ from ...execution.simulated import PaperExecutionEngine
 from ...fees.calculator import FeeCalculator
 from ...matching.llm_matcher import LLMMatcher
 from ...monitoring.alerts import ConsoleAlertSink
-from ...monitoring.dashboard import opportunities_table
+from ...monitoring.dashboard import opportunities_table, print_block_reasons
 from ...monitoring.health import HealthMonitor
 from ...orderbooks.aggregator import OrderBookAggregator
 from ...risk import kill_switch
@@ -180,6 +180,10 @@ class PaperEngine:
             f"opportunities={len(ops)}")
         if ops:
             self.console.print(opportunities_table(ops, Mode.PAPER))
+            # A BLOCK row says what happened, not why; the why (an incomplete
+            # or stale fee schedule, an unknown settlement lockup) is printed
+            # here so the operator is not left guessing (§58, D19).
+            print_block_reasons(self.console, ops, label=f"cycle {cycle}:")
 
         for op in ops:
             # Only a TRADE with a VERIFIED positive net profit may execute.

@@ -164,6 +164,28 @@ def make_book(venue: str, contract_id: str,
         timestamp=now, microstructure_type=MicrostructureType.CLOB)
 
 
+def fresh_verification_date() -> str:
+    """Today's date, for a synthetic schedule's ``verified_at``.
+
+    The synthetic "complete" schedules exist so engine arithmetic is
+    deterministic; their *age* is not what they test. A hardcoded
+    verification date silently turns stale once the host clock passes
+    ``fees.max_schedule_age_days`` (30), and because paper and live now
+    enforce the mandatory-freshness policy (§98, D19) every paper-mode
+    evaluation would then block on age instead of testing the arithmetic —
+    the same class of date bomb that caused D16. Tests that *are* about
+    staleness pass an explicit old date instead
+    (``tests/test_readiness.py``, ``tests/test_unavailable_costs.py``).
+
+    The date is read from the *fee engine's* clock, not from ``core.clock``,
+    so a run with the fee clock frozen (the date-independence sweep) still
+    sees these fixtures as fresh: what matters is the age the engine
+    computes, and both sides must come from the same clock.
+    """
+    from prediction_arb.fees import calculator
+    return calculator.utcnow().date().isoformat()
+
+
 @pytest.fixture
 def fee_calc():
     """Production fee ledger (context-incomplete venues fail closed)."""
@@ -186,7 +208,7 @@ def complete_fee_calc():
                 "venue": "kalshi",
                 "version": "test-static-v1",
                 "effective_date": "2020-01-01",
-                "verified_at": "2026-09-13",
+                "verified_at": fresh_verification_date(),
                 "verification_status": "VERIFIED",
                 "documentation_tested": True,
                 "source": "synthetic deterministic test fixture",
@@ -205,7 +227,7 @@ def complete_fee_calc():
                 "venue": "forecast_ex",
                 "version": "test-static-v1",
                 "effective_date": "2020-01-01",
-                "verified_at": "2026-09-13",
+                "verified_at": fresh_verification_date(),
                 "verification_status": "VERIFIED",
                 "documentation_tested": True,
                 "source": "synthetic deterministic test fixture",

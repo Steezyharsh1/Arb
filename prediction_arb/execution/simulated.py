@@ -26,6 +26,7 @@ from ..core.types import (
     PriceLevel,
 )
 from ..fees.calculator import FeeCalculator, FillSlice
+from ..fees.freshness import policy_for_mode
 from ..orderbooks.orderbook import walk_buy, walk_sell
 from .executor import ExecutionEngine
 
@@ -148,7 +149,12 @@ class _SimulatedExecutionEngine(ExecutionEngine):
                     request.venue,
                     [FillSlice(price=l.price, quantity=l.quantity)
                      for l in filled_levels],
-                    is_taker=True).total
+                    is_taker=True,
+                    # The same mandatory-freshness policy the scan applies
+                    # (§98, D19): a simulated fill must not be costed on a
+                    # schedule this mode would refuse to evaluate with.
+                    strict_freshness=policy_for_mode(
+                        self.mode).enforces_freshness).total
             except FeeDataError as exc:
                 # Missing contextual fees block even simulated fills: otherwise
                 # paper results would silently overstate executable profit.

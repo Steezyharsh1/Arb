@@ -47,7 +47,7 @@ from prediction_arb.fees.calculator import FeeCalculator
 from prediction_arb.monitoring.dashboard import opportunities_table
 from prediction_arb.monitoring.formatting import format_amount
 
-from .conftest import make_book, make_contract
+from .conftest import fresh_verification_date, make_book, make_contract
 
 
 # --------------------------------------------------------------------- helpers
@@ -85,7 +85,9 @@ def _fee_calc(overrides: dict[str, dict] | None = None,
             "venue": venue,
             "version": "test-static-v1",
             "effective_date": "2020-01-01",
-            "verified_at": "2026-09-13",
+            # Fresh by construction: these tests are about incomplete
+            # components, not about schedule age (see conftest).
+            "verified_at": fresh_verification_date(),
             "verification_status": "VERIFIED",
             "documentation_tested": True,
             "source": "synthetic deterministic test fixture",

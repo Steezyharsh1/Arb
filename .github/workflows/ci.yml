@@ -36,6 +36,33 @@ jobs:
       - name: CLI smoke — installed console script
         run: prediction-arb --status
 
+      # Readiness must be derived from observed state, must stay advisory, and
+      # must leave no side effects behind (§58, §98–§100; defects D10/D19).
+      - name: CLI smoke — readiness is derived, advisory and side-effect free
+        run: |
+          # Snapshot the runtime tree first. The test suite above legitimately
+          # leaves an empty data/paper/ behind (tests/test_paths.py,
+          # tests/test_phase4_recording.py), so what this step may assert is
+          # the *delta* --readiness produces, not an untouched working copy.
+          before=$(find data logs reports -mindepth 1 2>/dev/null | sort)
+          python -m prediction_arb.main --readiness > /tmp/readiness.out
+          after=$(find data logs reports -mindepth 1 2>/dev/null | sort)
+          grep -q "Fee-freshness policy per mode" /tmp/readiness.out
+          grep -q "live=MANDATORY, paper=MANDATORY" /tmp/readiness.out
+          grep -q "historical=RESEARCH, collect=NOT_APPLICABLE" /tmp/readiness.out
+          grep -q "LIVE MODE: NOT RECOMMENDED YET" /tmp/readiness.out
+          grep -q "Advisory only" /tmp/readiness.out
+          grep -q "blockers (detail above)" /tmp/readiness.out
+          # The old probe created data/paper/ and opened a SQLite store just to
+          # count rows in it (D10). A readiness *report* must create nothing:
+          # it opens the recorded store read-only if it already exists.
+          if [ "$before" != "$after" ]; then
+            echo "::error::--readiness changed the runtime tree:"
+            diff <(printf '%s\n' "$before") <(printf '%s\n' "$after") || true
+            exit 1
+          fi
+          test ! -e data/paper/prediction_arb_paper.sqlite3
+
       # Historical mode must say "no data" honestly rather than fabricate
       # history or fall back to live data (§55, §92).
       - name: CLI smoke — empty historical replay stays honest
