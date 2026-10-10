@@ -17,7 +17,6 @@ from ...core.types import (
     Mode,
     NormalizedContract,
     Opportunity,
-    OpportunityStatus,
     OrderBook,
 )
 from ...compliance.eligibility import check_contract_eligibility
@@ -183,7 +182,12 @@ class PaperEngine:
             self.console.print(opportunities_table(ops, Mode.PAPER))
 
         for op in ops:
-            if op.status == OpportunityStatus.TRADE:
+            # Only a TRADE with a VERIFIED positive net profit may execute.
+            # `is_executable` re-checks net profit, capital and block
+            # reasons, so an opportunity blocked for an unavailable
+            # mandatory cost can never reach execution on the strength of a
+            # positive gross edge (D17).
+            if op.is_executable:
                 await self._maybe_execute(op)
 
     async def _discover(self) -> list[NormalizedContract]:

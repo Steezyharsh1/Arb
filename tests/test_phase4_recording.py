@@ -37,8 +37,8 @@ from .conftest import make_book, make_contract
 
 # --------------------------------------------------------------------- D4
 class TestContractRecording:
-    def test_schema_is_version_2(self):
-        assert SCHEMA_VERSION == 2
+    def test_schema_is_version_3(self):
+        assert SCHEMA_VERSION == 3
 
     def test_migration_002_is_registered_and_idempotent(self, tmp_path):
         """A fresh DB already has the columns from create_all, so 002 must

@@ -146,8 +146,14 @@ live mode is monitor-only by construction.
   Books that fail the freshness gate are counted and reported, never
   silently dropped.
 - Mode isolation, kill switch, crash-recovery intents, and all ten mandatory
-  spec cases are covered by the test suite (`pytest` — 313 passing, all
+  spec cases are covered by the test suite (`pytest` — 348 passing, all
   offline).
+- An opportunity whose mandatory costs cannot be computed has **no** net
+  profit — `None`/`n/a`, never a fabricated zero fee and never a positive
+  figure next to a BLOCK verdict (D17). Gross edge and the costs that could
+  be computed stay reported as clearly separate research figures, and a
+  positive gross edge can never be mistaken for an executable opportunity
+  (`tests/test_unavailable_costs.py`).
 - Fees are charged **per fill** from the levels a walk actually consumed,
   with each venue's documented rounding, and Polymarket US's exact
   `Θ × C × p × (1-p)` model — banker's rounding per fill plus the

@@ -7,6 +7,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from ..core.types import Mode, Opportunity
+from .formatting import UNAVAILABLE_TEXT, format_amount
 
 _MODE_BANNERS = {
     Mode.HISTORICAL: ("HISTORICAL MODE", "REPLAY — NO REAL ORDERS ARE SENT", "cyan"),
@@ -37,16 +38,37 @@ def print_startup_summary(console: Console, mode: Mode,
 
 def opportunities_table(opportunities: list[Opportunity],
                         mode: Mode) -> Table:
-    table = Table(title=f"LIVE ARBITRAGE OPPORTUNITIES — "
-                        f"{mode.value.upper()} MODE")
-    for col in ("Event", "Legs", "YES exec", "NO exec", "Gross", "Fees",
-                "Slippage", "Net", "Qty", "Capital", "Indep",
+    """The opportunity table (§36, §52).
+
+    ``Gross edge`` is payout minus walked purchase cost, before any cost —
+    a research figure that is always computable. ``Fees``, ``Net`` and
+    ``Capital`` render as ``n/a`` whenever a mandatory cost could not be
+    computed, so a BLOCK row can never display a positive net profit next
+    to a fabricated ``$0.00`` fee column.
+    """
+    unpriced = [op for op in opportunities if op.net_profit is None]
+    table = Table(
+        title=f"LIVE ARBITRAGE OPPORTUNITIES — {mode.value.upper()} MODE",
+        caption=(
+            f"[bold]{len(unpriced)}[/bold] opportunity(ies) have no verified "
+            f"net profit: a mandatory cost is unavailable, so Net/Fees/"
+            f"Capital read {UNAVAILABLE_TEXT}. Gross edge is pre-cost and is "
+            f"NOT profit."
+            if unpriced else None))
+    for col in ("Event", "Legs", "YES exec", "NO exec", "Gross edge", "Fees",
+                "Slippage", "Net", "Qty", "Capital", "Costs", "Indep",
                 "Match conf", "Status"):
         table.add_column(col)
     for op in opportunities:
         yes_leg = next((l for l in op.legs if l.side.value == "yes"), None)
         no_leg = next((l for l in op.legs if l.side.value == "no"), None)
-        gross = op.payout_per_contract * op.quantity - op.gross_cost
+        missing = op.costs.missing_names()
+        if op.costs.complete:
+            costs = "complete"
+        elif missing:
+            costs = f"INCOMPLETE ({len(missing)})"
+        else:
+            costs = "UNCOSTED"   # hand-built row with no cost ledger
         style = {"TRADE": "green", "WATCH": "yellow",
                  "BLOCK": "red"}.get(op.status.value, "")
         table.add_row(
@@ -57,9 +79,13 @@ def opportunities_table(opportunities: list[Opportunity],
             if yes_leg and yes_leg.walk else "-",
             f"{no_leg.walk.weighted_average_price:.4f}"
             if no_leg and no_leg.walk else "-",
-            f"${gross:.2f}", f"${op.total_fees:.2f}",
-            f"${op.slippage:.2f}", f"${op.net_profit:.2f}",
-            str(op.quantity), f"${op.capital_required:.2f}",
+            format_amount(op.gross_edge),
+            format_amount(op.total_fees),
+            f"${op.slippage:.2f}",
+            format_amount(op.net_profit),
+            str(op.quantity),
+            format_amount(op.capital_required),
+            costs,
             op.independence.value,
             f"{op.match_confidence:.3f}" if op.match_confidence else "-",
             f"[{style}]{op.status.value}[/{style}]" if style

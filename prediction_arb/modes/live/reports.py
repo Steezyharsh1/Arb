@@ -24,10 +24,16 @@ def generate_daily_report(repo: Repository) -> Path:
             TradeRow.mode == "live")) or 0
         filled = s.scalar(select(func.count(TradeRow.id)).where(
             TradeRow.mode == "live", TradeRow.status == "FILLED")) or 0
+        # net_profit IS NULL ⇒ a mandatory cost was unavailable, so the
+        # opportunity has no verified net profit (D17). Never reported as 0.
+        unpriced = s.scalar(select(func.count(OpportunityRow.id)).where(
+            OpportunityRow.mode == "live",
+            OpportunityRow.net_profit.is_(None))) or 0
     report = {
         "mode": "live",
         "date": today,
         "opportunities_detected": int(ops),
+        "opportunities_without_verified_net_profit": int(unpriced),
         "trades_submitted": int(trades),
         "trades_filled": int(filled),
         "generated_at": utcnow().isoformat(),

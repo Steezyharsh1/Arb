@@ -14,13 +14,14 @@ from typing import Optional
 
 from rich.console import Console
 
-from ...backtesting.metrics import summarize_frames
+from ...backtesting.metrics import decision_was_trade, summarize_frames
 from ...core.config import AppConfig
 from ...core.logging import get_logger
 from ...core.types import Mode
 from ...database.repository import Repository
 from ...fees.calculator import FeeCalculator
 from ...matching.llm_matcher import LLMMatcher
+from ...monitoring.formatting import UNAVAILABLE_TEXT
 from ..shared import run_arbitrage_scan, run_matching
 from .data_provider import HistoricalDataProvider
 
@@ -34,7 +35,7 @@ def _fmt(value) -> str:
     like a bug) or as ``0`` (which reads like a real measurement of
     nothing).
     """
-    return "n/a" if value is None else str(value)
+    return UNAVAILABLE_TEXT if value is None else str(value)
 
 
 class HistoricalEngine:
@@ -106,6 +107,7 @@ class HistoricalEngine:
         total_ops = 0
         surviving_fees = 0
         executable = 0
+        unpriced = 0
         per_frame: list[tuple[datetime, list]] = []
         for ts, contracts, books in frames:
             approved, _mr = await run_matching(contracts, self.llm)
@@ -118,8 +120,14 @@ class HistoricalEngine:
                 cost_of_capital_annual=Decimal(str(self.config.settings.get(
                     "cost_of_capital", {}).get("annual_rate", 0.05))))
             total_ops += len(ops)
-            surviving_fees += sum(1 for o in ops if o.net_profit > 0)
-            executable += sum(1 for o in ops if o.status.value == "TRADE")
+            # "Survived fees" means a VERIFIED positive net profit. An
+            # opportunity whose mandatory costs could not be computed has no
+            # net profit at all, so it is counted separately as unpriced
+            # rather than being allowed to look profitable (D17).
+            surviving_fees += sum(1 for o in ops
+                                  if o.profitable_after_all_costs)
+            unpriced += sum(1 for o in ops if o.net_profit is None)
+            executable += sum(1 for o in ops if decision_was_trade(o))
             per_frame.append((ts, ops))
             for op in ops:
                 self.repo.save_opportunity(op)
@@ -140,6 +148,10 @@ class HistoricalEngine:
             "frames": len(frames),
             "opportunities": total_ops,
             "surviving_fees": surviving_fees,
+            #: Opportunities with no verified net profit because a mandatory
+            #: cost was unavailable. They are reported, never counted as
+            #: profitable and never given a net-profit figure.
+            "net_profit_unavailable": unpriced,
             "executable": executable,
             "reproducible": True,
             "contracts_reconstructed": sum(len(c) for _, c, _ in frames),
@@ -153,14 +165,23 @@ class HistoricalEngine:
             f"{total_ops} opportunities ({executable} executable), "
             f"{summary['contracts_reconstructed']} contracts reconstructed"
             + (f", {len(under)} unreconstructable" if under else ""))
+        if unpriced:
+            self.console.print(
+                f"[yellow]{unpriced} opportunity(ies) have no verified net "
+                f"profit — a mandatory cost was unavailable, so their net "
+                f"profit is {UNAVAILABLE_TEXT} and they are not counted as "
+                f"profitable or executable.[/yellow]")
         # `n/a` rather than a bare `None`: an unavailable metric must read
         # as unavailable, never as zero or as a value.
         dur = metrics.durations.median_seconds
         self.console.print(
             f"Opportunity duration median: "
-            f"{'n/a' if dur is None else f'{dur}s'} | fill probability: "
-            f"{_fmt(metrics.fills.fill_probability_at_touch)} | fee drag: "
-            f"{_fmt(metrics.fee_drag.drag_ratio)}")
+            f"{UNAVAILABLE_TEXT if dur is None else f'{dur}s'} | fill "
+            f"probability: {_fmt(metrics.fills.fill_probability_at_touch)} | "
+            f"fee drag: {_fmt(metrics.fee_drag.drag_ratio)}"
+            + (f" ({metrics.fee_drag.uncosted_opportunities} uncosted, "
+               f"ratio withheld)"
+               if metrics.fee_drag.uncosted_opportunities else ""))
         self.console.print(
             f"[dim]Modelled equity (upper bound — assumes every executable "
             f"opportunity filled): final {metrics.equity.final_equity}, "

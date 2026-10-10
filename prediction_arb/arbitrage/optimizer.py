@@ -19,10 +19,30 @@ from ..provenance.independence import contracts_independent
 from .two_leg import evaluate_two_leg
 
 
+def _is_priced(op: Opportunity) -> bool:
+    """True when the opportunity carries a verified net profit and every
+    input the ranking score needs."""
+    return (op.net_profit is not None
+            and op.return_on_capital is not None
+            and op.settlement_delay_cost is not None)
+
+
 def score(op: Opportunity) -> Decimal:
-    """Composite ranking score (§41). Not percentage-return-only."""
+    """Composite ranking score (§41). Not percentage-return-only.
+
+    Requires a verified net profit. An opportunity whose mandatory costs
+    could not be computed has no score: ranking it on gross edge would put
+    an unpriced, non-executable candidate ahead of a costed one, and gross
+    edge is not profit.
+    """
+    if not _is_priced(op):
+        missing = ", ".join(op.costs.missing_names()) or "cost ledger empty"
+        raise ValueError(
+            f"opportunity {op.opportunity_id} has no verified net profit "
+            f"(unavailable mandatory costs: {missing}); it cannot be "
+            f"scored. Gross edge ({op.gross_edge}) is not profit.")
     s = op.net_profit
-    if op.capital_required > 0:
+    if op.capital_required is not None and op.capital_required > 0:
         s += op.return_on_capital * Decimal("10")     # capital efficiency
     s += min(op.quantity, Decimal("500")) / Decimal("100")  # liquidity
     if op.match_confidence is not None:
@@ -33,7 +53,17 @@ def score(op: Opportunity) -> Decimal:
 
 
 def rank(opportunities: list[Opportunity]) -> list[Opportunity]:
-    return sorted(opportunities, key=score, reverse=True)
+    """Scored opportunities first, best first; unpriced ones last.
+
+    Opportunities whose mandatory costs could not be computed are never
+    scored. They are appended after every scored opportunity, ordered by
+    gross edge for research only, so a large positive gross edge can never
+    outrank — or be mistaken for — a profitable executable opportunity.
+    """
+    priced = [op for op in opportunities if _is_priced(op)]
+    unpriced = [op for op in opportunities if not _is_priced(op)]
+    unpriced.sort(key=lambda op: op.gross_edge, reverse=True)
+    return sorted(priced, key=score, reverse=True) + unpriced
 
 
 def search_event(
