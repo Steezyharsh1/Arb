@@ -155,9 +155,10 @@ class TestHistoricalHonesty:
         assert result.frames_available == 0
         assert result.first_frame is None and result.last_frame is None
         assert result.opportunities_observed == 0
-        assert result.equity.points == []
-        assert result.equity.final_equity == Decimal("0")
-        assert result.equity.max_drawdown == Decimal("0")
+        assert result.theoretical_net.points == []
+        assert result.theoretical_net.net_edge_sum_known_subset is None
+        assert result.simulation["net_simulated_pnl"] is None
+        assert "modelled_equity" not in result.to_dict()
 
     def test_backtest_refuses_to_run_without_fee_data(self, tmp_path):
         """Cost is what separates a real trade from a fantasy one, so a

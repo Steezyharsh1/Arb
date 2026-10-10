@@ -16,7 +16,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class Base(DeclarativeBase):
@@ -150,6 +150,9 @@ class OpportunityRow(Base):
     #: component could be computed.
     unavailable_costs: Mapped[Optional[str]] = mapped_column(
         Text, nullable=True)
+    # Calculated opportunities are not fill evidence. Replay records the
+    # decision time, input snapshot IDs and temporal limitations here.
+    evaluation_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     first_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -206,6 +209,17 @@ class OrderBookSnapshotRow(Base):
     bids_json: Mapped[str] = mapped_column(Text)
     asks_json: Mapped[str] = mapped_column(Text)
     raw_json: Mapped[str] = mapped_column(Text, default="")
+
+    # Migration 004: unknown on legacy rows, never backfilled from quote time.
+    received_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True)
+    timestamp_source: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    outcome_side: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    sequence_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    microstructure_type: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    contract_observed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True)
+    contract_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class MetaRow(Base):

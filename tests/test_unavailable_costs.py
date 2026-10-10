@@ -512,7 +512,7 @@ class TestPersistenceKeepsUnavailableCosts:
         )
         from sqlalchemy import create_engine
 
-        assert [v for v, _d, _f in MIGRATIONS] == [1, 2, 3]
+        assert [v for v, _d, _f in MIGRATIONS] == [1, 2, 3, 4]
         path = tmp_path / "legacy.sqlite3"
         engine = create_engine(f"sqlite:///{path}", future=True)
         with engine.begin() as conn:
@@ -563,7 +563,7 @@ class TestPersistenceKeepsUnavailableCosts:
             assert "unavailable_costs" in notnull
             versions = [row[0] for row in conn.execute(
                 text("SELECT version FROM schema_migrations"))]
-            assert versions == [1, 2, 3]
+            assert versions == [1, 2, 3, 4]
             # the recorded row survived the rebuild unchanged
             kept = conn.execute(text(
                 "SELECT opportunity_id, net_profit, fees FROM opportunities"
@@ -623,14 +623,16 @@ class TestReportSurfacesUnpricedOpportunities:
         result = summarize_frames(frames, max_total_capital=Decimal("1000"))
         # the unpriced opportunity is counted as observed, not as executable
         assert result.opportunities_observed == 2
-        assert result.executable_observed == 1
+        assert result.costed_positive_opportunities == 1
+        assert result.executable_observed == 0  # no temporal evidence was supplied
         assert result.fee_drag.uncosted_opportunities == 1
         # a fee-drag ratio over a partially costed set is withheld, not
         # averaged down
         assert result.fee_drag.drag_ratio is None
         assert result.to_dict()["fee_drag"]["uncosted_opportunities"] == 1
-        # and it contributes nothing to the modelled equity curve
-        assert result.equity.final_equity == priced.net_profit
+        # Unpriced rows contribute no theoretical net amount and no fills.
+        assert result.theoretical_net.net_edge_sum_known_subset == priced.net_profit
+        assert result.simulation["net_simulated_pnl"] is None
 
     def test_historical_replay_end_to_end_reports_unpriced(self, tmp_path,
                                                            monkeypatch):

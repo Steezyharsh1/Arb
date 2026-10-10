@@ -18,6 +18,8 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from prediction_arb.core.types import (
+    CostComponent,
+    CostLedger,
     MarketMicrostructure,
     MicrostructureType,
     Mode,
@@ -37,8 +39,8 @@ from .conftest import make_book, make_contract
 
 # --------------------------------------------------------------------- D4
 class TestContractRecording:
-    def test_schema_is_version_3(self):
-        assert SCHEMA_VERSION == 3
+    def test_schema_is_version_4(self):
+        assert SCHEMA_VERSION == 4
 
     def test_migration_002_is_registered_and_idempotent(self, tmp_path):
         """A fresh DB already has the columns from create_all, so 002 must
@@ -166,13 +168,13 @@ class TestContractRecording:
             "kalshi", "KX-1", asks=[("0.45", "10")], bids=[("0.40", "10")]))
         # a book with no recorded contract at all
         repo.save_orderbook_snapshot(make_book(
-            "polymarket_us", "GHOST", asks=[("0.45", "10")]))
+            "polymarket_us", "GHOST", asks=[("0.45", "10")], bids=[("0.40", "10")]))
 
         provider = HistoricalDataProvider(repo)
         frames = provider.load_frames(None, None)
-        assert len(frames) == 1
+        assert len(frames) == 2  # exact observation times, never minute buckets
         # only the reconstructable contract reaches the matcher
-        assert [c.contract_id for c in frames[0][1]] == ["KX-1"]
+        assert [c.contract_id for c in frames[-1][1]] == ["KX-1"]
         assert len(provider.under_recorded) == 1
         venue, cid, reason = provider.under_recorded[0]
         assert (venue, cid) == ("polymarket_us", "GHOST")
@@ -323,7 +325,10 @@ class TestBacktestMetrics:
             capital_required=capital, return_on_capital=Decimal("0.05"),
             independence=Independence.INDEPENDENT, match_id="m",
             match_confidence=0.9, status=OpportunityStatus(status),
-            first_seen=ts, last_seen=ts)
+            first_seen=ts, last_seen=ts,
+            costs=CostLedger((CostComponent("synthetic_cost", fees),)),
+            evaluation_metadata={"execution_data_supported": True,
+                                 "costed_trade_before_data_gates": status == "TRADE"})
 
     def _leg(self, filled, requested):
         from prediction_arb.core.types import (
@@ -376,38 +381,38 @@ class TestBacktestMetrics:
         assert stats.single_frame_only == 1
         assert stats.max_seconds == 0.0
 
-    def test_fill_stats_measure_recorded_depth(self):
-        from prediction_arb.backtesting.metrics import compute_fill_stats
+    def test_depth_stats_measure_recorded_depth(self):
+        from prediction_arb.backtesting.metrics import compute_depth_stats
         t0 = datetime(2026, 9, 20, 12, 0, tzinfo=timezone.utc)
         ops = [self._opportunity(t0, [
             self._leg("10", "10"),    # fully filled
             self._leg("4", "10"),     # partial
             self._leg("0", "10"),     # nothing
         ])]
-        stats = compute_fill_stats(ops)
+        stats = compute_depth_stats(ops)
         assert stats.leg_observations == 3
-        assert stats.fully_filled == 1
-        assert stats.partially_filled == 1
-        assert stats.unfilled == 1
-        assert stats.fill_probability_at_touch == pytest.approx(1 / 3)
-        assert stats.partial_fill_rate == pytest.approx(1 / 3)
-        assert stats.mean_fill_ratio == pytest.approx((1 + 0.4 + 0) / 3)
+        assert stats.fully_covered == 1
+        assert stats.partially_covered == 1
+        assert stats.no_coverage == 1
+        assert stats.full_coverage_rate == pytest.approx(1 / 3)
+        assert stats.partial_coverage_rate == pytest.approx(1 / 3)
+        assert stats.mean_coverage_ratio == pytest.approx((1 + 0.4 + 0) / 3)
 
-    def test_fill_stats_are_null_not_optimistic_without_walks(self):
+    def test_depth_stats_are_null_not_optimistic_without_walks(self):
         """No recorded walk ⇒ null. Assuming 100% fill would be D12 all
         over again."""
-        from prediction_arb.backtesting.metrics import compute_fill_stats
+        from prediction_arb.backtesting.metrics import compute_depth_stats
         t0 = datetime(2026, 9, 20, 12, 0, tzinfo=timezone.utc)
         leg = self._leg("10", "10")
         leg.walk = None
-        stats = compute_fill_stats([self._opportunity(t0, [leg])])
+        stats = compute_depth_stats([self._opportunity(t0, [leg])])
         assert stats.leg_observations == 0
-        assert stats.fill_probability_at_touch is None
-        assert stats.partial_fill_rate is None
-        assert stats.mean_fill_ratio is None
+        assert stats.full_coverage_rate is None
+        assert stats.partial_coverage_rate is None
+        assert stats.mean_coverage_ratio is None
 
-    def test_equity_curve_and_drawdown_are_modelled_upper_bounds(self):
-        from prediction_arb.backtesting.metrics import compute_equity_curve
+    def test_theoretical_net_series_includes_costed_losses_not_equity(self):
+        from prediction_arb.backtesting.metrics import compute_theoretical_net_series
         t0 = datetime(2026, 9, 20, 12, 0, tzinfo=timezone.utc)
         frames = [
             (t0, [self._opportunity(t0, [], net=Decimal("10"))]),
@@ -416,24 +421,23 @@ class TestBacktestMetrics:
             (t0 + timedelta(minutes=2), [self._opportunity(
                 t0, [], net=Decimal("2"))]),
         ]
-        curve = compute_equity_curve(frames)
-        assert curve.final_equity == Decimal("8")
-        assert curve.peak_equity == Decimal("10")
-        assert curve.max_drawdown == Decimal("4")
-        assert curve.max_drawdown_pct == pytest.approx(0.4)
+        curve = compute_theoretical_net_series(frames)
+        assert curve.net_edge_sum_known_subset == Decimal("8")
+        assert curve.costed_observations == 3
         assert len(curve.points) == 3
 
-    def test_blocked_opportunities_never_enter_the_equity_curve(self):
-        """Only TRADE-status rows count. Adding blocked ones would
-        manufacture P&L that was never available."""
-        from prediction_arb.backtesting.metrics import compute_equity_curve
+    def test_costed_block_watch_edges_remain_theoretical_not_fills(self):
+        """All costed edge observations can be calculated, but none may
+        be credited as trading P&L without dated simulation."""
+        from prediction_arb.backtesting.metrics import compute_theoretical_net_series
         t0 = datetime(2026, 9, 20, 12, 0, tzinfo=timezone.utc)
-        curve = compute_equity_curve([(t0, [
+        curve = compute_theoretical_net_series([(t0, [
             self._opportunity(t0, [], net=Decimal("10")),
             self._opportunity(t0, [], net=Decimal("99"), status="BLOCK"),
             self._opportunity(t0, [], net=Decimal("99"), status="WATCH"),
         ])])
-        assert curve.final_equity == Decimal("10")
+        assert curve.net_edge_sum_known_subset == Decimal("208")
+        assert curve.costed_observations == 3
 
     def test_fee_drag_and_capital_utilisation(self):
         from prediction_arb.backtesting.metrics import (
@@ -465,11 +469,11 @@ class TestBacktestMetrics:
         assert result.frames_available == 1
         assert result.opportunities_observed == 1
         assert result.executable_observed == 1
-        assert any("upper bound" in a for a in result.assumptions)
+        assert any("not MODELLED equity" in a for a in result.assumptions)
         # JSON-safe and lossless for Decimals
         as_dict = result.to_dict()
         assert as_dict["capital"]["peak_capital_required"] == "100"
-        assert as_dict["fee_drag"]["total_fees"] == "1"
+        assert as_dict["fee_drag"]["total_fees_known_subset"] == "1"
 
     def test_run_backtest_end_to_end_over_recorded_data(self, tmp_path):
         """The whole Phase 4 chain: collect records → store → read-only
@@ -509,15 +513,16 @@ class TestBacktestMetrics:
         result = asyncio.run(engine.run_backtest())
 
         # Recorded data was found and both contracts were rebuilt faithfully.
-        assert result.frames_available == 1
+        assert result.frames_available == 2  # independently observed books
         assert result.first_frame is not None
-        assert result.contracts_reconstructed == 2
+        assert result.contracts_reconstructed == 3  # per-frame contract references
         assert result.contracts_unreconstructable == 0
         # No LLM ⇒ pair is REVIEW ⇒ nothing approved ⇒ no opportunities
         # reported. A profitable-looking spread is not a trade.
         assert result.opportunities_observed == 0
         assert result.executable_observed == 0
-        assert result.equity.final_equity == Decimal("0")
+        assert result.theoretical_net.net_edge_sum_known_subset is None
+        assert result.simulation["net_simulated_pnl"] is None
         assert result.assumptions  # assumptions are always disclosed
 
     def test_run_backtest_reports_trades_when_a_pair_is_approved(self,
@@ -568,8 +573,10 @@ class TestBacktestMetrics:
                                 settings=config.settings)
         result = asyncio.run(engine.run_backtest())
 
-        assert result.frames_available == 1
+        assert result.frames_available == 2
         assert result.opportunities_observed >= 1
+        assert result.executable_observed == 0  # legacy timing/terms are insufficient
+        assert result.simulation["attempted_entries"] == 0
         assert result.durations.distinct_opportunities >= 1
         assert result.fee_drag.gross_cost > 0
         assert result.capital.peak_capital_required is not None
@@ -611,12 +618,12 @@ class TestBacktestMetrics:
         metrics = summary["metrics"]
         assert metrics["frames_available"] == 1
         # every section of the battery is present in the report payload
-        for section in ("fills", "durations", "capital", "fee_drag",
-                        "modelled_equity"):
+        for section in ("theoretical_depth_coverage", "sampled_observation_spans", "capital",
+                        "fee_drag", "theoretical_net_edge_observations", "simulation", "observed_data"):
             assert section in metrics, f"missing {section} from replay report"
         assert metrics["assumptions"]
-        # the modelled label survives into the report, so it cannot be
-        # misread downstream as measured performance
+        assert "fills" not in metrics and "modelled_equity" not in metrics
+        # the explicit theoretical label survives into the report
         assert any("MODELLED" in a for a in metrics["assumptions"])
 
     def test_data_inventory_still_reports_recorded_range(self, tmp_path):

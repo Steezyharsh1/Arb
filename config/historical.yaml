@@ -1,8 +1,21 @@
 schema_version: 1
 mode: historical
-execution_engine: HistoricalExecutionEngine
+execution_engine: HistoricalFillSimulator
 database: prediction_arb_historical
 allow_live_orders: false
 env_file: .env.historical
 data_dir: data/historical
 requires_trading_credentials: false
+
+# Research assumptions, NOT venue execution evidence. Unsupported legacy
+# snapshots never reach this model. See docs/HISTORICAL_EVALUATION.md.
+simulation:
+  enabled: true
+  decision_latency_ms: 100
+  leg_latency_ms: 100
+  max_pair_skew_ms: 250
+  displayed_depth_fraction: 0.5  # deterministic depth haircut, not fill probability
+  starting_cash:                # separate from paper or any real account
+    kalshi: 1000
+    polymarket_us: 750
+    forecast_ex: 750

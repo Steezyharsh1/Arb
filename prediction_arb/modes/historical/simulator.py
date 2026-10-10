@@ -1,5 +1,8 @@
-"""Historical execution simulation: re-export of the dedicated
-HistoricalExecutionEngine. Distinct class, simulation only (§44)."""
-from ...execution.simulated import HistoricalExecutionEngine
+"""Historical replay and library backtests share ONE dated research model.
 
-__all__ = ["HistoricalExecutionEngine"]
+The older undated HistoricalExecutionEngine is retained for direct simulator
+unit tests; it is not the historical evaluation path (§102).
+"""
+from ...backtesting.simulator import HistoricalFillSimulator
+
+__all__ = ["HistoricalFillSimulator"]

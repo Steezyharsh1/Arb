@@ -48,6 +48,7 @@ from ..core.types import (
     MicrostructureType,
     OrderBook,
     PriceLevel,
+    Side,
 )
 
 log = logging.getLogger(__name__)
@@ -166,12 +167,16 @@ class _BookState:
         # NO bids sorted descending → asks (1-p) sorted ascending.
         yes_asks = [PriceLevel(Decimal(1) - p, q)
                     for p, q in sorted(self.no.items(), key=lambda kv: -kv[0])]
+        received_at = utcnow()
         return OrderBook(
             venue=self.venue,
             contract_id=self.ticker,
             bids=yes_bids,
             asks=yes_asks,
-            timestamp=utcnow(),
+            timestamp=received_at,
+            received_at=received_at,
+            timestamp_source="local_receipt",
+            outcome_side=Side.YES,
             sequence_number=self.last_seq,
             microstructure_type=MicrostructureType.CLOB,
             raw=None,

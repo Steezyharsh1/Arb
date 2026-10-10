@@ -27,7 +27,7 @@ ROOT = project_root()
 CONFIG_DIR = ROOT / "config"
 
 _EXPECTED_ENGINE = {
-    Mode.HISTORICAL: "HistoricalExecutionEngine",
+    Mode.HISTORICAL: "HistoricalFillSimulator",
     Mode.PAPER: "PaperExecutionEngine",
     Mode.LIVE: "LiveExecutionEngine",
     Mode.COLLECT: None,  # collect mode has no execution engine at all

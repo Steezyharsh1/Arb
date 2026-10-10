@@ -5,14 +5,20 @@ permanent entry point for a fresh agent session with no memory of prior
 conversations. It tells you what the project is, what is true *right now*,
 what is broken, what you may work on, and what you must not touch.
 
-- **Last updated:** 2026-10-10 (UTC) on the fixed Arena branch
-  `arena/2ac1509e-arb` (base `86bd003ee00e9962f1cae219446a170471986230`).
-  Arb.12 adds an 11-test offline synthetic path from paper-allowed contract
-  eligibility through the production matching/certificate, fresh-book scan,
-  walked fee/settlement evaluation, risk coordinator and simulated paper
-  fills/recovery. Synthetic LLM, fee and ForecastEx timing inputs are explicitly
-  test-only; no adapter, live placement method, or real opportunity is used.
-  Exact coverage and boundaries are in §6, §7c and §12.
+- **Last updated:** 2026-10-10 (UTC), Arb.13 / D28, on the fixed Arena branch
+  `arena/82abf69d-arb` (base `3d01ce9139dd303eee3dcc9b310d6572a197f861`).
+  Historical CLI/library now share an exact-time, causal evaluator and explicit
+  conditional depth/latency/cash simulator. Schema 4 preserves receipt/outcome/
+  immutable-term evidence without inventing legacy context. Report schema 2
+  separates observed inputs, calculated opportunity edge, assumed execution,
+  simulated paired positions and naked exposure; unsupported data earns no
+  simulated profit. No walk-derived fill probability, opportunity-summed equity
+  or credited settlement cash. **No genuine recorded dataset exists here.**
+  Full offline suite: **704 passed in 68.46 s**; 61 new deterministic cases,
+  eight caught mutations. See §6 / §7f and `docs/HISTORICAL_EVALUATION.md`.
+  No production venue/fee/timing/readiness claim was promoted or live path enabled.
+- **Previous update (Arb.12, base `86bd003`, merged as `3d01ce9`):**
+  11 offline TEST-ONLY paper-core integration cases; inherited 643-test result.
 - **Previous update (D27, 2026-10-10, merge commit `86bd003`):**
   audited adapter evidence, public-only smoke posture, collection admission,
   order-book validity, paper data gating and readiness; recorded both latest
@@ -95,14 +101,14 @@ Authoritative context: `README.md` (what works / what is stubbed),
 | Item | Value |
 |---|---|
 | Repo | `Steezyharsh1/Arb` (package name `prediction_arb`) |
-| Working branch (fixed for this Arena session) | `arena/2ac1509e-arb` |
-| Baseline commit | `86bd003ee00e9962f1cae219446a170471986230` — Arena session base (D27 merge) |
-| Working tree at continuation | clean; no pre-existing changes. Baseline suite re-run before edits: 632 passed in 28.86 s; Arb.12 result is recorded in §6. |
-| Clone depth | **shallow (depth 1)**: `git log` shows a single commit. Run `git fetch --unshallow` if you need real history (e.g. to blame a regression) |
+| Working branch (fixed for this Arena session) | `arena/82abf69d-arb` |
+| Baseline commit | `3d01ce9139dd303eee3dcc9b310d6572a197f861` — Arena session base (Arb.12 merge) |
+| Working tree at Arb.13 start | clean; no pre-existing changes; baseline **643 passed in 35.05 s**. Arb.13 result and limitations are in §6. Changes are one focused commit on the fixed branch; no push or remote CI is claimed. |
+| Clone depth at session start | **shallow (depth 1)**: initial `git log` showed a single commit. Run `git fetch --unshallow` if you need real history (e.g. to blame a regression) |
 | Merged PRs to date | #1 Phase 0, #2 Phase 1, #3 Phases 2+3, #4 Phase 2/3 gaps + Phase 4, #5 Phase 5, #6 D16 baseline recovery, #7 deterministic settlement fixtures, #8 D17 mandatory-cost fail-closed repair, #9 fee-readiness review, #10 D18 settlement timing, #11 D10/D19 readiness + fee freshness |
 | Arb.8 candidate-retrieval session | Branch `arena/732e107e-arb`, branched from `91d46df` (`main` HEAD). Baseline before its change: `.venv/bin/pytest -o addopts=""` **549 passed in 27.72 s**. After it: **582 passed in 27.75 s** (549 + 31 new in `tests/test_candidate_retrieval.py` + 2 new settlement/threshold regressions). Not pushed (session policy). |
 | Arb.9 matching budget & dedup session | Branch `arena/a5c3486d-arb`, branched from `0b99106` (`main` HEAD). After: **597 passed in 29.23 s** (582 + 15 new in `tests/test_matching_arb9.py`). |
-| CI | `.github/workflows/ci.yml`: install → `pytest` → 5 CLI smokes (status, readiness, collect, paper, historical) → honest-empty-replay grep → readiness side-effect guard → tracked-artifact guard |
+| CI | `.github/workflows/ci.yml`: install → `pytest` → 5 CLI smokes (three status entry points, readiness, empty historical) → honest-empty-replay grep → readiness side-effect guard → tracked-artifact guard |
 
 ---
 
@@ -116,8 +122,8 @@ inventory: `docs/MODE_SEPARATION.md`. Trading rules and the profit test:
 this is the complete route from "a market exists" to "an opportunity is
 scored", and every defect that has ever mattered lived on it:
 
-1. `prediction_arb/main.py` — `main()` → `load_config()` → `build_adapters()`
-   → mode engine. The only place `allow_order_placement=True` can be set
+1. `prediction_arb/main.py` — `main()` → `load_config()` → mode engine;
+   historical **skips** `build_adapters()` / venue connections / calibration. The only place `allow_order_placement=True` can be set
    (live only), and the only place the LLM matcher is constructed.
 2. `prediction_arb/core/config.py` — mode/engine/database/env consistency
    (`validate_mode_consistency`, `load_mode_env`); refuses startup on any
@@ -126,8 +132,8 @@ scored", and every defect that has ever mattered lived on it:
 3. `prediction_arb/modes/paper/engine.py` — the reference cycle: discovery →
    eligibility filter → matching → books (streamed or polled, through
    `OrderBookAggregator` with a staleness gate) → scan → simulated execution.
-   Collect/historical/live engines differ only in data provider and execution
-   engine (`prediction_arb/modes/*`).
+   Collect records only, live is monitor-only, and historical uses the common
+   dated evaluator / conditional model (`prediction_arb/modes/*`, `backtesting/*`).
 4. `prediction_arb/normalization/contracts.py` — `blocking_keys()`,
    `candidate_pairs()`, `groups_from_pairs()`. Candidate **proposal** (§96,
    Arb.8): a pair is proposed only if it is cross-venue, both settle within the
@@ -145,7 +151,8 @@ scored", and every defect that has ever mattered lived on it:
    `validate_match()` issues APPROVED **only** for a proven-INDEPENDENT pair
    (§33, defect D15); everything else is REVIEW/REJECTED.
 8. `prediction_arb/modes/shared.py` — `run_matching()` then
-   `run_arbitrage_scan()`; identical across modes (§45, §57).
+   `run_arbitrage_scan()`; shared stages (§45, §57). Historical adds an explicit
+   outcome-side view and exact-time data qualification (§102).
    → `prediction_arb/arbitrage/optimizer.py::search_event()` evaluates only
    pairs holding an APPROVED certificate **and** `Independence.INDEPENDENT`.
 9. `prediction_arb/arbitrage/two_leg.py::evaluate_two_leg()` — **the core.**
@@ -253,13 +260,39 @@ live-blocking): `docs/COMPLIANCE.md`, evidence rows R1–R9 in
 |---|---|---|---|
 | `collect` | `--mode collect` | Records usable two-sided order-book snapshots to `data/paper/*.sqlite3` (tagged `mode=collect`); no execution engine/path | Admits only `MARKET_DATA_OBSERVED` or `VERIFIED`; current Kalshi admission is based on the historical 2026-08-30 public capture. Rejects invalid/crossed books and skips Polymarket US (`API_DOCUMENTED_UNTESTED`). No fresh live snapshot observed in this sandbox. |
 | `paper` (default) | `--mode paper` | REST market discovery for adapters with usable market-data evidence; simulated pipeline and simulated execution only | WebSocket streaming still requires full `VERIFIED`; current public probes are UNAVAILABLE. With no LLM configured ambiguous pairs remain REVIEW, never auto-approved. |
-| `historical` | `--mode historical --date YYYY-MM-DD` | Read-only replay of the recorded store (SQLite `mode=ro`) into its own DB + metrics | Refuses to invent data; a missing store is reported, never created |
+| `historical` | `--mode historical --date YYYY-MM-DD` | Read-only exact as-of replay into its own DB + schema-2 report; `HistoricalFillSimulator` only for explicitly enabled, data/cost-supported entries | No venue adapters. Legacy/incomplete input stays theory; fills/P&L are conditional, not realized; empty report retains null P&L and collection requirements |
 | `live` | `--mode live` | **Monitor-only by construction** — requires the typed confirmation phrase and does not scan to execute | Requires full adapter verification/order support; current live-capable venue count is 0. No flag bypasses the phrase; kill switch blocks live entirely |
 | utility | `--status`, `--readiness`, `--kill`, `--unkill` | Venue/provenance table, claim-level evidence table, per-mode derived readiness report, persistent kill switch | Advisory only: report enables nothing. Documentation, connectivity, usable market data and full adapter verification are distinct; latest smoke failures are UNAVAILABLE, not adapter failure. |
 
 ---
 
 ## 6. Verified test results and environment limitations (2026-10-10)
+
+### Current Arb.13 verification — actually run, offline
+
+| Command / check | Result |
+|---|---|
+| `.venv/bin/pytest -o addopts=''` before edits | **643 passed in 35.05 s**, baseline `3d01ce9` |
+| Same full command after edits | **704 collected / 704 passed in 68.46 s**, Python 3.11.2 / pytest 9.1.1 |
+| `.venv/bin/pytest -o addopts='' tests/test_historical_evaluation.py` | **61 passed in 28.24 s**: empty, timestamp disorder/leakage, stale/skew/context, unavailable/partial/full fills, cash/depth/fees/reserves, losses, exposure, read-only migration and CLI/library/persistence/capture |
+| Eight targeted mutation checks | **Each caught (1 failed)**, source restored; legacy grade assertion strengthened and future library-input borrowing blocked (normalization-aware as-of term/full-book identity). Details in `docs/HISTORICAL_EVALUATION.md` |
+| `--status`, `--readiness`, `--mode historical --date 2020-01-01` | **Exit 0**. Actual historical startup constructs/connects/calibrates no venue adapter. Empty JSON has null simulated/realized P&L, no equity key, and minimum collection requirements |
+| Readiness before/after runtime-tree inventory | **Unchanged**, no recorded store created. COLLECT READY, HISTORICAL 1 blocker, PAPER 5, LIVE 8; advisory only |
+| Genuine historical / execution evidence | **ABSENT**. No two-venue dataset, actual fill/account/settlement evidence or new venue probe; remote CI not run |
+
+`compileall` and `git diff --check` also pass. Final review caught an additional
+library-only future-input borrowing path; it is regression/mutation-tested and
+closed without rejecting legitimate derived normalization keys.
+
+Only the TEST-ONLY fixtures establish software behavior. They do not complete
+production fees/timing/eligibility or establish strategy performance. Reports
+and mutation/CLI logs stay ignored under `reports/`, not in Git.
+
+### Earlier-session records — INHERITED (not separately re-run in Arb.13)
+
+The current full suite includes their code regressions. Older standalone
+commands, clock sweeps, benchmarks and venue probes below remain dated evidence,
+not freshly repeated claims.
 
 Environment: Debian sandbox, **Python 3.11.2**, fresh `.venv`,
 `pip install -e ".[dev]"` succeeded. `requirements.txt` pins no upper bounds,
@@ -330,6 +363,7 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4 (re-read from
 
 | ID | Defect | Reproduction / evidence | State |
 |---|---|---|---|
+| **D28** | **Historical scans/equity falsely implied fills; minute buckets leaked later quotes** | Baseline `3d01ce9`: 12:00:10 / 12:00:55 became a 12:00:00 decision; all TRADE observations earned MODELLED equity without depth/cash execution; schema 3/latest terms could not support simultaneous executability; CLI connected venues unnecessarily | **RESOLVED IN CODE 2026-10-10 (Arb.13)**: exact receipt/as-of replay, schema 4 evidence, historical fee timestamps, shared conditional IOC/depth/cash/fee-reserve model, theory/simulation/exposure report separation. **Real-data/calibration exit still owner-gated**, no genuine dataset. 61 regressions / 704 full tests, eight caught mutations; §7f and `docs/HISTORICAL_EVALUATION.md` |
 | **D18** | **Settlement-delay inputs had no meaning or evidence; passed and long-dated settlement could be costed as (near-)immediate** (inherited report: Polymarket US missing from `_EXPECTED_SETTLEMENT_DELAY_DAYS` — confirmed 2026-10-10) | The table held unsourced `kalshi: 0`, `forecast_ex: 0`, added to `settlement_time` (Kalshi's *expected* expiration, not a bound). A passed time clamped to zero lockup: past-dated pair with synthetic complete fees → `TRADE`, delay cost `0.0000`, net `7.32` (worktree at `caa57c8`). Historical/backtest measured lockup from the wall clock. Days via `float` | **FIXED 2026-10-10** (production + tests): `PRODUCTION_SETTLEMENT_TIMING` evidence registry (meaning, basis, delay, status, sources, review date, gaps; UNKNOWN cannot carry an estimator). Kalshi DOCUMENTED per market (`latest_expiration_time + settlement_timer_seconds` from the payload; round-trips the store); Polymarket US present as explicit UNKNOWN; ForecastEx 0-day withdrawn → UNKNOWN. Passed release ⇒ UNKNOWN; `evaluation_time` threaded, replay uses the frame time; lockup reason always reported; Decimal days; cost rounds up. 44 tests, 8 mutation checks. Evidence table: `docs/TRADING_LOGIC.md` |
 | **D17** | **A BLOCKed opportunity could expose a positive "verified" net profit** (inherited review, reproduced 2026-10-10). `evaluate_two_leg` caught `FeeDataError` and substituted `fees = Decimal("0")`, and substituted `delay_cost = Decimal("0")` for an unknown settlement lockup, so the profit test ran on fabricated free costs | Offline synthetic scan with a fee calculator missing one venue returned `status=BLOCK`, `total_fees=0`, `net_profit=+9.9630`, `return_on_capital=0.1107`; the dashboard printed `Net $9.96` beside `Fees $0.00`; `Repository.save_opportunity` stored `net_profit='9.9630'`, `fees='0'`. Only the *first* fee failure was reported, because one `FeeDataError` aborted the whole fee sum | **FIXED 2026-10-10** (production + tests): each mandatory cost is now a `core.types.CostComponent` in a `CostLedger` with no total while any component is missing; `net_profit`, `net_profit_per_contract`, `return_on_capital`, `total_fees`, `settlement_delay_cost` and `capital_required` become `None` (UNVERIFIED); components are evaluated independently so every failure is reported; `gross_edge`/`known_costs` stay available as pre-cost research figures; cost-of-capital is unavailable when fees are. Downstream: `optimizer.score()` refuses unpriced opportunities and `rank()` sorts them last, `Opportunity.is_executable` gates paper execution, metrics withhold a fee-drag ratio over a partially costed set, dashboard/CLI print `n/a`, `OpportunityRow` stores NULL + `unavailable_costs` (`SCHEMA_VERSION` 2 → 3, migration 003), paper/live reports count `opportunities_without_verified_net_profit`. 35 new tests, mutation-verified (20 fail on the fee mutation, 2 on the delay mutation). Fee engine untouched |
 | **D16** | **The inherited review reported one expired settlement fixture.** The old `tests/conftest.py` date was `2026-09-15T20:00Z`; after it passed, `capital_lockup_days()` correctly clamped lockup to zero, so `TestSettlementTiming::test_lockup_and_cost` failed and other tests silently stopped charging delay cost. Production behavior was correct — an already-settled contract locks no capital | Prior handoff recorded `pytest` → `310 passed, 1 failed`. In this session the reported test passed at the baseline commit; an explicit calculation with settlement `2026-09-15T20:00Z` and test clock `2026-10-09T00:00Z` returned `0.0`, confirming the cause | **FIXED / RE-VERIFIED 2026-10-09** (tests only): replaced the wall-clock-relative default with frozen `SETTLEMENT_TEST_NOW` and a default settlement three days later; `test_lockup_and_cost` pins the exact 3-day lockup and `$0.0411` cost. Found and fixed the same silent failure in the candidate-generation scan: its expired 2026-09 fixture had produced zero delay cost without failing; it now settles after the frozen test clock and asserts positive cost. Four settlement-timing tests and 27 candidate tests pass; full suite **313 passed in 25.01 s** and at each of 2026-10-14 / 2027-10-09 / 2031-01-02 under a frozen wall clock. Mutation-verified: restoring either stale fixture makes its regression test fail; last-leg and past-settlement clamp tests still pin the intended arithmetic. No production code changed. *Superseded in part by D18 (2026-10-10): the zero clamp itself was replaced — a passed release time is now UNKNOWN and blocks* |
@@ -470,7 +504,7 @@ it does not change a decision. Regression coverage pins the fixed behaviors.
 | `settings.execution.preferred_order_type`, `allow_market_orders` (**removed**) | Prefer LIMIT / disable market orders | `ExecutionCoordinator._execute_locked` always creates priced `OrderType.LIMIT` requests; `LiveOrderFirewall.verify` rejects a missing limit price | No config effect. LIMIT-only behavior remains fixed and regression-tested |
 | `settings.arbitrage.minimum_liquidity_ratio`, `arbitrage.maximum_execution_latency_ms`, `execution.max_execution_latency_ms` (**removed; D23**) | Minimum displayed-liquidity ratio / maximum execution latency | No production comparisons existed. `two_leg` sizes by walking available asks; coordinator only records `time_between_legs_ms` | No gate existed; keys were removed rather than pretending the gate was active. A ratio and latency policy remain **unimplemented**; define the denominator and post-leg-A recovery semantics before re-adding |
 | `risk_limits.limits.max_capital_per_trade: 100` (**kept**) | Cap per-opportunity capital | `RiskLimits.from_config` → `ExecutionCoordinator._execute_locked` → `check_trade_against_limits` | **Enforced in paper before leg A.** Live does not use a production coordinator. The old mismatched `max_trade_capital` duplicate was removed in D20; do not confuse the names |
-| `risk/exposure.py`, `risk/limits.py`, `risk/kill_switch.py` (**active**) | Track paper naked exposure, capital/position/order bounds, persistent stop | `PaperEngine` constructs `RiskLimits`, `RiskState`, `ExposureTracker`; coordinator checks/reserves before A, after legs, before recovery and after recovery; `main.py` owns manual kill/unkill | Affect paper order decisions. Historical/backtest use limits only for reporting/metrics; readiness's “configured” check is not live enforcement |
+| `risk/exposure.py`, `risk/limits.py`, `risk/kill_switch.py` (**active**) | Track paper naked exposure, capital/position/order bounds, persistent stop | `PaperEngine` constructs `RiskLimits`, `RiskState`, `ExposureTracker`; coordinator checks/reserves before A, after legs, before recovery and after recovery; `main.py` owns manual kill/unkill | Affect paper order decisions. Historical/backtest now model total/per-trade capital and venue-local cash in a separate conditional simulator (§7f), not this full coordinator; readiness's “configured” check is not live enforcement |
 | `risk/capital.py` (**deferred, D26**) | Size against venue-local capital and offer transfer advice | No production import/caller; tests only. Functions use caller-supplied balances/demand; no account or simulator lifecycle feeds them | No runtime effect. Not integrated until verified balance inputs and capital lifecycle exist |
 | `execution/hedging.py` (**deferred, D26**) | Choose a low-cost hedge/unwind after a partial fill | No production caller; `PartialFillHandler` uses its own bounded retry/unwind flow | Prototype only: price-only (no fees), no independence check, and `naked_side` is not used. Do not wire into recovery without semantic/failure tests |
 | `execution/emergency.py` (**deferred, D24**) | Flatten/cancel and stop after an emergency | No production construction. `EmergencyManager.engage_kill_switch` writes the switch, reads positions and emits an alert | It does **not** cancel or flatten; switch-write or alert failures can propagate. Not an emergency recovery path |
@@ -486,8 +520,10 @@ it does not change a decision. Regression coverage pins the fixed behaviors.
 → fresh books → `run_arbitrage_scan` → `optimizer.search_event` (APPROVED
 certificate **and** INDEPENDENT required) → `evaluate_two_leg` (walked depth,
 fees, settlement/capital cost) → `Opportunity.is_executable` → coordinator risk
-reservation and simulated execution. Historical runs matching + the same scan
-and persists a replay report; it does **not** execute. Live startup confirms and
+reservation and simulated execution. Historical uses `BacktestEngine` for
+exact-time matching/scan/costing/data qualification and optional conditional
+`HistoricalFillSimulator` fills/positions/exposure. It persists theory and reports
+simulation separately; it does **not** send orders or realize settlement cash. Live startup confirms and
 reconciles, then `run()` prints monitor-only status; no production firewall
 context/order loop exists. `docs/RISK_MANAGEMENT.md` and Phase 8/9 of
 `docs/ROADMAP.md` record the corresponding safety boundary and deferrals.
@@ -514,6 +550,35 @@ adapter verification. Missing per-market tick/minimum rules remain unknown.
 The complete updated evidence ledger is in `docs/VENUE_RESEARCH.md`; offline
 test coverage is summarized in `docs/TESTING.md`. Roadmap defect D27 tracks
 the repaired status conflation and collection/book-admission gaps.
+
+---
+
+### 7f. Arb.13 historical audit / evaluator — VERIFIED OFFLINE 2026-10-10
+
+The original replay only calculated opportunities; its minute frames contained
+future quotes, latest market terms were treated as historical, and reports
+called sizing walks “fill probability” and repeated profit sums “equity”.
+Historical CLI also initialized venue connections. D28 records the reproduction
+and repair, not a newly measured strategy result.
+
+Schema 4 freezes only already-observed terms and carries receipt/provenance,
+outcome and sequence evidence; old rows remain NULL. Exact as-of decisions and
+arrivals reject future, stale, conflicting and invalid inputs. Missing context
+stays theory/BLOCK. CLI/library share the same evaluator. Its explicit IOC model
+uses contingent legs, arrival depth/haircut, snapshot-depth consumption, cash,
+capital and actual-fill fee reserves; exposure stops entries and aggregate P&L.
+Paired terminal net is conditional, includes losses, and never credits cash.
+Realized net remains unavailable. Report schema 2 removes `fills`/equity metrics
+and discloses data/cost reasons, evidence versions, assumptions, coverage and
+minimum extra collection. `contracts_reconstructed` is per-frame contract
+references, **not unique contracts**; one pair may appear repeatedly in theory
+but may be attempted only once per run.
+
+Authoritative definitions, audit, TEST-ONLY success/partial cases and further
+collection: **`docs/HISTORICAL_EVALUATION.md`**. No genuine dataset, continuous
+feed/gap coverage, calibrated queue model, settlement lifecycle or full live/
+paper risk/eligibility checklist is claimed. Production fee/timing and adapter
+statuses remain unchanged.
 
 ---
 
@@ -662,9 +727,10 @@ OWNER FOR HELP").
   this session.
 - **Phase 10 operations**: scheduler/daemon, email/webhook alert sinks, web
   dashboard, log rotation.
-- **Wiring `HistoricalExecutionEngine`.** Deliberately unwired: replay measures
-  opportunities, it does not simulate fills. Wiring it would imply execution
-  evidence that does not exist.
+- **Using the legacy undated `HistoricalExecutionEngine` for dated replay.**
+  It stays outside the evaluator. Arb.13's `HistoricalFillSimulator` is an
+  explicitly labelled conditional model; do not replace it with arbitrary
+  current books, treat sizing as fills, invent context, or claim realized P&L.
 - **Broad refactoring, renaming, reformatting, or renumbering `§` sections.**
   New spec requirements get new numbers (§98+); 224 citation sites depend on
   the existing numbering.
@@ -709,8 +775,8 @@ status + source + date. If you did not verify it, say so.
 **D. Update `docs/ROADMAP.md` when — and only when — it is demonstrably stale**
 
 The ROADMAP is the register of record for phases and defects. Correct a status
-you *proved* wrong, add a defect you *reproduced* (next free ID; **D26 is
-taken**, so the next free one is **D27**),
+you *proved* wrong, add a defect you *reproduced* (next free ID; **D28 is
+taken**, so the next free one is **D29**),
 record a completion with its evidence. Do not redesign it, do not add
 aspirational plans, do not mark anything DONE whose exit criterion is
 owner-gated — say "code complete, exit owner-gated" instead. Also update
@@ -738,6 +804,18 @@ counts, doc updates, and the next action. Milestone-end reporting format:
 ## 12. Most recent meaningful changes, and the recommended next task
 
 **Most recent meaningful changes** (newest first):
+
+0000000. **2026-10-10 — Arb.13 / D28 causal historical evaluation
+   (branch `arena/82abf69d-arb`, base `3d01ce9`).** Replaced minute/latest-term
+   replay and fabricated-equity statistics with exact availability-time/as-of
+   evidence and a shared, explicitly conditional depth/latency/cash model.
+   Migration 004 preserves missing legacy context; parser/persistence metadata,
+   decision-date fees/IDs, paired/residual costs and settlement reserves are
+   tested. Empty/unsupported/unavailable results earn no simulated profitability;
+   no venue adapter or realized cash path. Added report schema 2 and authoritative
+   historical documentation; updated roadmap/spec/readme/mode/risk/test/kickoff
+   claims. **704 passed in 68.46 s**, 61 new cases, eight caught mutations.
+   Real-data exit remains unmet; no push, CI, real orders or readiness promotion.
 
 000000. **2026-10-10 — Arb.12 offline synthetic opportunity validation
    (branch `arena/2ac1509e-arb`, base `86bd003`).** Added
@@ -912,27 +990,25 @@ counts, doc updates, and the next action. Milestone-end reporting format:
    + D14, full-contract recording, read-only replay, backtest metrics, and
    paper realism work.
 
-**Recommended next task (one):** D20's paper enforcement is complete; do not
-wire the disconnected live `EmergencyManager` or enable orders to address
-D21–D24. The agent-side fee/source audit, D18 settlement-timing review,
-readiness derivation (D10/D19), and Arb.12 offline synthetic core-path proof
-are complete. The latter does **not** make a production fee or settlement
-schedule calculable and does not count as venue evidence. Request the redacted
-owner evidence listed in
-`docs/FEE_READINESS.md` (plus the two read-only smoke-script outputs). This
-sandbox cannot produce account route, actual fee-report, settlement-statement,
-or venue API evidence. No production fee schedule should be promoted before
-those records are reviewed and reconciled. Reachability commands:
+**Recommended next task (one): owner evidence / collection plan for the selected
+Kalshi ↔ Polymarket US pair.** The causal evaluator is implemented, not a genuine
+performance backtest. On a reachable authorized machine, obtain bounded public
+read-only smoke evidence and the existing redacted fee/settled-position inputs
+listed in `docs/FEE_READINESS.md`. Keep INCOMPLETE/UNKNOWN until reconciled.
+Then plan paired, common-clock, receipt/source/outcome/as-of-term capture with
+coverage through both arrivals, explicit empty/halt/gap/session events and
+appropriate cadence (`docs/HISTORICAL_EVALUATION.md` §6). The current sequential
+10-second collector and old unstamped rows cannot provide tick-accurate history;
+no retroactive stamping, fabricated fills or live order for validation.
 
 ```bash
-python scripts/polymarket_us_smoke.py    # read-only, no key, no account
-python scripts/kalshi_smoke.py           # read-only, no key needed
+python scripts/polymarket_us_smoke.py --limit 1  # public reads, no key/account/order
+python scripts/kalshi_smoke.py --limit 1        # same bounded posture
 ```
 
-Both write sanitized evidence to `reports/evidence/` (git-ignored). Use the
-mandatory beginner-friendly request format in `docs/AGENT_KICKOFF.md` ("HOW TO
-ASK THE OWNER FOR HELP"), one task per message, and state the success
-condition. Bundle the key requests (H2 Kalshi, H7 LLM) only *after* this
-returns, so the owner is never handed five setup steps at once.
-
-**Recommended next task — owner evidence for the selected Kalshi ↔ Polymarket US pair.** Polymarket US is the owner-selected second venue and the only enabled non-Kalshi route with an implemented adapter; its paper API status and both venues' production fee gates still block the pair. From a network-reachable machine, run the two read-only smoke scripts above, then follow the Kalshi steps 1–3 and Polymarket US steps 4–5 in `docs/FEE_READINESS.md` using existing account reports and settled positions. Save only redacted evidence under ignored `reports/evidence/`; never send credentials or create a new live order. If representative account evidence is unavailable, leave both schedules `INCOMPLETE` and record the specific blocker. Ask for the settled-position records to show both the market's resolution time and the time the payout reached cash: Polymarket US settlement timing stays `UNKNOWN` (and blocks the pair) until such evidence or a documented per-contract settlement date exists. The agent can integrate verified context and regression tests after evidence arrives. ForecastEx remains a separate stub route; do not treat it as a usable alternate pair yet.
+Use the beginner-friendly owner-request format in `docs/AGENT_KICKOFF.md`, one
+task per message. Store only redacted evidence locally in ignored
+`reports/evidence/`; never send credentials. ForecastEx remains a separate stub,
+not a usable alternate pair. After adequate data arrives, replay and review the
+observed/calculated/assumed/simulated report, including losses, skips, unavailable
+execution and naked exposure; never treat conditional results as real guarantees.

@@ -172,7 +172,8 @@ the adapter remains an untested structured stub.
 ## Status ladder
 
 - TRADE — all checks pass, net ≥ minimum_net_profit and ROC ≥
-  minimum_net_return. A TRADE always has a verified positive net profit.
+  minimum_net_return. A TRADE always has positive net profit calculated from complete supplied
+  cost inputs; this is not a fill or guaranteed execution.
 - WATCH — profitable but under thresholds.
 - BLOCK — any hard failure (independence, fees, settlement unknown,
   net ≤ 0), with reasons recorded. When the failure is an unavailable
@@ -198,3 +199,50 @@ trade. A research replay still costs a stale schedule and is labelled
 completeness: every active production schedule is fresh *and* `INCOMPLETE`, so
 net profit stays `n/a` and the verdict stays BLOCK. See
 `docs/FEE_READINESS.md` for the exact gaps and release criteria.
+
+
+## Historical evaluation — calculated opportunities are not fills (§102)
+
+The audit found that historical and library backtest paths only scanned, while
+`MODELLED` equity repeatedly credited calculated TRADE profits. Minute frames
+also put 12:00:10 / 12:00:55 quotes into a 12:00:00 decision, used latest-only
+contract terms, and bypassed historical staleness. Those paths are replaced by
+one exact-time `BacktestEngine` / `HistoricalFillSimulator` for CLI and library.
+Historical CLI startup never constructs or connects venue adapters.
+
+**Observed** snapshot prices/times are inputs. **Calculated** gross theoretical
+edge, complete-cost net edge and executable-under-replay-policy qualification
+are distinct from **assumed** latency/depth/continuity and **simulated** orders,
+paired positions and exposure. Existing schema ≤3 recordings cannot establish
+simultaneous executability: missing receipt/provenance/outcome/as-of terms stays
+missing, migration does not invent it, and candidates remain THEORY ONLY/BLOCK.
+Schema 4 captures future receipt/side/sequence/immutable-term evidence; replay
+never chooses a quote observed after a decision or arrival. It validates both
+books' freshness/skew and costs them at the historical decision/arrival date.
+
+Supported, completely costed candidates can simulate sequential contingent IOC
+legs with explicit latencies, decision-time worst-price limits, a declared
+fraction of arrival depth, residual-depth consumption and venue-local cash plus
+total/per-trade capital caps. Missing arrival data is UNAVAILABLE, not a
+successful or zero fill. A short hedge retains naked exposure and halts further
+entries. Actual simulated fees and settlement reserves are included, not an
+opportunity's promised profit or a fabricated recovery. Payout cash is never
+credited or recycled.
+
+Report schema 2 removes `fills` inferred from sizing and `modelled_equity`.
+`theoretical_depth_coverage`, sampled spans/capital demand/fee drag and known
+net-edge sums describe repeated **calculations**, not equity or returns.
+`simulation` separately reports attempted/filled/partial/unavailable orders,
+completed paired quantities, unresolved exposure and negative as well as
+positive results. `net_simulated_pnl` is **conditional terminal payoff**, only
+aggregated for model-selected entries with complete costs/execution evidence
+and no naked residual. `realized_net_simulated_pnl` is always unavailable: no
+cash-settlement or position-close evidence was replayed. Skipped unsupported
+observations cannot contribute simulated profit. No result guarantees real
+execution, and no “upper bound” on real performance is claimed.
+
+See **`docs/HISTORICAL_EVALUATION.md`** for precise field definitions, the audit,
+61 deterministic regressions, minimum further collection and model limitations.
+There is no genuine historical dataset in this checkout; successful tests use
+explicit TEST-ONLY matching/fee/timing inputs. Production fee schedules remain
+INCOMPLETE and Polymarket US / ForecastEx release timing remains UNKNOWN.

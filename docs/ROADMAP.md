@@ -10,8 +10,10 @@ configuration/module audit (`docs/AGENT_HANDOFF.md` §7d), D27 adapter
 evidence/collection audit (claim-level status, public-only smoke, snapshot
 validation; see `docs/VENUE_RESEARCH.md` K9/K11/P7 and handoff §7e), and Arb.12
 offline synthetic end-to-end validation of the matching → costed paper scan →
-simulated execution core path (see §3 Phase 6 and `docs/TESTING.md`). Older
-verification dates remain attached to unrevisited claims.
+simulated execution core path, and Arb.13 / D28 causal historical evaluation
+(§3 Phase 4, `docs/HISTORICAL_EVALUATION.md`). Verification is offline: **704
+passed in 68.46 s**, 61 new historical cases. No genuine dataset, new venue probe,
+real fill/settlement or remote CI. Older dates remain attached to inherited claims.
 
 This is the reference document for anyone (human or agent) continuing
 the project. It describes **phases**, the **verified current state**,
@@ -38,7 +40,7 @@ Status tags used throughout:
 
 | Check | Result |
 |---|---|
-| `pytest` | `.venv/bin/pytest -o addopts=''`: **643 collected, 643 passed in 28.04 s**, Python 3.11.2, re-run 2026-10-10 on `arena/2ac1509e-arb`; all tests are offline. Arb.12 adds 11 synthetic end-to-end/refusal tests; prior D27 additions are included. `pytest --collect-only -q` is represented by the full run's 643 collected items. |
+| `pytest` | `.venv/bin/pytest -o addopts=''`: **704 collected / 704 passed in 68.46 s**, Python 3.11.2, 2026-10-10 on `arena/82abf69d-arb`. Arb.13 baseline **643 passed in 35.05 s**; new historical battery **61 passed in 28.24 s**. All offline; eight leaking/optimistic mutations caught and restored. |
 | Settlement-timing readiness | **Kalshi DOCUMENTED** (per market: `latest_expiration_time` + `settlement_timer_seconds`; not observed), **Polymarket US UNKNOWN**, **ForecastEx UNKNOWN** — so every enabled pair still blocks on lockup, independently of the fee gate (D18, 2026-10-10). Evidence table: `docs/TRADING_LOGIC.md` |
 | `python -m prediction_arb.main --status` | Re-run 2026-10-10, exit 0: kalshi=`MARKET_DATA_OBSERVED` (historical public data only), polymarket_us=`API_DOCUMENTED_UNTESTED`, forecast_ex=`API_DOCUMENTED_UNTESTED` (structured stub). The claim-level table separately shows both latest public probes `UNAVAILABLE` (TLS EOF), no full adapter verification, and all three enabled unordered pairs `INDEPENDENT`; provenance is not fee/book readiness. |
 | `python -m prediction_arb.main --readiness` | Re-run 2026-10-10, exit 0: four derived per-mode reports; `COLLECT: READY` (1 of 3 market-data-evidenced adapters), `HISTORICAL: NOT READY — 1 blocker(s)` (no recorded store), `PAPER: NOT READY — 5 blocker(s)` (only one market-data adapter, no independent pair, no matcher, incomplete fees, unknown settlement), `LIVE: NOT READY — 8 blocker(s)` (0 fully verified live-capable venues, no pair, no matcher, 0/3 complete fee schedules, settlement UNKNOWN for polymarket_us + forecast_ex, 0 recorded snapshots/opportunities, eligibility UNKNOWN ×3, no `.env.live`). Fee freshness passes 3/3 (0 days old); 12 risk values and staleness gates are configured, but risk row is configuration-only. `LIVE MODE: NOT RECOMMENDED YET`; report is advisory and side-effect-free. |
@@ -149,7 +151,7 @@ eight mutation checks each fail the new tests.
 | 1 | Venue & API research refresh (2026) | **DONE 2026-09-13 — OWNER CHECKPOINT** | Owner selects Polymarket US, Gemini, or IBKR route before adapter work |
 | 2 | Kalshi adapter refresh + streaming | PARTIAL — code complete + verification script delivered 2026-09-13 (D5, D14 fixed); **owner run pending** | 24h collect run with ≥99% cycle success; WebSocket streaming in paper |
 | 3 | **Second independent venue adapter** | PARTIAL — Polymarket US adapter is implemented, but fee gate was **REOPENED 2026-10-10** after the 2026-10-07 schedule change; market-family/settlement context remains blocked; observed payload and eligibility are owner-gated | Real books from the owner-selected venue proven INDEPENDENT of Kalshi, with complete all-in cost in paper mode |
-| 4 | Data lineage, replay, backtest metrics | CODE COMPLETE 2026-09-13 (D3, D4 fixed); **exit needs owner's real collected data** | `--mode historical --date …` replays recorded data and reports metrics |
+| 4 | Causal historical evaluation / conditional simulation | CODE IMPLEMENTED 2026-10-10 (Arb.13/D28); **real-data/calibration exit owner-gated** | Recorded as-of books → distinct observed/calculated/assumed/simulated report; actual two-venue evidence required, not synthetic performance |
 | 5 | Matching that can actually match | CODE COMPLETE 2026-09-14 (D6 blocking §96, D9 LLM wiring §97, D15 provenance gate); **exit needs owner's real two-venue data + LLM key (H7)** | APPROVED certificates produced from real cross-venue data |
 | 6 | Paper validation & realism | PARTIAL — D11, D12 fixed 2026-09-13; **owner's multi-week run pending** | Multi-week paper run with realistic fill/staleness modelling |
 | 7 | Compliance & legal re-verification | PARTIAL — 2026-09-13 Utah/CFTC snapshot complete | Owner/legal review and venue/category eligibility evidence before live |
@@ -534,138 +536,68 @@ APPROVED or REVIEW (never forced to APPROVED).
 
 ---
 
-### Phase 4 — Data lineage, replay, backtest metrics  ·  CODE COMPLETE 2026-09-13 (exit needs owner data)
+### Phase 4 — Causal historical evaluation · CODE IMPLEMENTED 2026-10-10 (Arb.13 / D28; genuine-data exit unmet)
 
-- ~~D3: recorded data lands in the paper DB; historical mode opens an
-  empty DB; `Repository._assert_mode_tag` would refuse cross-mode reads
-  anyway.~~ **FIXED 2026-09-13.** `Repository` gained a `read_only`
-  handle and `_assert_mode_tag` a narrow allowance (historical +
-  read-only + a `collect`/`paper` tag). `AppConfig.recorded_store_path`
-  is derived from the same constants collect writes with, so the two
-  cannot drift. Historical mode now reads the recorded store read-only
-  and writes only its own database.
-- ~~D4: persist the **full** `NormalizedContract` … plus the raw market
-  payload.~~ **FIXED 2026-09-13.** `MarketRow` gained 26 nullable
-  columns (`SCHEMA_VERSION` 1 → 2), migration `002` is forward-only and
-  idempotent, and `database/contract_codec.py` owns both directions so a
-  field written at collect time cannot be dropped at replay time.
-- ~~Implement `backtesting/engine.py::run_backtest` metrics.~~ **DONE
-  2026-09-13** in `backtesting/metrics.py`: opportunity duration, fill
-  probability, partial-fill rate, drawdown, capital utilisation, fee
-  drag. No fabricated history, no live fallback.
+**Audit, not performance evidence:** baseline `3d01ce9` only scanned; sizing
+walks were called fill probability, and MODELLED equity credited every repeated
+TRADE calculation without execution/depth/capital accounting. Minute frames
+put 12:00:10 / 12:00:55 quotes into a 12:00:00 decision. Latest market terms and
+wall-clock opportunity/fee times were not historical evidence. Historical CLI
+also connected venue adapters unnecessarily. Those claims/paths are replaced,
+not grandfathered in as a valid “upper bound”.
 
-Exit: `--mode historical --date <collected date>` replays real frames
-and produces a report with non-zero frames and honest zero-or-more
-opportunities, reproducible across runs. **Still needs the owner's real
-collected data** — the sandbox cannot reach either venue, so no genuine
-frames exist to replay. The code path is exercised end to end in
-`tests/test_phase4_recording.py` instead.
+**Existing D3/D4 guarantees preserved:** recorded collect/paper stores open
+SQLite `mode=ro`, historical output stays separate, missing stores are not
+created, live-tagged stores are refused, and migrations never run on read-only
+input. Full normalized-contract/raw-payload recording and migration 002 remain;
+under-recorded contracts never acquire invented payout/tick/minimum/version.
 
-#### Phase 4 — what was built, and the honesty rules it holds to
+**Arb.13 implementation:**
+- Migration **004 / schema 4** adds nullable local receipt, timestamp provenance,
+  outcome, sequence, microstructure, snapshot-bound immutable terms and term
+  observation time; legacy rows remain unknown. Capture parsers/persistence
+  supply future evidence without retrospective binding to later market rows.
+- `HistoricalDataProvider` replays exact availability-time, pre-range initial
+  state and latest-as-of decision/arrival books; rejects future, stale, delayed
+  regressions, conflicting and corrupt states. Skew/age/side/terms/rule gates
+  prevent independently sampled quotes becoming silent simultaneous execution.
+  Library-injected calculation books/terms must also match the dated provider
+  state; valid provider evidence cannot certify a different/future input.
+  Legacy rows may calculate **THEORY ONLY** candidates; cannot simulate fills.
+- Historical fee bounds, opportunity timestamps/IDs and persistence evidence
+  use historical decisions/arrivals. Fee completeness and settlement-timing
+  UNKNOWN blocks stay unchanged; no production costs promoted for a demo.
+- CLI/library share `BacktestEngine` and the explicitly configured
+  `HistoricalFillSimulator`: contingent sequential IOC legs, declared latency,
+  worst decision-price limits, fraction/whole-contract arrival depth, residual
+  depth consumption, venue cash, total/per-trade caps, actual-fill trade fees
+  and settlement reserves. No real adapter, repeated-pair profit harvesting,
+  invented recovery, payout cash credit or settlement proceeds reinvestment.
+- Report **schema 2** separates observed data, gross/costed theoretical edge,
+  qualified candidates, assumptions, simulated orders/fills, paired quantities,
+  conditional net, naked exposure and unavailable data/costs. Negative paired
+  results are retained. Aggregate simulated net is withheld for unresolved or
+  unavailable/incomplete execution; realized net is always unavailable. Old
+  `fills`/`modelled_equity` sections and sizing-derived fill probability are
+  removed. Sampled edge sums are not equity, P&L, returns or bounds.
 
-**D3 — recorded store is now readable by replay.** Historical mode keeps
-its own writable database for replay output and opens the collect/paper
-store separately, read-only:
+**Validation:** full **704 passed in 68.46 s**, new deterministic suite **61
+passed in 28.24 s**; eight mutations each caught, source restored. Covers empty,
+old-schema read-only, timestamp disorder/look-ahead, stale/skew/contract/outcome,
+partial/full/unavailable fills, cash/depth reuse, historical fees, settlement
+reserves, negative subset P&L, exposure and CLI/library/persistence parity.
+`--status`, `--readiness`, empty historical CLI exit 0; readiness has no filesystem
+side effects. The historical main entry point constructs no venue adapters.
 
-- `Repository(db_path, mode, read_only=True)` opens via
-  `sqlite3.connect("file:…?mode=ro", uri=True)`. Writes are refused by
-  SQLite itself, not by a convention the code could bypass. Migrations
-  are skipped and the mode tag is never written.
-- It refuses a missing file rather than creating an empty database
-  (`FileNotFoundError`), and still refuses a `live`-tagged store.
-- The allowance is deliberately narrow: `read_only=True` **and**
-  `mode == HISTORICAL` **and** tag in `{collect, paper}`. Anything else
-  still raises "Refusing to mix mode data (§49)".
-
-**D4 — recording is now faithful, and gaps stay gaps.**
-
-- `record_contract()` persists all 37 `NormalizedContract` fields plus
-  the raw venue payload. Verified: a rich contract round-trips with
-  **zero** field differences.
-- Decimals are stored as text (matching the existing convention),
-  datetimes as `DateTime(timezone=True)`, microstructure / order-type /
-  raw payload as JSON text.
-- Migration `002` adds each column only if absent, so a fresh database
-  (which already gets the columns from `create_all`) does not fail with
-  "duplicate column name". A genuine v1 database is upgraded in place
-  with its existing rows preserved and the new columns NULL.
-- **Decode never invents.** `decode_contract` returns `None` when a row
-  lacks the fields a contract needs. `HistoricalDataProvider` counts and
-  reports those rows (`under_recorded`) and the replay says how many were
-  excluded. The previous behaviour — substituting `payout=1.00`,
-  `tick_size=0.01`, `min_order_size=1`, `contract_version="historical"` —
-  was fabrication, and it is gone.
-
-**Backtest metrics — measured vs modelled stays separated.**
-
-- *Measured* from the recording: opportunity duration, fill statistics,
-  fee drag, peak capital required.
-- *Modelled*, and labelled as such in every result: the equity curve and
-  drawdown assume every executable opportunity filled in full at the
-  recorded prices. `BacktestResult.assumptions` carries that in plain
-  text so a report can never be read as a forecast.
-- Opportunity duration keys on the **sorted leg pair**, not
-  `opportunity_id`: each `evaluate_two_leg` call mints a fresh `uuid4`,
-  so the id can never express persistence across frames. With the leg
-  pair, `first_seen == last_seen` no longer holds by construction.
-- Fill statistics come from recorded book depth. When no walk was
-  recorded they are `None` — never an assumed 100% (that assumption is
-  defect D12, and it is not repeated here).
-- `run_backtest` refuses to run without a `FeeCalculator`: cost is what
-  separates a real trade from a fantasy one.
-- **The battery is reachable from the CLI.** `--mode historical` runs
-  `summarize_frames` over the opportunities that replay just produced —
-  it does not re-scan, so the numbers describe exactly the run that was
-  persisted — and the full battery lands in
-  `reports/historical/historical_replay_*.json` under `metrics`. This
-  was a real gap in the first cut: the battery existed but only
-  `BacktestEngine` could reach it, so the exit criterion ("replays
-  recorded data **and reports metrics**") was not met by the command the
-  criterion names. Unavailable metrics print as `n/a`, never as a bare
-  `None` (reads like a bug) or `0` (reads like a measurement of nothing).
-
-**One thing this phase deliberately did not do:** `HistoricalExecutionEngine`
-is still unwired — replay counts and measures opportunities, it does not
-simulate executions against them. That belongs to Phase 6 (fill realism,
-D12), not here, and wiring it now would have implied execution evidence
-that does not exist.
-
-#### Phase 4 — verification record (2026-09-13)
-
-The three decisions recorded before the work started were all followed,
-and each is now pinned by a test in `tests/test_phase4_recording.py`
-(25 tests, all passing):
-
-| Decision | Where it landed | Test that pins it |
-|---|---|---|
-| Historical reads the recorded store; collect is not repointed | `Repository(read_only=True)` + narrow `_assert_mode_tag` allowance + `AppConfig.recorded_store_path` | `test_historical_reads_collect_store_read_only`, `test_read_only_still_refuses_a_live_tagged_store`, `test_config_recorded_store_matches_where_collect_writes` |
-| Migration `002` forward-only; old rows keep NULLs | `migrations/runner.py:_m002_market_contract_fields`, guarded by `PRAGMA table_info` | `test_migration_002_is_registered_and_idempotent`, `test_migration_002_upgrades_a_v1_database` |
-| No fabrication in reconstruction | `contract_codec.decode_contract` returns `None` when under-recorded | `test_decode_never_invents_for_under_recorded_rows`, `test_provider_counts_unreconstructable_instead_of_dropping` |
-
-Also verified rather than assumed:
-
-- **Round trip is lossless.** `test_record_contract_round_trips_every_field`
-  walks all 37 `NormalizedContract` fields and asserts the difference
-  list is empty. A silently dropped field is exactly how replay starts
-  inventing, so this is checked field by field, not spot-checked.
-- **Read-only is enforced by SQLite, not by convention.** The test
-  attempts a write through the read-only handle and asserts it raises.
-- **A missing recorded store is never created.**
-  `test_read_only_never_creates_a_missing_store` asserts both the
-  `FileNotFoundError` and that the file still does not exist afterwards.
-- **The metric battery is not permanently empty.** One test pins the
-  honest zero (no LLM ⇒ pair is REVIEW ⇒ nothing approved, even with a
-  profitable-looking spread); a second approves the pair and asserts the
-  metrics actually populate. Without both, a green metric test could pass
-  on an unwired pipeline.
-
-**What still blocks the phase exit:** real recorded data. Neither venue
-is reachable from this environment, so no genuine frames exist to replay
-and the exit criterion cannot be met here. The owner's 24h collect run
-(Phase 2) produces it; `--mode historical --date <that date>` is then the
-acceptance run.
-
----
+**Exit still unmet:** no genuine two-venue recorded dataset exists here. Schema
+4 snapshot evidence enables only a **conditional snapshot model**, not a
+continuous, tick-accurate book/fill/settlement reconstruction. Current collection
+is sequential every 10 s and does not persist empty/halt/gap/session events.
+Owner-run paired common-clock capture, complete effective-dated cost inputs,
+coverage through both arrivals and fill/settlement evidence for calibration/
+realized P&L are needed. Do not fabricate those records or call synthetic
+success strategy validation. Authoritative assumptions, metric definitions,
+minimum extra collection and remaining limits: **`docs/HISTORICAL_EVALUATION.md`**.
 
 ### Phase 5 — Matching that can actually match  ·  CODE COMPLETE 2026-09-14 (D6, D9, D15 fixed; exit needs owner's real two-venue data + LLM key)
 
@@ -906,6 +838,7 @@ collection), and log rotation.
 | D25 | **OPEN (candidate, 2026-10-10) — threshold-operator vocabulary and units are not normalized across venues.** Kalshi emits the raw `strike_type` as `threshold_operator`; Polymarket US emits `None`; both emit `units=None`. Identical events with the same threshold therefore fail the deterministic `threshold_operator` check; a units mismatch cannot be detected at all. Reproduced 2026-10-10. Not fixed by Arb.8: the fix is in the adapters and must not weaken the matcher. Details: `docs/AGENT_HANDOFF.md` §7a, `docs/CANDIDATE_RETRIEVAL.md` §11. | Reproduction in the handoff §7a row; no regression test pins the defect. | — |
 | D26 | **DEFERRED — standalone capital/recovery prototypes are not production controls.** `risk/capital.py` has no production caller and consumes caller-supplied balances/demand; `execution/hedging.py` has no production caller, prices alternatives without fees or an independence gate, and is not used by `PartialFillHandler`. `execution/emergency.py` is covered by D24: it only engages the kill switch and reports positions, with no cancellation/flattening. | Source call-graph audit 2026-10-10; no integration is claimed. Keep capital sizing, hedge enumeration, and emergency response out of production until inputs, venue/fee/route semantics, cancellation/flattening outcomes, and failure handling have dedicated fault-injection tests. | 8–9 |
 | D27 | **RESOLVED 2026-10-10 — adapter evidence was overclaimed and collection admitted invalid/unverified books.** Kalshi was unconditionally `VERIFIED`; a historical public observation was not separated from current endpoint connectivity/full adapter coverage. Collection's blocklist could admit other unverified states and saved non-empty books without validating crossed/non-finite levels. Smoke scripts mixed credentialed/authenticated surfaces with public checks and treated some network failures as hard failures. | Added claim-level documentation/connectivity/usable-data/full-verification/latest-smoke evidence; Kalshi is `MARKET_DATA_OBSERVED` from the 2026-08-30 public capture only, Polymarket US stays `API_DOCUMENTED_UNTESTED`, ForecastEx remains a stub. Smoke probes are bounded public GET-only/no credentials/no orders; latest 2026-10-10 attempts are explicitly `UNAVAILABLE` with exact TLS EOF details (K9/P7), not adapter failures. Collection now admits only MARKET_DATA_OBSERVED/VERIFIED and records usable books without an execution path; paper REST and streaming gates are distinct. Unknown Polymarket tick/minimum rules remain unknown. Offline regressions cover collection, parsers, timestamps, books, status and Kalshi sequence-gap/REST recovery; full current endpoint verification remains unavailable and is not claimed. | 2–3 |
+| D28 | **RESOLVED IN CODE 2026-10-10 (Arb.13) — historical metrics implied execution and minute replay leaked future data.** Both paths only scanned; repeated TRADE profits became MODELLED equity and walks became fill statistics. Later independent quotes entered rounded earlier decisions, mutable terms/wall-clock fees lacked as-of support, and historical startup connected venues. | Exact receipt/as-of replay, nullable schema-4 capture/context with no legacy backfill, dated costs/IDs/evidence, common conditional latency/IOC/depth/cash/fee-reserve model, schema-2 theory/simulation/exposure separation. 61 deterministic cases, full 704 passing, eight caught mutations; empty CLI retains null P&L, no venue adapters. **Genuine-data/calibration exit still owner-gated**; docs/HISTORICAL_EVALUATION.md defines requirements/limits. | 4 |
 
 ---
 
@@ -1031,9 +964,14 @@ steps for that route:
    deterministic filter can be APPROVED (budget-capped per cycle).
 
 **H5 — Decide the data policy**
-Recorded market data is already 17 MB for one day of collection. Decide
-how long to retain it and whether any of it belongs in git (recommended:
-none; keep it local or in external storage).
+The inherited history includes an old 17 MB SQLite blob; **no recorded dataset
+exists in this checkout**. Keep new raw stores and reports local or in external
+storage, out of Git. Decide retention and any history cleanup separately.
+For historical evaluation, collect both independent books with common-clock
+receipt/source/outcome/as-of-term evidence and arrival-horizon coverage; add
+empty/halt/gap/session markers and adequate cadence before calling it faithful
+feed reconstruction. See `docs/HISTORICAL_EVALUATION.md` §6; never synthesize
+missing records or promote INCOMPLETE/UNKNOWN costs to obtain a winning backtest.
 
 **H6 — Say the word before anything live**
 Nothing in Phases 0–7 places a real order. Live work starts only in

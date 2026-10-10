@@ -173,6 +173,7 @@ async def run_arbitrage_scan(
     max_quantity: Optional[Decimal] = None,
     strict_fee_freshness: Optional[bool] = None,
     evaluation_time: Optional[datetime] = None,
+    resolve_recorded_sides: bool = False,
 ) -> list[Opportunity]:
     """Scan every event group for approved, independent two-leg arbitrage.
 
@@ -199,5 +200,6 @@ async def run_arbitrage_scan(
             cost_of_capital_annual=cost_of_capital_annual,
             max_quantity=max_quantity,
             strict_fee_freshness=strict,
-            evaluation_time=evaluation_time))
+            evaluation_time=evaluation_time,
+            resolve_recorded_sides=resolve_recorded_sides))
     return out

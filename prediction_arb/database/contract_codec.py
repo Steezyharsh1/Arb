@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from types import SimpleNamespace
 from typing import Any, Optional
 
 from ..core.types import (
@@ -134,7 +135,7 @@ def decode_contract(row: Any) -> Optional[NormalizedContract]:
     payout = _dec(row.payout)
     tick = _dec(getattr(row, "tick_size", None))
     min_size = _dec(getattr(row, "min_order_size", None))
-    if payout is None:
+    if payout is None or not payout.is_finite() or payout <= 0:
         return None
     # NULL rules remain explicitly unknown for faithful data replay. A
     # recorded non-finite or non-positive rule is corrupt, not a default.
@@ -218,3 +219,34 @@ def decode_contract(row: Any) -> Optional[NormalizedContract]:
         market_microstructure=micro,
         supported_order_types=orders,
         raw=_unjson(getattr(row, "raw_json", None)))
+
+
+def encode_snapshot_contract(row: Any) -> Optional[str]:
+    """Freeze a recorded contract row, not a reference to mutable markets."""
+    contract = decode_contract(row)
+    if contract is None:
+        return None
+    values = {"venue": contract.venue, "market_id": contract.market_id,
+              "contract_id": contract.contract_id, **encode_contract(contract)}
+    return json.dumps(values, default=lambda value: value.isoformat(),
+                      sort_keys=True)
+
+
+def decode_snapshot_contract(payload: Optional[str]) -> Optional[NormalizedContract]:
+    """Decode snapshot-bound terms; malformed context stays unavailable."""
+    from ..core.clock import parse_iso_utc
+    values = _unjson(payload)
+    if not isinstance(values, dict):
+        return None
+    if not all(values.get(k) for k in ("venue", "market_id", "contract_id")):
+        return None
+    for name in ("settlement_time", "cutoff_time"):
+        value = values.get(name)
+        parsed = parse_iso_utc(value) if isinstance(value, str) else None
+        if value is not None and parsed is None:
+            return None
+        values[name] = parsed
+    try:
+        return decode_contract(SimpleNamespace(**values))
+    except (AttributeError, TypeError, ValueError, InvalidOperation):
+        return None

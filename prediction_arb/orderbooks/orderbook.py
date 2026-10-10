@@ -3,12 +3,13 @@
 consumes actual displayed liquidity level by level."""
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
 from ..core.clock import age_ms, utcnow
-from ..core.types import OrderBook, PriceLevel, WalkResult
+from ..core.types import OrderBook, PriceLevel, Side, WalkResult
 
 
 def is_stale(book: OrderBook, max_staleness_ms: float,
@@ -72,3 +73,21 @@ def slippage_vs_best(walk: WalkResult, levels_best_price: Optional[Decimal]
         return Decimal("0")
     per = walk.weighted_average_price - levels_best_price
     return max(Decimal("0"), per) * walk.filled_quantity
+
+
+def book_for_side(book: OrderBook, side: Side,
+                  payout: Decimal = Decimal("1")) -> OrderBook:
+    """An explicitly identified binary book, viewed from the requested side.
+
+    YES bids are NO asks at payout-price (and vice versa). Historical
+    evaluation opts into this conversion; unidentified legacy ladders stay
+    as recorded for THEORY ONLY and can never substantiate a simulated fill.
+    """
+    if book.outcome_side is None or book.outcome_side == side:
+        return book
+    return replace(
+        book, outcome_side=side,
+        bids=[PriceLevel(payout - level.price, level.quantity)
+              for level in book.asks],
+        asks=[PriceLevel(payout - level.price, level.quantity)
+              for level in book.bids])

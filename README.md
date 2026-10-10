@@ -149,12 +149,16 @@ monitor-only by construction.
   and writes replay output to its own database. A missing recorded store
   is reported honestly; it is never created empty, and history is never
   fabricated or back-filled from live data.
-- Backtest metrics over recorded frames: opportunity duration, fill
-  probability, partial-fill rate, drawdown, capital utilisation and fee
-  drag. Measured quantities and modelled ones stay separated, and every
-  result carries its assumptions in plain text — the equity curve assumes
-  every executable opportunity filled, so it is an upper bound, never a
-  forecast.
+- Historical evaluation uses exact receipt-time, as-of books, never minute
+  rounding or future quotes. Old records without temporal/outcome/contract
+  evidence are **THEORY ONLY**. Supported records can run the shared conditional
+  depth/latency/cash model, which separates calculated opportunities, simulated
+  fills, completed pairs and unresolved exposure. Reports never add repeated
+  opportunity profits into “equity”, infer fill probability from sizing, or
+  credit unobserved settlement cash. Empty/incomplete runs retain null P&L.
+  **No genuine historical dataset or real-fill evidence exists in this checkout.**
+  See [`docs/HISTORICAL_EVALUATION.md`](docs/HISTORICAL_EVALUATION.md) for the
+  audit, report schema 2, explicit assumptions and minimum further collection.
 - Paper mode no longer flatters the strategy. Order books pass a real
   staleness gate before they are scanned **or** filled against, and the
   configured `simulated_fill_probability_at_touch` actually scales the
@@ -165,10 +169,10 @@ monitor-only by construction.
   silently dropped.
 - Mode isolation, kill switch, crash-recovery intents, and all ten mandatory
   spec cases are covered by the test suite (`.venv/bin/pytest -o addopts=''` —
-  **632 passed in 28.75 s** on Python 3.11.2, all offline, 2026-10-10). The
-  earlier 534-test suite also passed with the fee clock frozen at
+  **704 passed in 68.46 s** on Python 3.11.2, all offline, 2026-10-10).
+  The earlier 534-test suite also passed with the fee clock frozen at
   2026-10-14 / 2027-10-09 / 2031-01-02; that future-clock sweep was not
-  repeated for the 632-test suite.
+  repeated for the 704-test suite.
 - Readiness is **derived, not asserted** (D10, SPEC §99). `--readiness`
   reports one block per mode (COLLECT, HISTORICAL, PAPER, LIVE) and every
   criterion is computed from observed state — adapter verification *and*
@@ -228,11 +232,12 @@ monitor-only by construction.
   candidates but deliberately stopped before adapter implementation.
 - Multi-leg / logical arbitrage, graph cycle search, web dashboard,
   email/webhook alerts (§3 v1 scope).
-- Backtest *metrics* are implemented, but backtest *execution* is not:
-  replay measures opportunities, it does not simulate fills against them
-  (`HistoricalExecutionEngine` stays unwired on purpose). The phase exit
-  criterion also needs real collected data, which requires an owner-run
-  collect session on a network-reachable machine.
+- Historical **conditional** fill simulation is implemented (§102), but
+  tick-accurate feed reconstruction, calibrated fill probabilities, closed/
+  settled realized P&L and a genuine two-venue performance evaluation are not.
+  The latter requires owner-run, evidence-complete collection on a reachable
+  machine; missing history cannot be fabricated. The legacy undated
+  `HistoricalExecutionEngine` is not the replay evaluator.
 
 ## Repository layout
 
@@ -261,13 +266,13 @@ never committed; `.env.*` files hold credentials and are never committed either
 **Start here:** `docs/AGENT_HANDOFF.md` — the permanent entry point for a fresh
 engineer or agent session (current baseline commit, verified test results,
 environment limits, defects, critical path, what not to start). Then
-`docs/ROADMAP.md` (phase map, verified current state, defect register D1–D16,
+`docs/ROADMAP.md` (phase map, verified current state, defect register D1–D28,
 human-action checklist) and `docs/SPEC.md` (the reconstructed specification —
 every `§N` cited in the code resolves there).
 
 `docs/`: AGENT_HANDOFF, ROADMAP, SPEC, AGENT_KICKOFF, VENUE_RESEARCH, ARCHITECTURE, API_SETUP,
 COMPLIANCE, TRADING_LOGIC, LLM_MATCHING, RISK_MANAGEMENT, TESTING,
-MODE_SEPARATION, CRASH_RECOVERY.
+MODE_SEPARATION, CRASH_RECOVERY, HISTORICAL_EVALUATION.
 
 ## Safety posture
 - No real order can leave any non-live mode: simulated engines hold no

@@ -12,10 +12,10 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import create_engine, or_, select
+from sqlalchemy import create_engine, func, inspect, or_, select
 from sqlalchemy.orm import Session
 
-from ..core.clock import utcnow
+from ..core.clock import ensure_utc, utcnow
 from ..core.types import (
     Mode,
     NormalizedContract,
@@ -23,7 +23,7 @@ from ..core.types import (
     OrderBook,
     OrderStatus,
 )
-from .contract_codec import encode_contract
+from .contract_codec import encode_contract, encode_snapshot_contract
 from .migrations.runner import run_migrations
 from .models import (
     Base,
@@ -90,6 +90,13 @@ class Repository:
         self.engine = create_engine(f"sqlite:///{db_path}", future=True)
         run_migrations(self.engine)
         self._assert_mode_tag()
+        with Session(self.engine) as s:
+            schema = s.scalar(select(MetaRow).where(MetaRow.key == "schema_version"))
+            if schema is None:
+                s.add(MetaRow(key="schema_version", value=str(SCHEMA_VERSION)))
+            elif schema.value != str(SCHEMA_VERSION):
+                schema.value = str(SCHEMA_VERSION)
+            s.commit()
 
     def _assert_mode_tag(self) -> None:
         """The database file itself records which mode owns it. Opening a
@@ -123,6 +130,12 @@ class Repository:
                 f"but application mode is {self.mode.value!r}. Refusing "
                 f"to mix mode data (§49).")
 
+    def _market_data_modes(self) -> set[str]:
+        if (self.mode in (Mode.COLLECT, Mode.PAPER)
+                or self.read_only and getattr(self, "recorded_store_tag", None) in _REPLAY_READABLE_TAGS):
+            return set(_REPLAY_READABLE_TAGS)
+        return {self.mode.value}
+
     # -------------------------------------------------------------- markets
     def upsert_market(self, venue: str, market_id: str, contract_id: str,
                       underlying_exchange: str, description: str,
@@ -154,7 +167,8 @@ class Repository:
             s.commit()
 
     def record_contract(self, contract: NormalizedContract,
-                        status: str = "open") -> None:
+                        status: str = "open",
+                        *, observed_at: Optional[datetime] = None) -> None:
         """Persist the FULL normalized contract + raw payload (D4).
 
         Replay can only reconstruct what was recorded, so collect mode
@@ -165,7 +179,9 @@ class Repository:
         supported order types, and the venue's own payload.
         """
         values = encode_contract(contract)
-        now = utcnow()
+        # Only pass observed_at when importing an actual recorded receipt
+        # time. Settlement/event times are NOT contract observation times.
+        now = ensure_utc(observed_at) if observed_at is not None else utcnow()
         with Session(self.engine) as s:
             row = s.scalar(select(MarketRow).where(
                 MarketRow.mode == self.mode.value,
@@ -196,9 +212,11 @@ class Repository:
         """
         with Session(self.engine) as s:
             return s.scalar(select(MarketRow).where(
+                MarketRow.mode.in_(self._market_data_modes()),
                 MarketRow.venue == venue,
                 or_(MarketRow.market_id == identifier,
-                    MarketRow.contract_id == identifier)))
+                    MarketRow.contract_id == identifier)).order_by(
+                        MarketRow.updated_at.desc(), MarketRow.id.desc()))
 
     # ------------------------------------------------------------ matches
     def save_match_certificate(self, match_id: str, contract_a: str,
@@ -315,6 +333,8 @@ class Repository:
                 independence=op.independence.value, status=op.status.value,
                 block_reasons=json.dumps(op.block_reasons),
                 unavailable_costs=(json.dumps(missing) if missing else None),
+                evaluation_json=(json.dumps(op.evaluation_metadata, sort_keys=True)
+                                 if op.evaluation_metadata else None),
                 first_seen=op.first_seen, last_seen=op.last_seen))
             s.commit()
 
@@ -385,11 +405,34 @@ class Repository:
 
     # ----------------------------------------------------------- orderbooks
     def save_orderbook_snapshot(self, book: OrderBook) -> None:
+        """Record observed timing and immutable, already-observed terms.
+
+        A persist-time clock is never substituted for an unknown receipt
+        time. Contracts discovered AFTER the book was received cannot be
+        attached retrospectively. Legacy rows remain theory-only.
+        """
+        market = self.get_market_row(book.venue, book.contract_id)
+        contract_json = None
+        contract_observed_at = None
+        if (market is not None and book.received_at is not None
+                and market.updated_at is not None
+                and ensure_utc(market.updated_at) <= ensure_utc(book.received_at)):
+            contract_json = encode_snapshot_contract(market)
+            if contract_json:
+                contract_observed_at = market.updated_at
         with Session(self.engine) as s:
             s.add(OrderBookSnapshotRow(
                 mode=self.mode.value, venue=book.venue,
                 contract_id=book.contract_id,
                 timestamp=book.timestamp or utcnow(),
+                received_at=book.received_at,
+                # No timestamp provenance may be claimed for a missing time.
+                timestamp_source=(book.timestamp_source if book.timestamp else None),
+                outcome_side=(book.outcome_side.value if book.outcome_side else None),
+                sequence_number=book.sequence_number,
+                microstructure_type=book.microstructure_type.value,
+                contract_json=contract_json,
+                contract_observed_at=contract_observed_at,
                 bids_json=json.dumps([[str(l.price), str(l.quantity)]
                                       for l in book.bids]),
                 asks_json=json.dumps([[str(l.price), str(l.quantity)]
@@ -400,11 +443,26 @@ class Repository:
     def orderbook_snapshots(self, start: Optional[datetime] = None,
                             end: Optional[datetime] = None
                             ) -> list[OrderBookSnapshotRow]:
-        with Session(self.engine) as s:
-            q = select(OrderBookSnapshotRow).order_by(
-                OrderBookSnapshotRow.timestamp)
-            if start is not None:
-                q = q.where(OrderBookSnapshotRow.timestamp >= start)
-            if end is not None:
-                q = q.where(OrderBookSnapshotRow.timestamp <= end)
-            return list(s.scalars(q))
+        """Read old stores without migrating or selecting absent columns.
+
+        Range/order use local receipt time when recorded. A legacy quote
+        timestamp is a fallback for THEORY ONLY, assessed by the provider.
+        """
+        present = {c["name"] for c in inspect(self.engine).get_columns(
+            "orderbook_snapshots")}
+        columns = [c for c in OrderBookSnapshotRow.__table__.columns
+                   if c.name in present]
+        observed = (func.coalesce(OrderBookSnapshotRow.received_at,
+                                  OrderBookSnapshotRow.timestamp)
+                    if "received_at" in present else OrderBookSnapshotRow.timestamp)
+        readable = self._market_data_modes()
+        q = select(*columns).where(
+            OrderBookSnapshotRow.mode.in_(readable)).order_by(
+                observed, OrderBookSnapshotRow.id)
+        if start is not None:
+            q = q.where(observed >= ensure_utc(start))
+        if end is not None:
+            q = q.where(observed <= ensure_utc(end))
+        with self.engine.connect() as conn:
+            return [OrderBookSnapshotRow(**dict(row))
+                    for row in conn.execute(q).mappings()]
