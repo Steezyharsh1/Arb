@@ -323,13 +323,27 @@ def evaluate_two_leg(
         block.append("net profit not positive after all costs")
 
     now = utcnow()
+    # Preserve venue-specific fee allocation for capital-at-venue checks in
+    # the execution coordinator. An unavailable component is not turned into
+    # an executable zero: such an opportunity is BLOCK above and never reaches
+    # the coordinator; the known portion remains useful for diagnostics.
+    yes_leg_fees = sum(
+        (component.amount for component in
+         (fee_components[0], fee_components[2])
+         if component.amount is not None), Decimal("0"))
+    no_leg_fees = sum(
+        (component.amount for component in
+         (fee_components[1], fee_components[3])
+         if component.amount is not None), Decimal("0"))
     legs = [
         Leg(venue=yes_contract.venue, contract=yes_contract, side=Side.YES,
             action=OrderAction.BUY, quantity=qty,
-            limit_price=yes_walk.weighted_average_price, walk=yes_walk),
+            limit_price=yes_walk.weighted_average_price, walk=yes_walk,
+            fees=yes_leg_fees),
         Leg(venue=no_contract.venue, contract=no_contract, side=Side.NO,
             action=OrderAction.BUY, quantity=qty,
-            limit_price=no_walk.weighted_average_price, walk=no_walk),
+            limit_price=no_walk.weighted_average_price, walk=no_walk,
+            fees=no_leg_fees),
     ]
     return Opportunity(
         opportunity_id=str(uuid.uuid4()),

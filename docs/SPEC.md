@@ -310,7 +310,10 @@ raise a MANUAL ACTION REQUIRED alert recommending the kill switch. Bounds:
 `max_unhedged_seconds` / `_contracts` / `_dollars`.
 **Evidence.** `prediction_arb/execution/partial_fills.py`,
 `execution/hedging.py`, `risk/exposure.py`, `docs/RISK_MANAGEMENT.md`,
-`tests/test_spec_cases.py` (case 7).
+`tests/test_spec_cases.py` (case 7), `tests/test_risk_enforcement.py` (partial
+fill, retry, failed hedge/unwind, timeout breach, kill and safe recovery). D22
+records that `max_emergency_loss` is a concession bound, not yet a generic
+preflight bound on unknown unwind fills/fees.
 
 ### §33 — Pre-trade checklist  `[C,D,I]`
 **Requirement.** Before any trade the system MUST verify: APPROVED match
@@ -614,8 +617,12 @@ INFERRED from the two surviving citation sites and needs owner confirmation.
 `max_capital_per_trade`, `max_unhedged_exposure`, `max_daily_loss`,
 `max_open_positions`, `max_concurrent_orders`. Existing positions remain
 monitored; a violation is never a reason to liquidate silently.
-**Evidence.** `prediction_arb/risk/limits.py`, `config/risk_limits.yaml`,
-`config/settings.yaml`, `docs/RISK_MANAGEMENT.md`, `tests/test_units.py`.
+**Evidence.** `prediction_arb/risk/limits.py`,
+`prediction_arb/execution/coordinator.py`, `config/risk_limits.yaml`,
+`docs/RISK_MANAGEMENT.md`, `tests/test_risk_enforcement.py`. The paper path
+now enforces these against coordinator state; D21 records that daily realized
+P&L is incomplete without settlement/day-rollover accounting, and live remains
+monitor-only (D24). Configuration/readiness alone is not enforcement evidence.
 
 ### §71 — Kill switch  `[C,D,T]`
 **Requirement.** A global kill switch MUST be file-based (so it works across
@@ -624,8 +631,10 @@ and MUST block: the firewall, live startup, and new paper trades. It remains
 engaged until explicitly disengaged. Emergency procedures (flatten-and-stop)
 are driven by it or by unrecoverable exposure.
 **Evidence.** `prediction_arb/risk/kill_switch.py`,
-`execution/emergency.py`, `execution/firewall.py`, `main.py`,
-`docs/RISK_MANAGEMENT.md`, `tests/test_safety.py`.
+`execution/coordinator.py`, `execution/firewall.py`, `main.py`,
+`docs/RISK_MANAGEMENT.md`, `tests/test_safety.py`,
+`tests/test_risk_enforcement.py`. `execution/emergency.py` remains disconnected
+(D24); it is not evidence that automatic cancel/flatten is active.
 
 ### §72 — Timeout discipline  `[C,D,T]`
 **Requirement.** A transmission timeout MUST NEVER lead to a blind retry. The

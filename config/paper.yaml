@@ -6,8 +6,12 @@ allow_live_orders: false
 env_file: .env.paper
 data_dir: data/paper
 requires_trading_credentials: false
+# Paper-only, venue-local capital (§29): every enabled venue must be listed.
+# Secondary venues use the same $750 rehearsal allocation; balances are never
+# transferred between venues and never represent a real account balance.
 paper_starting_cash:
   kalshi: 1000
+  polymarket_us: 750
   forecast_ex: 750
 simulated_latency_ms: 250
 simulated_fill_probability_at_touch: 0.9

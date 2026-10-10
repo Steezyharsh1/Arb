@@ -1,10 +1,15 @@
-"""Hard risk limits (§70). When any limit is reached: STOP NEW TRADES.
-Existing positions remain monitored."""
+"""Hard risk limits (§70).
+
+``config/risk_limits.yaml`` is the single authoritative source.  The helpers in
+this module are pure checks; the execution coordinator calls them immediately
+before reserving an order lifecycle.  A configured value appearing in a
+readiness report is not, by itself, evidence that it is enforced.
+"""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any
+from typing import Any, Mapping, Optional
 
 
 @dataclass(frozen=True)
@@ -48,42 +53,88 @@ class RiskLimits:
 
 @dataclass
 class RiskState:
+    """Coordinator-owned paper risk state.
+
+    Capital and positions are deliberately conservative: they are added only
+    after an actual simulated fill lifecycle leaves a position open, and are
+    not released because paper settlement/position-close accounting is not yet
+    implemented.  ``open_orders`` is a reservation count held for the entire
+    two-leg lifecycle, including recovery.
+    """
+
     deployed_total: Decimal = Decimal("0")
-    deployed_by_venue: dict[str, Decimal] = None  # type: ignore[assignment]
-    deployed_by_event: dict[str, Decimal] = None  # type: ignore[assignment]
+    deployed_by_venue: dict[str, Decimal] = field(default_factory=dict)
+    deployed_by_event: dict[str, Decimal] = field(default_factory=dict)
     daily_pnl: Decimal = Decimal("0")
     open_positions: int = 0
     open_orders: int = 0
 
-    def __post_init__(self):
-        if self.deployed_by_venue is None:
-            self.deployed_by_venue = {}
-        if self.deployed_by_event is None:
-            self.deployed_by_event = {}
 
+def check_trade_against_limits(
+    limits: RiskLimits,
+    state: RiskState,
+    capital: Decimal,
+    venues: list[str],
+    event: str,
+    *,
+    capital_by_venue: Optional[Mapping[str, Decimal]] = None,
+    new_positions: Optional[int] = None,
+    new_orders: Optional[int] = None,
+) -> list[str]:
+    """Return every pre-trade violation (empty means the reservation may run).
 
-def check_trade_against_limits(limits: RiskLimits, state: RiskState,
-                               capital: Decimal, venues: list[str],
-                               event: str) -> list[str]:
-    """Return list of violated limits (empty == pass)."""
+    ``capital_by_venue`` should be the walked purchase cost plus that leg's
+    venue fees.  The equal split remains only as a backwards-compatible,
+    conservative helper fallback for callers that do not have leg detail.
+    The coordinator always supplies the exact mapping.
+    """
     violations: list[str] = []
     if capital > limits.max_capital_per_trade:
         violations.append(
-            f"trade capital {capital} > max_capital_per_trade "
+            f"max_capital_per_trade: trade capital {capital} > "
             f"{limits.max_capital_per_trade}")
     if state.deployed_total + capital > limits.max_total_capital:
-        violations.append("max_total_capital would be exceeded")
-    for v in venues:
-        if (state.deployed_by_venue.get(v, Decimal("0")) + capital / len(venues)
-                > limits.max_capital_per_venue):
-            violations.append(f"max_capital_per_venue would be exceeded on {v}")
-    if (state.deployed_by_event.get(event, Decimal("0")) + capital
-            > limits.max_capital_per_event):
-        violations.append("max_capital_per_event would be exceeded")
+        violations.append(
+            f"max_total_capital: projected {state.deployed_total + capital} > "
+            f"{limits.max_total_capital}")
+
+    if capital_by_venue is None:
+        unique_venues = list(dict.fromkeys(venues))
+        share = (capital / len(unique_venues)
+                 if unique_venues else Decimal("0"))
+        venue_capital: Mapping[str, Decimal] = {
+            venue: share for venue in unique_venues
+        }
+    else:
+        venue_capital = capital_by_venue
+    for venue, added in venue_capital.items():
+        projected = state.deployed_by_venue.get(venue, Decimal("0")) + added
+        if projected > limits.max_capital_per_venue:
+            violations.append(
+                f"max_capital_per_venue: projected {projected} > "
+                f"{limits.max_capital_per_venue} on {venue}")
+
+    projected_event = state.deployed_by_event.get(event, Decimal("0")) + capital
+    if projected_event > limits.max_capital_per_event:
+        violations.append(
+            f"max_capital_per_event: projected {projected_event} > "
+            f"{limits.max_capital_per_event}")
     if state.daily_pnl <= -limits.max_daily_loss:
-        violations.append("max_daily_loss reached — no new trades today")
-    if state.open_positions >= limits.max_open_positions:
-        violations.append("max_open_positions reached")
-    if state.open_orders + len(venues) > limits.max_concurrent_orders:
-        violations.append("max_concurrent_orders would be exceeded")
+        violations.append(
+            f"max_daily_loss: daily P&L {state.daily_pnl} reached "
+            f"-{limits.max_daily_loss}; no new trades today")
+
+    positions = len(venues) if new_positions is None else new_positions
+    projected_positions = state.open_positions + positions
+    if projected_positions > limits.max_open_positions:
+        violations.append(
+            f"max_open_positions: projected {projected_positions} > "
+            f"{limits.max_open_positions}")
+
+    orders = len(venues) if new_orders is None else new_orders
+    projected_orders = state.open_orders + orders
+    if projected_orders > limits.max_concurrent_orders:
+        violations.append(
+            f"max_concurrent_orders: projected {projected_orders} > "
+            f"{limits.max_concurrent_orders}")
     return violations

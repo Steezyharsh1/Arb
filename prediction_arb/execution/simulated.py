@@ -50,6 +50,9 @@ class SimState:
     positions: list[SimPosition] = field(default_factory=list)
     orders: dict[str, OrderResult] = field(default_factory=dict)
     fills: list[dict[str, Any]] = field(default_factory=list)
+    # Realized only when a simulated position is sold. Open-position P&L and
+    # settlement are intentionally not invented.
+    realized_pnl: Decimal = Decimal("0")
 
 
 class _SimulatedExecutionEngine(ExecutionEngine):
@@ -79,6 +82,14 @@ class _SimulatedExecutionEngine(ExecutionEngine):
                 fees=Decimal("0"),
                 message=f"mode mismatch: engine={self.mode.value} "
                         f"request={request.mode.value}")
+        # A missing venue allocation is a configuration error, not a zero
+        # balance and never a successful sell. Report it explicitly before
+        # looking at books so the operator sees the root cause.
+        if request.venue not in self.state.cash:
+            return self._reject(
+                request,
+                f"paper starting cash is not configured for venue "
+                f"{request.venue!r}; add it to paper_starting_cash")
         if self.simulated_latency_ms:
             await asyncio.sleep(self.simulated_latency_ms / 1000.0)
 
@@ -87,8 +98,23 @@ class _SimulatedExecutionEngine(ExecutionEngine):
             return self._reject(request, "no order book available")
 
         async with self._lock:
+            walk_quantity = request.quantity
+            if request.action.value == "sell":
+                held = sum((
+                    position.quantity for position in self.state.positions
+                    if position.venue == request.venue
+                    and position.contract_id == request.contract_id
+                    and position.side == request.side.value
+                ), Decimal("0"))
+                if held <= 0:
+                    return self._reject(
+                        request, "insufficient simulated position to sell; "
+                        "naked simulated sells are prohibited")
+                # A request larger than the holding may partially fill only up
+                # to the holding; it can never create a short position.
+                walk_quantity = min(request.quantity, held)
             walk = (walk_buy if request.action.value == "buy" else walk_sell)(
-                book, request.quantity)
+                book, walk_quantity)
             # respect limit price: only levels at-or-better fill
             if request.limit_price is not None and walk.levels_consumed:
                 ok_levels = [l for l in walk.levels_consumed
@@ -160,7 +186,7 @@ class _SimulatedExecutionEngine(ExecutionEngine):
                 # paper results would silently overstate executable profit.
                 return self._reject(request, str(exc))
             total = cost + fees
-            venue_cash = self.state.cash.get(request.venue, Decimal("0"))
+            venue_cash = self.state.cash[request.venue]
             if request.action.value == "buy" and total > venue_cash:
                 return self._reject(
                     request, f"insufficient simulated cash on "
@@ -173,7 +199,31 @@ class _SimulatedExecutionEngine(ExecutionEngine):
                     side=request.side.value, quantity=filled,
                     entry_price=avg))
             else:
+                # FIFO position reduction. Before this, an unwind credited
+                # cash but left the original position untouched, so partial-
+                # fill recovery could claim success while still reporting the
+                # naked position.
+                remaining_sale = filled
+                entry_cost = Decimal("0")
+                kept: list[SimPosition] = []
+                for position in self.state.positions:
+                    matches = (
+                        position.venue == request.venue
+                        and position.contract_id == request.contract_id
+                        and position.side == request.side.value)
+                    if not matches or remaining_sale <= 0:
+                        kept.append(position)
+                        continue
+                    sold = min(position.quantity, remaining_sale)
+                    entry_cost += sold * position.entry_price
+                    remaining_sale -= sold
+                    residual = position.quantity - sold
+                    if residual > 0:
+                        position.quantity = residual
+                        kept.append(position)
+                self.state.positions = kept
                 self.state.cash[request.venue] = venue_cash + cost - fees
+                self.state.realized_pnl += cost - fees - entry_cost
 
             status = (OrderStatus.FILLED if filled >= request.quantity
                       else OrderStatus.PARTIALLY_FILLED)

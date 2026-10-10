@@ -32,10 +32,38 @@ from ...monitoring.health import HealthMonitor
 from ...orderbooks.aggregator import OrderBookAggregator
 from ...risk import kill_switch
 from ...risk.exposure import ExposureTracker
-from ...risk.limits import RiskLimits, RiskState, check_trade_against_limits
+from ...risk.limits import RiskLimits, RiskState
 from ..shared import run_arbitrage_scan, run_matching
 
 log = get_logger("modes.paper")
+
+
+def _paper_starting_cash(config: AppConfig) -> dict[str, Decimal]:
+    """Load explicit, positive paper capital for every enabled venue.
+
+    The simulator also rejects an unknown venue at order time. Validating here
+    makes a checked-in configuration omission a startup error instead of a
+    surprise after leg A has filled elsewhere.
+    """
+    raw = config.mode_config.get("paper_starting_cash") or {}
+    starting = {venue: Decimal(str(amount)) for venue, amount in raw.items()}
+    enabled = {
+        venue for venue, venue_cfg in config.venues.get("venues", {}).items()
+        if venue_cfg.get("enabled")
+    }
+    missing = sorted(enabled - set(starting))
+    invalid = sorted(venue for venue, amount in starting.items()
+                     if amount <= 0)
+    if missing or invalid:
+        details = []
+        if missing:
+            details.append("missing enabled venue(s): " + ", ".join(missing))
+        if invalid:
+            details.append("non-positive allocation(s): " + ", ".join(invalid))
+        raise ValueError(
+            "invalid paper_starting_cash — " + "; ".join(details)
+            + ". Paper capital must be explicit per enabled venue.")
+    return starting
 
 
 def _book_age_ms(settings: dict) -> float:
@@ -75,11 +103,7 @@ class PaperEngine:
         self.risk_state = RiskState()
         self.exposure = ExposureTracker()
 
-        starting = {
-            venue: Decimal(str(amount))
-            for venue, amount in (config.mode_config.get(
-                "paper_starting_cash") or {}).items()
-        }
+        starting = _paper_starting_cash(config)
         # D11: the scan and the simulator both read through this aggregator,
         # which enforces `maximum_book_age_ms`. Before this the paper engine
         # kept its own dict and applied NO freshness gate, so a book could
@@ -109,7 +133,7 @@ class PaperEngine:
         self.coordinator = ExecutionCoordinator(
             engine=self.execution, exposure=self.exposure,
             partial_fill_handler=PartialFillHandler(self.limits, self.alerts),
-            mode=Mode.PAPER)
+            mode=Mode.PAPER, limits=self.limits, risk_state=self.risk_state)
 
     async def run(self, cycles: Optional[int] = None) -> None:
         arb = self.config.settings.get("arbitrage", {})
@@ -307,25 +331,13 @@ class PaperEngine:
         if not ok:
             log.warning(f"skipping {op.opportunity_id}: {why}")
             return
-        violations = check_trade_against_limits(
-            self.limits, self.risk_state, op.capital_required, venues,
-            op.normalized_event)
-        if violations:
-            log.warning(f"risk blocked {op.opportunity_id}: {violations}")
-            return
+        # Runtime risk enforcement and reservation live inside the coordinator
+        # so direct execution callers cannot bypass them.
         report = await self.coordinator.execute(op)
+        if report.risk_violations:
+            log.warning("risk blocked/breached %s: %s",
+                        op.opportunity_id, report.risk_violations)
         await self.alerts.alert(
             "PAPER EXECUTION" + (" OK" if report.success else " INCOMPLETE"),
             f"opportunity {op.opportunity_id}: success={report.success}; "
             f"notes={report.notes}")
-        if report.success:
-            self.risk_state.deployed_total += op.capital_required
-            for leg in op.legs:
-                self.risk_state.deployed_by_venue[leg.venue] = (
-                    self.risk_state.deployed_by_venue.get(
-                        leg.venue, Decimal("0"))
-                    + op.capital_required / len(op.legs))
-            self.risk_state.deployed_by_event[op.normalized_event] = (
-                self.risk_state.deployed_by_event.get(
-                    op.normalized_event, Decimal("0")) + op.capital_required)
-            self.risk_state.open_positions += len(op.legs)

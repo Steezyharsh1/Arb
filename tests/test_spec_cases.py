@@ -163,8 +163,10 @@ class TestCase7PartialFillRecovery:
 
         limits = RiskLimits.from_config({})
         handler = PartialFillHandler(limits, ConsoleAlertSink())
-        coord = ExecutionCoordinator(engine, ExposureTracker(), handler,
-                                     Mode.PAPER)
+        from prediction_arb.risk.limits import RiskState
+        coord = ExecutionCoordinator(
+            engine, ExposureTracker(), handler, Mode.PAPER,
+            limits, RiskState())
 
         op = evaluate_two_leg(
             yes_c, no_c, yes_book,

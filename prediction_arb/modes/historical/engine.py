@@ -29,6 +29,7 @@ from ...fees.freshness import (
 from ...matching.llm_matcher import LLMMatcher
 from ...monitoring.dashboard import print_block_reasons
 from ...monitoring.formatting import UNAVAILABLE_TEXT
+from ...risk.limits import RiskLimits
 from ..shared import run_arbitrage_scan, run_matching
 from .data_provider import HistoricalDataProvider
 
@@ -162,12 +163,14 @@ class HistoricalEngine:
         # The metric battery runs over the opportunities the replay already
         # produced — it does not re-scan, so the numbers describe exactly
         # the run that was persisted above.
-        risk = self.config.settings.get("risk", {})
-        max_capital = risk.get("max_total_capital")
+        # Reporting reads the same authoritative risk file as paper
+        # execution; the removed settings.yaml duplicate could drift and used
+        # a different per-trade key.
+        max_capital = RiskLimits.from_config(
+            self.config.risk_limits).max_total_capital
         metrics = summarize_frames(
             per_frame,
-            max_total_capital=(Decimal(str(max_capital))
-                               if max_capital is not None else None),
+            max_total_capital=max_capital,
             contracts_reconstructed=sum(len(c) for _, c, _ in frames),
             contracts_unreconstructable=len(under))
 

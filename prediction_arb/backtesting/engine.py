@@ -26,6 +26,7 @@ from ..fees.calculator import FeeCalculator
 from ..matching.llm_matcher import LLMMatcher
 from ..modes.historical.data_provider import HistoricalDataProvider
 from ..modes.shared import run_arbitrage_scan, run_matching
+from ..risk.limits import RiskLimits
 from .metrics import BacktestResult, summarize_frames
 
 
@@ -44,11 +45,13 @@ class BacktestEngine:
                  llm: Optional[LLMMatcher] = None,
                  *,
                  settings: Optional[dict] = None,
+                 risk_limits: Optional[dict] = None,
                  bucket_seconds: int = 60):
         self.repo = repo
         self.fee_calc = fee_calc
         self.llm = llm if llm is not None else LLMMatcher(client=None)
         self.settings = settings or {}
+        self.risk_limits = risk_limits
         self.provider = HistoricalDataProvider(repo, bucket_seconds)
 
     def data_inventory(self, start: Optional[datetime] = None,
@@ -84,12 +87,12 @@ class BacktestEngine:
             ops = await self._scan(contracts, books, approved, ts)
             per_frame.append((ts, ops))
 
-        risk = self.settings.get("risk", {})
-        max_capital = risk.get("max_total_capital")
+        max_capital = (RiskLimits.from_config(
+            self.risk_limits).max_total_capital
+            if self.risk_limits is not None else None)
         return summarize_frames(
             per_frame,
-            max_total_capital=(Decimal(str(max_capital))
-                               if max_capital is not None else None),
+            max_total_capital=max_capital,
             contracts_reconstructed=reconstructed,
             contracts_unreconstructable=len(self.provider.under_recorded))
 
