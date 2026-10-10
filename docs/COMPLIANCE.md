@@ -10,10 +10,10 @@ and verification date. See `docs/VENUE_RESEARCH.md` §6 for the evidence ledger.
 
 ## Current Utah ledger (verified 2026-09-13)
 
-| Venue | Category | Status | Runtime consequence |
+| Venue | Category | Status | Helper policy / current runtime path |
 |---|---|---|---|
-| every exchange and frontend route | sports / proposition bets | **RESTRICTED** | blocked in every mode's eligibility filter; never live |
-| every exchange and frontend route | non-sports | **UNKNOWN** | live blocked; paper/historical research may continue under mode rules |
+| every exchange and frontend route | sports / proposition bets | **RESTRICTED** | `check_contract_eligibility` rejects it; `PaperEngine._discover` applies that check. Historical replay does not call this filter and never places orders |
+| every exchange and frontend route | non-sports | **UNKNOWN** | The helper blocks `Mode.LIVE` and permits paper/research modes. `PaperEngine` calls it, but `LiveEngine` is monitor-only: no production eligibility scan or caller to the context-gated live submit method exists, so this is not an end-to-end live gate |
 
 Why sports is restricted:
 
@@ -40,15 +40,21 @@ negative search result, not a permanent legal conclusion.
 
 The classifier uses venue category/ticker plus event text. Clear league, game,
 player-prop, spread, total, and sports terms map to `sports`. An unrecognized
-category does not become eligible: it falls back to `UNKNOWN`, which still blocks
-live use.
+category does not become eligible: it falls back to `UNKNOWN`. The eligibility
+helper fails closed for `Mode.LIVE`, but `LiveEngine` is monitor-only: no
+production eligibility scan or caller to the context-gated live submit method
+exists.
 
 ## Hard controls
 
-- `RESTRICTED` is never tradable.
-- `UNKNOWN` never means yes; live eligibility fails closed.
-- Missing provenance, fees, matching evidence, or fresh books independently
-  blocks execution.
+- `RESTRICTED` is rejected by `check_contract_eligibility`; the current caller
+  is `PaperEngine._discover`. Historical replay does not execute.
+- `UNKNOWN` never means yes. The helper rejects it for `Mode.LIVE`, but no live
+  discovery/scanning/order path currently invokes the helper; this policy is not
+  an end-to-end live control.
+- In the active paper scan/execution path, missing provenance, fees, matching
+  evidence, or fresh books independently blocks execution. Readiness also
+  reports live blockers but enables no order route.
 - `prediction_arb/compliance/restrictions.py` prohibits scraping, geo-bypass,
   rate-limit circumvention, and ToS violations and restricts adapters to official
   endpoints.

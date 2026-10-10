@@ -13,6 +13,7 @@ from prediction_arb.core.types import (
     Independence,
     Mode,
     OpportunityStatus,
+    OpportunityType,
 )
 from .conftest import make_book, make_contract
 
@@ -43,6 +44,7 @@ class TestProfitMath:
                               independence=Independence.INDEPENDENT)
         assert op is not None
         assert op.status == OpportunityStatus.TRADE
+        assert op.opportunity_type is OpportunityType.TYPE_A_GUARANTEED
         assert op.quantity == Decimal("500")
         # gross cost 0.90*500=450; payout 500; fees: kalshi quad on 0.40
         # (0.07*500*0.40*0.60=8.40) + fx 0.01*500=5 → net ≈ 500-450-13.4-delay
@@ -96,6 +98,24 @@ class TestMultiVenueSearch:
         approved = {(min(ka, kb), max(ka, kb)): ("m1", 0.99)}
         ops = search_event([a, b], books, complete_fee_calc, Mode.PAPER, approved)
         assert ops == []   # SAME_VENUE filtered before evaluation
+
+    def test_unknown_relationship_never_reaches_scan_even_with_approval(
+            self, complete_fee_calc):
+        from prediction_arb.arbitrage.optimizer import search_event
+        unknown = make_contract(venue="mystery_venue", contract_id="U")
+        known = make_contract(venue="forecast_ex", contract_id="F")
+        books = {
+            ("mystery_venue", "U"): make_book(
+                "mystery_venue", "U", asks=[("0.30", "100")]),
+            ("forecast_ex", "F"): make_book(
+                "forecast_ex", "F", asks=[("0.30", "100")]),
+        }
+        a, b = "mystery_venue:U", "forecast_ex:F"
+        # Even a forged APPROVED pair cannot bypass the runtime provenance gate.
+        ops = search_event(
+            [unknown, known], books, complete_fee_calc, Mode.PAPER,
+            {(min(a, b), max(a, b)): ("forged", 1.0)})
+        assert ops == []
 
 
 class TestGraph:

@@ -235,6 +235,18 @@ class TestHardLimitCoordinatorBoundary:
             "max_unhedged_dollars", "max_emergency_loss",
         }
 
+    def test_coordinator_requests_are_always_priced_limit_orders(self):
+        engine = FaultEngine(_full_fill_script())
+        coordinator, _tracker, _state, _alerts = _coordinator(engine)
+
+        report = asyncio.run(coordinator.execute(_op()))
+
+        assert report.success
+        assert len(engine.requests) == 2
+        assert all(request.order_type is OrderType.LIMIT
+                   and request.limit_price is not None
+                   for request in engine.requests)
+
     def test_each_capital_loss_position_and_order_limit_blocks_before_leg_a(self):
         cases = [
             (replace(RiskLimits.from_config({}), max_capital_per_trade=Decimal("8")),

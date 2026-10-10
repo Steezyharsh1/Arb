@@ -5,12 +5,9 @@ schema_version: 1
 mode: paper   # default mode is paper (§95). Never defaults to live.
 
 arbitrage:
-  guaranteed_only: true          # only TYPE_A / TYPE_B eligible for execution
   minimum_net_profit: 2.00       # dollars (§42)
   minimum_net_return: 0.005      # 0.5%
-  minimum_liquidity_ratio: 0.90
   maximum_book_age_ms: 1000
-  maximum_execution_latency_ms: 500
   maximum_settlement_delay_days: 5
 
 # Hard execution-risk limits have one authoritative source:
@@ -19,14 +16,9 @@ arbitrage:
 
 execution:
   max_book_age_ms: 1000
-  max_execution_latency_ms: 500
-  preferred_order_type: LIMIT
-  allow_market_orders: false
 
 compliance:
   jurisdiction: US-UT
-  block_unknown_status: true
-  block_unknown_venue_relationship: true
 
 cost_of_capital:
   annual_rate: 0.05

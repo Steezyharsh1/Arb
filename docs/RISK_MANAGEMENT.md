@@ -94,20 +94,32 @@ been validated. This change did **not** activate it or any automatic live
 flatten/cancel behavior. The only newly connected emergency action is the
 persistent stop-new-trades switch described and tested above.
 
-## Other configured execution constraints found by the audit
+## Other configured execution constraints found by the Arb.10 audit
 
-These are not fields in `risk_limits.yaml`, but they were inspected because
-they read like execution controls:
+These are not fields in `risk_limits.yaml`, but they read like execution
+controls and were traced through the production call graph:
 
 - `minimum_net_profit`, `minimum_net_return`, settlement-delay spread, fee
   completeness/freshness, and both order-book-age limits are enforced in the
   scan/paper path.
-- `preferred_order_type: LIMIT` and `allow_market_orders: false` are not read as
-  switches; the coordinator always constructs LIMIT orders, which is the same
-  fail-closed behavior.
-- `minimum_liquidity_ratio` and both configured execution-latency limits are
-  not runtime gates (**D23**). The walker still refuses to invent liquidity,
-  and time-between-legs is measured, but no ratio/latency comparison is made.
+- The former `guaranteed_only`, `block_unknown_status`,
+  `block_unknown_venue_relationship`, `preferred_order_type`, and
+  `allow_market_orders` YAML switches were removed from `settings.yaml` because
+  no production caller read them. The current behavior is fixed in code:
+  scanning constructs TYPE A guaranteed opportunities only; only proven
+  `INDEPENDENT` pairs may be approved/evaluated; and the eligibility helper
+  blocks UNKNOWN for `Mode.LIVE` while allowing supported non-live research.
+  `PaperEngine` calls that helper, but `LiveEngine` has no discovery/eligibility
+  scan path, so this is not a live production gate. The paper coordinator always
+  constructs priced LIMIT orders; the firewall verifier rejects a missing limit
+  price if called, but no live coordinator is wired. Regression tests pin these
+  current behaviors. This cleanup does not add new configurability.
+- `minimum_liquidity_ratio` and both execution-latency settings were also
+  removed (**D23**), not implemented. The walker stops at displayed liquidity,
+  but it does not compare a liquidity ratio; the coordinator records
+  `time_between_legs_ms`, but does not compare it to a threshold. Do not
+  reintroduce these keys until the sizing denominator and post-leg-A recovery
+  semantics are specified and fault-tested.
 - Live risk values are not yet supplied to a production `FirewallContext`
   (**D24**). Live is monitor-only, so this does not create a real-order bypass;
   it is a blocker that must be resolved before any live coordinator is built.

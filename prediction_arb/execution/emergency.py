@@ -1,5 +1,10 @@
-"""Emergency procedures (§71, §72): flatten-and-stop behavior driven by
-the kill switch or unrecoverable exposure."""
+"""Unwired emergency-response scaffold (§71, §72).
+
+The current manager can persistently engage the kill switch and report a
+position snapshot; it does **not** cancel orders or flatten exposure. Do not
+use it as a recovery path until adapter-specific cancellation/flattening,
+partial failures, and alert/write failures have explicit semantics and tests.
+See D24 in ``docs/ROADMAP.md``."""
 from __future__ import annotations
 
 from ..core.logging import get_logger

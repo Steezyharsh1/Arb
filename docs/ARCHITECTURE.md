@@ -38,9 +38,12 @@
 
 ## Key data flow (paper cycle)
 
-1. `PaperEngine._discover()` — verified adapters only; eligibility
-   filter (Utah, category/event-text aware; sports=RESTRICTED across venues,
-   non-sports=UNKNOWN and blocked from live).
+1. `PaperEngine._discover()` — verified adapters only; applies
+   `check_contract_eligibility` (Utah, category/event-text aware; sports is
+   RESTRICTED, non-sports is UNKNOWN). The helper returns UNKNOWN as blocked
+   for `Mode.LIVE`, but `LiveEngine` is monitor-only: no production
+   eligibility scan or caller to the context-gated submit method exists. This
+   is not an end-to-end live gate (D24).
 2. `modes/shared.run_matching` — bounded candidate proposal
    (§96: cross-venue, settlement ±6h, threshold / numeric / content-word
    keys, local density cap; `docs/CANDIDATE_RETRIEVAL.md`) → deterministic filter → LLM (conservative no-match if

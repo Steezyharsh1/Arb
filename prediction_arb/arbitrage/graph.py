@@ -1,10 +1,9 @@
-"""Arbitrage graph (§21) — data structure + two-leg search implemented;
-multi-leg / cycle search STUBBED for v1.
+"""Arbitrage-graph prototype (§21); not part of the production call graph.
 
-Nodes: (venue, contract_id, outcome). Edges: typed actions. The graph is
-the future substrate for N-leg portfolio search; today it feeds the
-two-leg engine through `two_leg_candidates`.
-"""
+Nodes: (venue, contract_id, outcome). Edges: typed actions. The graph is a
+future substrate for N-leg portfolio search. ``two_leg_candidates`` is tested
+as a standalone helper but no production scanner consumes it; ``find_cycles``
+remains a v1 stub. See Phase 9 in ``docs/ROADMAP.md``."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
