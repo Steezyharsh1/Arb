@@ -310,12 +310,12 @@ class TestRiskLimits:
 
 class TestSettlementTiming:
     def test_lockup_and_cost(self):
-        """An unsettled contract locks capital, and that lockup is costable.
+        """The default fixture stays unsettled on a frozen test clock.
 
-        Goes through the production call path (`now` defaults to `utcnow()`),
-        so the contracts must settle in the future *relative to the moment
-        the test runs* — `make_contract`'s default settlement is relative for
-        exactly that reason (defect D16).
+        This exercises the production call path (`now` defaults to
+        `utcnow()`), but conftest freezes that settlement clock and makes the
+        fixture settle three days later. It is deterministic and still fails
+        if the old expired absolute settlement is restored (D16).
         """
         from prediction_arb.normalization.settlement import (
             capital_lockup_days, settlement_delay_cost,
@@ -323,12 +323,10 @@ class TestSettlementTiming:
         a = make_contract(venue="kalshi")
         b = make_contract(venue="forecast_ex")
         lockup = capital_lockup_days([a, b])
-        assert lockup is not None and lockup > 0
+        assert lockup == Decimal("3")
         cost = settlement_delay_cost(Decimal("100"), lockup, Decimal("0.05"))
-        # A positive lockup on positive capital at a positive rate costs
-        # something; `>= 0` would also have passed with the lockup clamped
-        # to zero, which is what hid D16.
-        assert cost is not None and cost > 0
+        # 100 * 5% * 3 / 365, rounded to four decimal places.
+        assert cost == Decimal("0.0411")
 
     def test_lockup_tracks_the_last_leg_to_settle(self):
         """Exact arithmetic, pinned with an explicit `now` (no wall clock)."""

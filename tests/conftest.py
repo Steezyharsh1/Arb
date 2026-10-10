@@ -23,22 +23,19 @@ from prediction_arb.core.types import (
     PriceLevel,
 )
 
-# Default settlement time for `make_contract`: always a fixed offset into the
-# FUTURE, resolved once when this module is imported.
+# Settlement-dependent tests use this frozen test clock. The default
+# contract settlement is three days later, so a default `make_contract()`
+# always exercises a positive lockup without consulting the host wall clock.
 #
-# It used to be the absolute date 2026-09-15, and that silently rotted
-# (defect D16). Once the date passed, `capital_lockup_days` correctly clamped
-# to zero — a contract that has already settled locks up no capital — which
-# turned `assert lockup > 0` into a false alarm and, worse, quietly removed
-# the non-zero settlement-delay cost from every other test using this
-# fixture. Production never evaluates a settled contract, so the fixture
-# should not either. A relative offset cannot expire; whole-second resolution
-# keeps it stable for the duration of a run.
-#
-# Tests that need an exact, reproducible instant must pass `settlement=` (or
-# an explicit `now=`) themselves rather than relying on this default.
-SETTLE = (datetime.now(timezone.utc).replace(microsecond=0)
-          + timedelta(days=3))
+# D16 was originally caused by an absolute 2026-09-15 settlement that had
+# passed: `capital_lockup_days` correctly returned zero for a settled
+# contract, which made `assert lockup > 0` fail and silently removed delay
+# cost from other tests. A wall-clock-relative repair avoided expiry but still
+# made the baseline time-dependent; pairing a fixed test clock with fixed,
+# future-dated fixtures is repeatable indefinitely. Tests for other exact
+# instants should pass `settlement=` and/or `now=` explicitly.
+SETTLEMENT_TEST_NOW = datetime(2026, 10, 9, 0, 0, tzinfo=timezone.utc)
+SETTLE = SETTLEMENT_TEST_NOW + timedelta(days=3)
 
 
 def make_contract(venue: str = "kalshi", contract_id: str = "TEST-1",
@@ -72,6 +69,17 @@ def make_contract(venue: str = "kalshi", contract_id: str = "TEST-1",
         market_microstructure=MarketMicrostructure(
             type=MicrostructureType.CLOB, has_order_book=True),
         supported_order_types=OrderTypeSupport(limit=True, gtc=True))
+
+
+@pytest.fixture(autouse=True)
+def freeze_settlement_clock(monkeypatch):
+    """Keep settlement-lockup tests independent of the real wall clock.
+
+    Only the settlement calculation's clock is frozen; other clock-dependent
+    behaviour (for example order-book timestamps) remains untouched.
+    """
+    from prediction_arb.normalization import settlement
+    monkeypatch.setattr(settlement, "utcnow", lambda: SETTLEMENT_TEST_NOW)
 
 
 def make_book(venue: str, contract_id: str,
