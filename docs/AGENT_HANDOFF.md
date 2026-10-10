@@ -5,13 +5,17 @@ permanent entry point for a fresh agent session with no memory of prior
 conversations. It tells you what the project is, what is true *right now*,
 what is broken, what you may work on, and what you must not touch.
 
-- **Last updated:** 2026-10-10 (UTC) by Arb.9 semantic-matching budget and
-  deduplication work on branch `arena/a5c3486d-arb` — deterministic
-  prioritization by independence/shared-keys/settlement-proximity, cache keys
-  sensitive to contract versions + matcher/prompt/model versions, match_id
-  includes versions and is sorted, REVIEW deduplication prevents per-cycle
-  bloat, budget-exhausted pairs remain eligible (not cached). Carries forward
-  Arb.8 retrieval, D20 paper risk, D10/D19 readiness, D18 settlement, D17 costs.
+- **Last updated:** 2026-10-10 (UTC) by Arb.10 on branch
+  `arena/dbb1a2ee-arb` — audited all YAML configuration keys and the production
+  call graph; removed ignored settings rather than presenting them as runtime
+  protections; added the configuration/module audit in §7d and deferred
+  prototypes to D26. No active risk behavior or live-order path was added.
+- **Previous update (Arb.9, 2026-10-10, branch `arena/a5c3486d-arb`):**
+  semantic-matching budget and deduplication — deterministic prioritization by
+  independence/shared-keys/settlement-proximity, cache keys sensitive to
+  contract versions + matcher/prompt/model versions, match_id includes
+  versions and is sorted, REVIEW deduplication prevents per-cycle bloat, and
+  budget-exhausted pairs remain eligible (not cached).
 - **Arb.8 candidate retrieval (2026-10-10, branch `arena/732e107e-arb`, base
   `91d46df`):** cross-venue candidate generation (§96) is now pairwise,
   bounded and non-transitive. On the 1,000-contract benchmark it proposes
@@ -70,9 +74,9 @@ Authoritative context: `README.md` (what works / what is stubbed),
 | Item | Value |
 |---|---|
 | Repo | `Steezyharsh1/Arb` (package name `prediction_arb`) |
-| Working branch (fixed for this Arena session) | `arena/a5c3486d-arb` |
-| Baseline commit | `0b99106261af508b43fd77d0a8d09642e0dff027` — main HEAD before Arb.9 |
-| Working tree at session start | clean (`git status --porcelain` empty) — VERIFIED 2026-10-10; baseline `.venv/bin/pytest -o addopts=""` **582 passed in 27.75 s** (Arb.8 retrieval) |
+| Working branch (fixed for this Arena session) | `arena/dbb1a2ee-arb` |
+| Baseline commit | `219c8ba74e80c1c4c3b0a959534e619b621f8d29` — main HEAD before Arb.10 |
+| Working tree at session start | clean (`git status --porcelain` empty) — VERIFIED 2026-10-10; Arb.10 baseline `.venv/bin/pytest -o addopts=""` **597 passed in 29.52 s** |
 | Clone depth | **shallow (depth 1)**: `git log` shows a single commit. Run `git fetch --unshallow` if you need real history (e.g. to blame a regression) |
 | Merged PRs to date | #1 Phase 0, #2 Phase 1, #3 Phases 2+3, #4 Phase 2/3 gaps + Phase 4, #5 Phase 5, #6 D16 baseline recovery, #7 deterministic settlement fixtures, #8 D17 mandatory-cost fail-closed repair, #9 fee-readiness review, #10 D18 settlement timing, #11 D10/D19 readiness + fee freshness |
 | Arb.8 candidate-retrieval session | Branch `arena/732e107e-arb`, branched from `91d46df` (`main` HEAD). Baseline before its change: `.venv/bin/pytest -o addopts=""` **549 passed in 27.72 s**. After it: **582 passed in 27.75 s** (549 + 31 new in `tests/test_candidate_retrieval.py` + 2 new settlement/threshold regressions). Not pushed (session policy). |
@@ -248,19 +252,20 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4 (re-read from
 | CLI smokes re-run after the change: `--status`, `--readiness`, `--mode historical --date 2020-01-01` | **Exit 0**, grep checks pass, 2026-10-10 on `arena/732e107e-arb`. The smokes created empty git-ignored `data/`, `logs/`, `reports/`; these were removed afterwards. |
 | `benchmarks/candidate_retrieval/fallback_window.py` | **Run 2026-10-10.** A 60-min cross-venue fallback is not adopted. Reference: 15/16 → 16/16 at 36 → 42 pairs. Synthetic: 3,262 → 5,112 pairs (+57 %), det-pass 720 → 796, eq∩det unchanged 256/256. Output `results/fallback_60min.json`. |
 | `python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'` | **Succeeded 2026-10-10**; Python 3.11.2, including pytest 9.1.1, PyYAML 6.0.3, Rich 15.0.0 and project runtime dependencies |
-| `.venv/bin/pytest -o addopts=""` | **597 collected, 597 passed in 29.23 s**, re-run after Arb.9 matching budget & dedup on 2026-10-10 (baseline 582 before: Arb.8 retrieval). All offline. Note: the project's `addopts = "-q"` plus `-q` on the command line suppresses the summary line; use `-o addopts=""` to see the count |
-| `.venv/bin/pytest --collect-only -q` | **597 tests:** arbitrage_engine 9, candidate_generation 29, candidate_retrieval 31, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, matching_arb9 15, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 25, polymarket_us 41, readiness 138, risk_enforcement 15, safety 26, settlement_timing 44, spec_cases 13, unavailable_costs 35, units 43 |
-| Paper risk/exposure fault injection | **15/15 passed 2026-10-10** in `tests/test_risk_enforcement.py`. Verifies explicit capital for all enabled venues and missing-capital refusal; all 12 configured names; seven pre-leg-A capital/state breaches with zero submissions; exact state update then a blocked second trade; aggregate/per-incident prospective exposure and aged exposure; successful partial-fill retry; failed hedge + failed unwind → retained exposure + persistent kill; timeout breach → kill while recovery remains allowed; simulated unwind really removes the position; concession cap; recovery loss feeds the daily gate. `FaultEngine` is simulation-only and holds no adapter. Caveats D21–D24 are not promoted to enforced |
+| `.venv/bin/pytest -o addopts=""` | **601 collected, 601 passed in 27.64 s**, re-run after Arb.10 configuration/runtime audit on 2026-10-10 (baseline at `219c8ba`: 597 passed in 29.52 s). All offline. New regressions cover dead-key removal, mode-fixed unknown eligibility, unknown-provenance scan rejection, and LIMIT-only coordinator requests. Note: the project's `addopts = "-q"` plus `-q` on the command line suppresses the summary line; use `-o addopts=""` to see the count |
+| `.venv/bin/pytest --collect-only -q` | **601 tests:** arbitrage_engine 10, candidate_generation 29, candidate_retrieval 31, config_audit 2, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, matching_arb9 15, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 25, polymarket_us 41, readiness 138, risk_enforcement 16, safety 26, settlement_timing 44, spec_cases 13, unavailable_costs 35, units 43 |
+| Paper risk/exposure fault injection | **16/16 passed 2026-10-10** in `tests/test_risk_enforcement.py` (15 existing lifecycle tests + Arb.10 LIMIT-request regression). Verifies explicit capital for all enabled venues and missing-capital refusal; all 12 configured names; seven pre-leg-A capital/state breaches with zero submissions; exact state update then a blocked second trade; aggregate/per-incident prospective exposure and aged exposure; successful partial-fill retry; failed hedge + failed unwind → retained exposure + persistent kill; timeout breach → kill while recovery remains allowed; simulated unwind really removes the position; coordinator requests are priced LIMIT; concession cap; recovery loss feeds the daily gate. `FaultEngine` is simulation-only and holds no adapter. Caveats D21–D24 are not promoted to enforced |
 | D18 baseline reproduction and mutation checks | **Run 2026-10-10.** In a worktree at `caa57c8`, a past-dated Kalshi/ForecastEx pair with synthetic complete fees returned `TRADE`, `settlement_delay_cost=0.0000`, `net_profit=7.3200`; same script on this branch → `BLOCK`, `None`. Eight mutations (Kalshi back to expected+0, past clamp, Polymarket US 0-day, ForecastEx 0-day, ignoring `evaluation_time` in the evaluator, half-even rounding, compounded cost, dropping it in `run_arbitrage_scan`) fail 6 / 5 / 3 / 2 / 1 / 1 / 12 / 1 tests respectively (counts for the first seven taken before the 44th test was added); source restored and diff-checked afterwards |
 | Focused YAML load + `FeeCalculator.from_config` | **Succeeded 2026-10-10**. Kalshi, Polymarket US, ForecastEx, and IBKR/ForecastEx parse; all active trade and settlement statuses are `INCOMPLETE`; references are respectively `0.07/0.0175`, `0.0695/-0.0125`, and `$0.01` per executed side. Kalshi's source gives no global effective date, so its reference snapshot date is kept separate and calculations block |
 | `.venv/bin/python -m prediction_arb.main --status` | **Exit 0, re-run 2026-10-10 after D18.** kalshi=VERIFIED; polymarket_us=API_DOCUMENTED_UNTESTED; forecast_ex=API_DOCUMENTED_UNTESTED. Matrix reports Kalshi↔Polymarket US, Kalshi↔ForecastEx, and Polymarket US↔ForecastEx all INDEPENDENT; kill switch disengaged |
 | D17 offline reproduction and mutation checks | **Inherited from the D17/PR #8 verification:** original positive-profit-on-BLOCK reproduced, zero-substitution mutation failed 20 tests, zero-lockup mutation failed 2 tests. The full current suite above re-runs all D17 regressions; standalone mutation checks were not repeated in this fee review |
 | `.venv/bin/python -m prediction_arb.main --readiness` | **Exit 0, re-run 2026-10-10 after D20.** Header names the sources (§58, §98–§99); policy line `live=MANDATORY, paper=MANDATORY, historical=RESEARCH, collect=NOT_APPLICABLE`; thresholds read from `config/settings.yaml → readiness`. Blocks: `COLLECT: READY`, `HISTORICAL: NOT READY — 1 blocker(s)` (no recorded store), `PAPER (this run's mode): NOT READY — 5 blocker(s)`, `LIVE: NOT READY — 8 blocker(s)`, then `LIVE MODE: NOT RECOMMENDED YET` and the advisory footer. LIVE blockers: live-capable venues 1/2, no independent pair, matcher unconfigured, fee completeness 0/3, settlement UNKNOWN (polymarket_us, forecast_ex), recorded evidence 0/1000 + 0/50, eligibility UNKNOWN ×3, no `.env.live`. LIVE passes: fee freshness 3/3 (0 days old), book-staleness gates, kill switch disengaged, 12 risk values explicitly configured (**configuration check only**, not live wiring; D24). The run leaves the runtime tree unchanged (asserted in `tests/test_readiness.py`, and CI compares `data/ logs/ reports/` before and after — the suite itself leaves an empty `data/paper/`, see §7c) |
+| `.venv/bin/python -m prediction_arb.main --status` and `--readiness` | **Both exit 0, re-run 2026-10-10 after Arb.10 config cleanup.** Status/provenance matrix unchanged; readiness still derives the same 4 mode verdicts and reports the same 30-day fee freshness, book-age and risk-configuration criteria. `--readiness` created no store; ignored `data/` remaining afterwards came from the test suite and was removed after verification |
 | `.venv/bin/python -m prediction_arb.main --mode historical --date 2020-01-01` | **Exit 0, re-run 2026-10-10 after D18:** honestly empty ("No recorded historical order-book data … will NOT fabricate data"); `data/`, `logs/`, `reports/` deleted afterwards |
 | Paper CLI smoke, tracked-artifact guard, and venue smoke scripts | **Inherited from the D17 handoff, not re-run in the fee or D18 reviews.** Prior recorded results: empty fresh-clone data store; venue API TLS EOF; see date-specific rows in `docs/ROADMAP.md` / `docs/VENUE_RESEARCH.md` |
 | Frozen-wall-clock sweep (2026-10-14 / 2027-10-09 / 2031-01-02) | **INHERITED from the D10/D19 session: 534 passed at each of the three dates** (and at the real clock). The 15 D20 tests were run at the real 2026-10-10 clock, not in that inherited sweep. The fee clock was frozen by patching only `prediction_arb.fees.calculator.utcnow` and `prediction_arb.fees.freshness.utcnow` via a throwaway pytest plugin; this is what exposed the fixture date bomb fixed below |
 | Readiness mutation checks | **Run 2026-10-10, all eight caught, source restored and diff-checked afterwards.** `freshness_enforced` always False → 9 failures; PAPER policy downgraded to RESEARCH → 9; `ModeReadiness.ready` hardcoded `False` → 7; `order_types_verified` ignored → 3; readiness probe creating the recorded store → 2; historical engine dropping the research label → 1; fee-freshness criterion always passing → 5; a stale RESEARCH schedule silently tolerated → 1 |
-| GitHub Actions CI | **Not run for the D20 working tree** (not pushed at verification time). The local 549-test suite and readiness smoke passed. Inherited baseline is merged PR #11; do not describe older PR #8 runs as verification of this change |
+| GitHub Actions CI | **Not run for the Arb.10 working tree** (not pushed at verification time). The complete 601-test local suite and `--status`/`--readiness` smokes passed. Do not describe inherited CI runs as verification of this audit |
 
 **Environment limitations a fresh agent must assume:**
 
@@ -299,10 +304,10 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4 (re-read from
 | **D20** | **Paper capital/risk was not connected end-to-end:** enabled Polymarket US had no paper allocation; exposure breach checks had no caller; coordinator lacked limits/state/kill checks; open-order state never changed; success-only/even-split accounting and simulated sells made recovery unsafe | Confirmed by source trace on 2026-10-10. `ExposureTracker.breaches` had zero callers; only `PaperEngine._maybe_execute` called seven state checks; the simulator used missing cash as zero and credited sells without reducing/validating holdings | **FIXED FOR PAPER 2026-10-10:** explicit venue-local cash + startup/order validation; single canonical risk YAML; coordinator precheck/reservation; exact venue costs; prospective and lifecycle exposure checkpoints; bounded retry; persistent kill on unresolved risk; FIFO simulated unwind. Fifteen new fault-injection/regression tests in `tests/test_risk_enforcement.py`; all simulated, no adapters. Full matrix: `docs/RISK_MANAGEMENT.md` |
 | **D21** | **`max_daily_loss` lacks a complete realized-P&L source** | Coordinator can observe and post recovery concession/unwind loss, but paper has no settlement/position-close or UTC day-rollover lifecycle | **OPEN / EXPLICITLY PARTIAL.** The next trade is blocked for observed losses at the threshold. Do not claim settlement-day loss coverage until the ledger/reset dependency is implemented and tested |
 | **D22** | **`max_emergency_loss` bounds retry concession, not unknown unwind loss/fees** | Current generic engine interface has no freshness-gated recovery quote/fee preflight; the executable bid and fee are observed only after submit | **OPEN / EXPLICITLY PARTIAL.** Over-budget chase is stopped; realized unwind loss is reported and posted; unresolved exposure kills new trades. Do not broaden the claim or auto-disable unwind without preflight/failure tests |
-| **D23** | **Configured liquidity-ratio and execution-latency settings are not runtime gates** | Grep/source trace: `minimum_liquidity_ratio` and both execution-latency YAML keys have no production comparison. Liquidity is walked and time-between-legs measured, but config is dead | **OPEN.** Define semantics and fault-test before activation; do not imply active in docs/readiness |
+| **D23** | **Configured liquidity-ratio and execution-latency settings were not runtime gates** | Arb.10 confirmed no production comparison: the book walker is bounded by displayed depth, and the coordinator only records `time_between_legs_ms` | **RESOLVED AS CONFIG-HONESTY CLEANUP 2026-10-10, NOT FEATURE IMPLEMENTATION:** removed `minimum_liquidity_ratio` and both execution-latency keys from `settings.yaml`; neither policy is implemented. Re-add only after a defined ratio denominator, post-leg-A recovery semantics, and fault-injection tests. |
 | **D24** | **Live risk and generic emergency behavior remain disconnected** | Live is monitor-only; no production `FirewallContext`; `EmergencyManager` is not constructed and does not cancel/flatten | **OPEN / INTENTIONAL SAFETY BLOCKER.** No real-order bypass exists because no live coordinator exists. Do not enable real orders or the disconnected emergency manager before demo fault/reconciliation tests |
 | **D25** | **Threshold-operator vocabulary and units are not normalized across venues (candidate, not fixed)** | Reproduced 2026-10-10 with `prediction_arb/matching/deterministic_matcher.py` and the adapters: identical event, threshold `5.0`, equal settlement; Kalshi emits `threshold_operator = strike_type` (raw `greater`), Polymarket US emits `None` ⇒ `threshold_operator` check FAILS. With both `>` the pair passes. Units are `None` on both adapters, so the units check passes vacuously and a real units mismatch (for example a percent versus a point value) cannot be detected. Retrieval proposes such pairs and the deterministic matcher rejects them on vocabulary alone, so each rejection is a false negative, not a finding about the events. Not in the reference set, which uses normalized operators. Fix belongs to the adapters (a shared operator vocabulary, units populated from the market) and must not weaken the matcher. Next free ID after D24 — verified 2026-10-10. | OPEN — candidate defect (not fixed). |
-
+| **D26** | **Orphaned capital and hedge helpers could be mistaken for production controls** | Arb.10 source trace: `risk/capital.py` and `execution/hedging.py` have no production callers. The former consumes caller-supplied balances/demand; the latter omits fees and an independence gate. `execution/emergency.py` also has no production constructor and does not cancel/flatten (D24) | **DEFERRED 2026-10-10.** Keep the helpers disconnected. First add account/capital provenance, validated venue/fee semantics, and fault tests for quote failure, no fill, cancel/flatten failure, and alert/kill-write failure. Roadmap Phase 8/9; no protection is implied. |
 ### 7b. Inherited as FIXED — regression tests pass, but exit evidence is still owner-gated
 
 These were fixed by earlier sessions. This session re-read each fix site and
@@ -398,6 +403,47 @@ ROADMAP register because their impact needs an owner/agent decision first:
   still settle later than the bound (not modelled). Observed payload values
   (K9) have not been checked.
 
+### 7d. Arb.10 configuration and runtime call-graph audit — VERIFIED 2026-10-10
+
+Method: parsed all seven `config/*.yaml` files, exact-key searched the Python
+source tree, then checked dynamic `.get()`/`from_config()` access and production
+callers. The cleanup below removes only keys that the running code never read;
+it does not change a decision. Regression coverage pins the fixed behaviors.
+
+| Setting or module | Intended behavior / claim | Actual call sites | Runtime decision / status |
+|---|---|---|---|
+| `settings.arbitrage.guaranteed_only` (**removed**) | Make strategy eligibility configurable as guaranteed-only | `PaperEngine._cycle` → `run_arbitrage_scan` → `optimizer.search_event` → `evaluate_two_leg`; scan constructs only `TYPE_A_GUARANTEED`. TYPE B (`logical.py`) and N-leg (`multi_leg.py`) functions are stubs and not called | No config effect. Guaranteed TYPE A is the only production strategy; regression pins the opportunity type |
+| `settings.compliance.block_unknown_venue_relationship` (**removed**) | Block unknown/same-venue pairs | `rules_validator.validate_match` approves only `Independence.INDEPENDENT`; `optimizer.search_event` repeats the check; `evaluate_two_leg` blocks other values | No config effect. Unknown is hard-blocked in the production arbitrage path, even if an approval tuple is supplied |
+| `settings.compliance.block_unknown_status` (**removed**) | Block unknown jurisdiction/category eligibility | `PaperEngine._discover` passes jurisdiction + mode to `check_contract_eligibility`; it never passes this YAML key. The helper blocks UNKNOWN for `Mode.LIVE` and permits research in supported non-live modes, regardless of the legacy keyword. `LiveEngine` has no discovery/eligibility scan path, so this helper is not a live production gate | No YAML effect; helper policy is fixed in code and tested with both legacy keyword values. Do not imply live enforcement; D24 still blocks live scanning/execution |
+| `settings.execution.preferred_order_type`, `allow_market_orders` (**removed**) | Prefer LIMIT / disable market orders | `ExecutionCoordinator._execute_locked` always creates priced `OrderType.LIMIT` requests; `LiveOrderFirewall.verify` rejects a missing limit price | No config effect. LIMIT-only behavior remains fixed and regression-tested |
+| `settings.arbitrage.minimum_liquidity_ratio`, `arbitrage.maximum_execution_latency_ms`, `execution.max_execution_latency_ms` (**removed; D23**) | Minimum displayed-liquidity ratio / maximum execution latency | No production comparisons existed. `two_leg` sizes by walking available asks; coordinator only records `time_between_legs_ms` | No gate existed; keys were removed rather than pretending the gate was active. A ratio and latency policy remain **unimplemented**; define the denominator and post-leg-A recovery semantics before re-adding |
+| `risk_limits.limits.max_capital_per_trade: 100` (**kept**) | Cap per-opportunity capital | `RiskLimits.from_config` → `ExecutionCoordinator._execute_locked` → `check_trade_against_limits` | **Enforced in paper before leg A.** Live does not use a production coordinator. The old mismatched `max_trade_capital` duplicate was removed in D20; do not confuse the names |
+| `risk/exposure.py`, `risk/limits.py`, `risk/kill_switch.py` (**active**) | Track paper naked exposure, capital/position/order bounds, persistent stop | `PaperEngine` constructs `RiskLimits`, `RiskState`, `ExposureTracker`; coordinator checks/reserves before A, after legs, before recovery and after recovery; `main.py` owns manual kill/unkill | Affect paper order decisions. Historical/backtest use limits only for reporting/metrics; readiness's “configured” check is not live enforcement |
+| `risk/capital.py` (**deferred, D26**) | Size against venue-local capital and offer transfer advice | No production import/caller; tests only. Functions use caller-supplied balances/demand; no account or simulator lifecycle feeds them | No runtime effect. Not integrated until verified balance inputs and capital lifecycle exist |
+| `execution/hedging.py` (**deferred, D26**) | Choose a low-cost hedge/unwind after a partial fill | No production caller; `PartialFillHandler` uses its own bounded retry/unwind flow | Prototype only: price-only (no fees), no independence check, and `naked_side` is not used. Do not wire into recovery without semantic/failure tests |
+| `execution/emergency.py` (**deferred, D24**) | Flatten/cancel and stop after an emergency | No production construction. `EmergencyManager.engage_kill_switch` writes the switch, reads positions and emits an alert | It does **not** cancel or flatten; switch-write or alert failures can propagate. Not an emergency recovery path |
+| `execution/coordinator.py`, `partial_fills.py`, `simulated.py` (**active paper path**) | Execute only validated two-leg opportunities and recover bounded partials | `PaperEngine._maybe_execute` → `ExecutionCoordinator.execute` → risk precheck/reservation → leg A → exposure check → leg B → `PartialFillHandler` recovery through `PaperExecutionEngine` | Active for paper simulation only; no venue adapter in the simulator. D21/D22 remain partial limits; see `docs/RISK_MANAGEMENT.md` |
+| `execution/live.py`, `firewall.py` (**not an active order route**) | Guard live order transmission | `LiveEngine.startup` may construct `LiveExecutionEngine` after typed confirmation and runs reconciliation; `LiveEngine.run` is monitor-only. No production `FirewallContext` is built and no production caller submits an order | No live scan/order decision path today. D24 remains a hard blocker; no live enablement |
+| `arbitrage/graph.py`, `logical.py`, `multi_leg.py` (**deferred, Phase 9**) | Graph cycles, TYPE B logical arb, N-leg arb | `graph.two_leg_candidates` is test-only; no scanner imports the graph. `find_cycles`, logical arb, and multi-leg arb raise `NotImplementedError` | No runtime effect; left as explicit prototypes/stubs |
+| Other YAML inventory (not selected this session) | `schema_version`, mode `data_dir`, `venues.*.adapter`, Kalshi `demo_rest_base*` look like metadata/routing settings | `schema_version` is not validated; `AppConfig` derives data paths from mode; `main.build_adapters` dispatches by hard-coded venue keys and does not read `adapter` or demo-base fields | No runtime effect. Keep on the config-schema backlog; do not assume configurable data roots, adapter swapping, or a demo route |
+| Fee-ledger metadata | Preserve evidence and published-reference context | `FeeCalculator.from_config`/freshness/readiness consume schedules, statuses, rules and verification fields. The exact-token misses `reference_snapshot_date`, `published_settlement_scope` (and `simple_yes_no`, `scalar_subcent`, `execution_use`), `published_reference` (and its rate/formula/treatment subkeys), `volume_definition`, `accelerated_tier_placement`, and `route_scope` are human-evidence only; nested prose such as `fee_context.account_or_fill_state` / `clearing_route` is stored generically, not used to price a trade. `rebate_policy`/volume tiers are recorded, never applied as per-order discounts | Intentional evidence-vs-runtime split. Every enabled production schedule remains `INCOMPLETE`, so published rates are not used as execution estimates (see `docs/FEE_READINESS.md`) |
+
+**Actual running call graph.** `main.async_main` selects `PaperEngine`,
+`HistoricalEngine`, or `LiveEngine`. Paper performs discovery/eligibility →
+`run_matching` (candidate pairs, deterministic filter, LLM, final certificate)
+→ fresh books → `run_arbitrage_scan` → `optimizer.search_event` (APPROVED
+certificate **and** INDEPENDENT required) → `evaluate_two_leg` (walked depth,
+fees, settlement/capital cost) → `Opportunity.is_executable` → coordinator risk
+reservation and simulated execution. Historical runs matching + the same scan
+and persists a replay report; it does **not** execute. Live startup confirms and
+reconciles, then `run()` prints monitor-only status; no production firewall
+context/order loop exists. `docs/RISK_MANAGEMENT.md` and Phase 8/9 of
+`docs/ROADMAP.md` record the corresponding safety boundary and deferrals.
+
+The Arb.10 scope was deliberately limited to removing the inert settings above
+and documenting the active/future boundaries. Remaining config and module
+backlog is not silently considered implemented.
+
 ---
 
 ## 8. Current critical path (ordered by dependency, then impact)
@@ -422,9 +468,10 @@ ROADMAP register because their impact needs an owner/agent decision first:
    have explicit venue-local cash; all 12 configured limits have tested runtime
    behavior or an explicit partial defect; checks occur at order-lifecycle
    decision points. **Still open:** complete daily realized P&L (D21), a broad
-   emergency-loss preflight cap (D22), configured liquidity/latency gates
-   (D23), and any live coordinator/emergency behavior (D24). Do not resolve
-   these by implying they are active.
+   emergency-loss preflight cap (D22), any liquidity-ratio/latency gate
+   (D23; its inert config keys were removed, but the feature remains absent),
+   live coordinator/emergency behavior (D24), and validated capital/hedging
+   helpers (D26). Do not resolve these by implying they are active.
 0e. ~~**Reduce candidate-generation workload without a silent cap (Arb.8).**~~
    **DONE 2026-10-10 on `arena/732e107e-arb`** — pairwise, non-transitive,
    settlement-windowed retrieval with local density bounds. 333,296 → 3,262
@@ -511,8 +558,21 @@ request format in `docs/AGENT_KICKOFF.md` ("HOW TO ASK THE OWNER FOR HELP").
   constraint — evidence is.
 - **Phase 9 v2 strategy surface**: `arbitrage/multi_leg.py`,
   `arbitrage/logical.py` (TYPE B), `arbitrage/graph.py` cycle search, fee/route
-  optimisation. Stubs must stay honest stubs until Phase 6 evidence exists
-  (§3 scope).
+  optimisation. `graph.two_leg_candidates()` is test-only and is not called by
+  the active optimizer; keep all of these prototypes/stubs disconnected until
+  Phase 6 evidence and the required regression batteries exist.
+- **Unwired risk/execution prototypes (D24/D26):**
+  `risk/capital.py` has no production caller and receives no account balances;
+  `execution/hedging.py` prices supplied books only, without fees or a proven
+  independent venue; `execution/emergency.py` only persists kill + reports
+  positions and does not cancel or flatten. Do not connect any of these until
+  their data inputs, venue/fee semantics, and all failure outcomes are tested.
+  In particular, do not use the emergency or hedge helpers to hide the D21/D22
+  gaps.
+- **Live order path (D24):** `FirewallContext` has no production constructor,
+  LiveEngine is monitor-only, and no running mode calls
+  `submit_order_with_context`. Do not build this path or enable real orders in
+  this session.
 - **Phase 10 operations**: scheduler/daemon, email/webhook alert sinks, web
   dashboard, log rotation.
 - **Wiring `HistoricalExecutionEngine`.** Deliberately unwired: replay measures
@@ -562,8 +622,8 @@ status + source + date. If you did not verify it, say so.
 **D. Update `docs/ROADMAP.md` when — and only when — it is demonstrably stale**
 
 The ROADMAP is the register of record for phases and defects. Correct a status
-you *proved* wrong, add a defect you *reproduced* (next free ID; **D19 is
-taken**, so the next free one is **D20**),
+you *proved* wrong, add a defect you *reproduced* (next free ID; **D26 is
+taken**, so the next free one is **D27**),
 record a completion with its evidence. Do not redesign it, do not add
 aspirational plans, do not mark anything DONE whose exit criterion is
 owner-gated — say "code complete, exit owner-gated" instead. Also update
@@ -592,6 +652,19 @@ counts, doc updates, and the next action. Milestone-end reporting format:
 
 **Most recent meaningful changes** (newest first):
 
+00000. **2026-10-10 — Arb.10 configuration/runtime audit (branch
+   `arena/dbb1a2ee-arb`, base `219c8ba`).** Parsed all seven YAML files,
+   searched the source key-by-key, and traced paper/historical/live risk,
+   execution, and arbitrage routes. Removed eight ignored settings rather than
+   implying runtime protections; behavior remains fixed in code. Confirmed
+   `max_capital_per_trade` is enforced in paper, and documented the unimplemented
+   liquidity-ratio/latency policies without reintroducing their dead keys.
+   Deferred `risk/capital.py`, `execution/hedging.py`, and
+   `execution/emergency.py` (D24/D26); corrected the graph prototype's false
+   claim that production scanning consumes it. Added four regression tests plus
+   an assertion for TYPE A output. **601 passed in 27.64 s**; `--status` and
+   `--readiness` both exited 0. Audit table/backlog: §7d, `docs/ROADMAP.md`
+   D23/D26, and `docs/RISK_MANAGEMENT.md`.
 00000. **2026-10-10 — Arb.9 semantic-matching budget & deduplication (branch
    `arena/a5c3486d-arb`, base `0b99106`).** Verified current budget consumption:
    per-cycle counter reset in `run_matching`, cache hits never consume budget,

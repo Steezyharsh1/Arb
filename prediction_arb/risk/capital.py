@@ -1,8 +1,9 @@
-"""Capital allocation across venues (§29, §30).
+"""Standalone capital-allocation helpers (§29, §30); not runtime-wired.
 
-Capital is NOT fungible across venues. Deployable size is bounded by the
-per-venue available cash of each leg. Rebalancing advice is informational
-only — the system never moves money (§30)."""
+The functions operate only on caller-supplied balances and demand. No paper
+or live engine supplies those inputs, and rebalancing advice is informational
+only — the system never moves money. Keep deferred until an evidenced account
+balance/position lifecycle and regression tests exist (D26)."""
 from __future__ import annotations
 
 from dataclasses import dataclass

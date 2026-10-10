@@ -1,8 +1,9 @@
-"""Hedge-option analysis for partial fills (§32).
+"""Unwired hedge-option analysis prototype for partial fills (§32).
 
-Given a naked position, enumerate available hedges and their costs so
-PartialFillHandler (and future strategies) can pick the cheapest bounded
-recovery. Deterministic and side-effect-free."""
+This helper estimates price-only costs from supplied books; it does not
+validate venue independence or include fees. No production recovery path calls
+it. Do not connect it to ``PartialFillHandler`` until those semantics and the
+no-quote/no-fill/failure cases are proven with regression tests (D22/D26)."""
 from __future__ import annotations
 
 from dataclasses import dataclass

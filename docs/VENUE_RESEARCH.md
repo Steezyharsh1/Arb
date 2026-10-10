@@ -203,23 +203,34 @@ These rules are encoded in
 | R8 | No effective 2026 final Rule 40.11 amendment was identified in the official materials reviewed through the cut-off. This negative search result is not a guarantee that no later/unindexed action exists. | UNKNOWN / DOC | https://www.federalregister.gov/agencies/commodity-futures-trading-commission | 2026-09-13 |
 | R9 | Polymarket US's own **Trading Restrictions** page addresses who should not trade (sell-side/buy-side employees, MNPI holders, firm compliance) and says **nothing about state availability**. Secondary sources disagree about Utah: one lists Utah as available with only Nevada excluded, another lists ~11 restricted states, and a third says state restrictions are unpublished. No primary source establishes Utah eligibility, and the sources conflict with each other. | UNKNOWN / DOC (conflicting secondary sources) | https://docs.polymarket.us/learn/trading/access-and-limits/trading-restrictions ; https://oddsassist.com/prediction-markets/polymarket-us-states/ ; https://predscope.com/guide/polymarket-us ; https://www.saturdaydownsouth.com/prediction-markets/polymarket-promo-code/legal-states/ | 2026-09-13 |
 
-**R9 consequence:** Utah eligibility for Polymarket US stays **UNKNOWN** and
-therefore live-blocking, exactly as before. Secondary blogs that contradict
-each other are not evidence, and a venue marketing page loading is not
-eligibility. The only acceptable resolutions are (a) the venue's own terms
-or account dashboard stating Utah availability for the specific
-non-sports categories, or (b) owner/legal review. Utah **sports** stays
-RESTRICTED regardless (R1/R2), which matters for Polymarket US
-specifically because it carries heavy sports inventory.
+**R9 consequence:** Utah eligibility for Polymarket US stays **UNKNOWN**.
+Secondary blogs that contradict each other are not evidence, and a venue
+marketing page loading is not eligibility. The `check_contract_eligibility`
+helper rejects UNKNOWN when called with `Mode.LIVE`; `PaperEngine` calls the
+helper for paper discovery. However, `LiveEngine` is monitor-only: no production
+eligibility scan or caller to the context-gated live submit method exists, so
+the helper's live policy is not an end-to-end live gate. The only acceptable
+evidence resolutions are (a) the venue's own terms or
+account dashboard stating Utah availability for the specific non-sports
+categories, or (b) owner/legal review. Utah **sports** stays RESTRICTED
+regardless (R1/R2), which matters for Polymarket US specifically because it
+carries heavy sports inventory.
 
-### Eligibility decision used by the repository
+### Eligibility policy and current runtime path
 
 - **Utah sports, every venue:** `RESTRICTED` based on R1-R2. This is broader
-  than Kalshi because the statute is venue-neutral; frontend routing does not avoid it.
+  than Kalshi because the statute is venue-neutral; frontend routing does not
+  avoid it. `check_contract_eligibility` rejects it, and `PaperEngine` applies
+  that helper during discovery.
 - **Utah non-sports, every venue:** `UNKNOWN`. Federal registration, national
   marketing, or an app loading in another state is not proof of Utah eligibility.
-- `RESTRICTED` and `UNKNOWN` both block live execution. Paper/historical research
-  may proceed only under existing mode rules; no result is a legal conclusion.
+- The helper returns a block for both `RESTRICTED` and `UNKNOWN` when called
+  with `Mode.LIVE`; its UNKNOWN result is research-allowed for supported
+  non-live modes. `LiveEngine` is monitor-only: no production eligibility scan
+  or caller to the context-gated live submit method exists, and historical
+  replay does not call this eligibility helper. Therefore this is a
+  classification/helper policy, not an end-to-end live control. No result is a
+  legal conclusion.
 
 ## 7. Fee representation and execution gates
 
