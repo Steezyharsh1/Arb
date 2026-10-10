@@ -147,7 +147,9 @@ class LLMMatcher:
         self.model_version = model_version
         self.max_comparisons_per_cycle = max_comparisons_per_cycle
         self._cycle_comparisons = 0
-        self._cache: dict[tuple[str, str], LLMMatchResult] = {}
+        # Cache key includes contract versions + matcher/prompt/model
+        # versions for correctness (§87, Arb.9).
+        self._cache: dict[tuple[str, str, str, str, str], LLMMatchResult] = {}
 
     def begin_cycle(self) -> None:
         """Reset the per-cycle comparison budget. `run_matching` calls
@@ -156,10 +158,16 @@ class LLMMatcher:
         self._cycle_comparisons = 0
 
     def _cache_key(self, a: NormalizedContract,
-                   b: NormalizedContract) -> tuple[str, str]:
+                   b: NormalizedContract) -> tuple[str, str, str, str, str]:
+        from .deterministic_matcher import MATCHER_VERSION as _DET_VER
+
         ka = f"{a.venue}:{a.contract_id}:{a.contract_version}"
         kb = f"{b.venue}:{b.contract_id}:{b.contract_version}"
-        return (ka, kb) if ka <= kb else (kb, ka)
+        if ka <= kb:
+            first, second = ka, kb
+        else:
+            first, second = kb, ka
+        return (first, second, _DET_VER, LLM_PROMPT_VERSION, self.model_version)
 
     async def compare(self, a: NormalizedContract,
                       b: NormalizedContract) -> LLMMatchResult:

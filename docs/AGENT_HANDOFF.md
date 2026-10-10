@@ -5,13 +5,13 @@ permanent entry point for a fresh agent session with no memory of prior
 conversations. It tells you what the project is, what is true *right now*,
 what is broken, what you may work on, and what you must not touch.
 
-- **Last updated:** 2026-10-10 (UTC) by the paper-risk enforcement work on
-  branch `arena/4d7fb52e-arb` — explicit venue-local paper capital, all
-  enforceable configured limits, unhedged-exposure checkpoints, partial-fill
-  recovery, and kill activation are now connected to the coordinator (**D20
-  resolved for paper**). D21–D24 explicitly record what remains partial or
-  disconnected. It carries forward D10/D19 readiness and fee freshness, D18
-  settlement timing, the fee-readiness review, and D17 mandatory costs.
+- **Last updated:** 2026-10-10 (UTC) by Arb.9 semantic-matching budget and
+  deduplication work on branch `arena/a5c3486d-arb` — deterministic
+  prioritization by independence/shared-keys/settlement-proximity, cache keys
+  sensitive to contract versions + matcher/prompt/model versions, match_id
+  includes versions and is sorted, REVIEW deduplication prevents per-cycle
+  bloat, budget-exhausted pairs remain eligible (not cached). Carries forward
+  Arb.8 retrieval, D20 paper risk, D10/D19 readiness, D18 settlement, D17 costs.
 - **Arb.8 candidate retrieval (2026-10-10, branch `arena/732e107e-arb`, base
   `91d46df`):** cross-venue candidate generation (§96) is now pairwise,
   bounded and non-transitive. On the 1,000-contract benchmark it proposes
@@ -70,12 +70,13 @@ Authoritative context: `README.md` (what works / what is stubbed),
 | Item | Value |
 |---|---|
 | Repo | `Steezyharsh1/Arb` (package name `prediction_arb`) |
-| Working branch (fixed for this Arena session) | `arena/4d7fb52e-arb` |
-| Baseline commit | `320130e6d9dd45f2d1ad6b3e4236e82d777d5b8f` — merge commit for PR #11 (D10/D19 readiness and fee freshness); this paper-risk session branched from it |
-| Working tree at session start | clean (`git status --porcelain` empty) — VERIFIED 2026-10-10 before this session's edits; baseline `.venv/bin/pytest -o addopts=""` **534 passed in 28.11 s** |
+| Working branch (fixed for this Arena session) | `arena/a5c3486d-arb` |
+| Baseline commit | `0b99106261af508b43fd77d0a8d09642e0dff027` — main HEAD before Arb.9 |
+| Working tree at session start | clean (`git status --porcelain` empty) — VERIFIED 2026-10-10; baseline `.venv/bin/pytest -o addopts=""` **582 passed in 27.75 s** (Arb.8 retrieval) |
 | Clone depth | **shallow (depth 1)**: `git log` shows a single commit. Run `git fetch --unshallow` if you need real history (e.g. to blame a regression) |
 | Merged PRs to date | #1 Phase 0, #2 Phase 1, #3 Phases 2+3, #4 Phase 2/3 gaps + Phase 4, #5 Phase 5, #6 D16 baseline recovery, #7 deterministic settlement fixtures, #8 D17 mandatory-cost fail-closed repair, #9 fee-readiness review, #10 D18 settlement timing, #11 D10/D19 readiness + fee freshness |
 | Arb.8 candidate-retrieval session | Branch `arena/732e107e-arb`, branched from `91d46df` (`main` HEAD). Baseline before its change: `.venv/bin/pytest -o addopts=""` **549 passed in 27.72 s**. After it: **582 passed in 27.75 s** (549 + 31 new in `tests/test_candidate_retrieval.py` + 2 new settlement/threshold regressions). Not pushed (session policy). |
+| Arb.9 matching budget & dedup session | Branch `arena/a5c3486d-arb`, branched from `0b99106` (`main` HEAD). After: **597 passed in 29.23 s** (582 + 15 new in `tests/test_matching_arb9.py`). |
 | CI | `.github/workflows/ci.yml`: install → `pytest` → 5 CLI smokes (status, readiness, collect, paper, historical) → honest-empty-replay grep → readiness side-effect guard → tracked-artifact guard |
 
 ---
@@ -241,13 +242,14 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4 (re-read from
 | Check (exact command) | Result / recency |
 |---|---|
 | `.venv/bin/pytest -o addopts=""` (Arb.8 branch, after the candidate-retrieval change) | **582 passed in 27.75 s**, 2026-10-10 on `arena/732e107e-arb`. `test_candidate_generation.py` 29 + `test_candidate_retrieval.py` 31 = 60 of those. |
+| `.venv/bin/pytest -o addopts=""` (Arb.9 branch, after matching budget & dedup) | **597 passed in 29.23 s**, 2026-10-10 on `arena/a5c3486d-arb`. `test_matching_arb9.py` adds 15: deterministic ordering, budget exhaustion, cache invalidation, duplicate persistence, repeated cycles. |
 | `.venv/bin/python -m benchmarks.candidate_retrieval.run --source reference --json …` and `--source synthetic --contracts 1000 --seed 20261010 [--skew 2.5]` | **Run 2026-10-10**, outputs committed under `benchmarks/candidate_retrieval/results/`. Synthetic 1,000: candidates 333,296 → 3,262; eq∩det-pass recall 1.0; largest component 1,000 → 51; median candidate-generation time 0.186 s → 0.040 s; peak heap 44.62 MB → 2.28 MB. Reference 50 listings: 36 candidates; eq∩det 15/16. Timings are sandbox-only and cover candidate generation, not matching. |
 | Mutation checks on the retrieval code (2026-10-10, restored and verified with `diff`) | Settlement window 400 days → 10 failed. No density bound (`MAX_LOCAL_DENSITY = 10**9`) → 2 failed. Global per-key cap 40 → 1 failed. Transitive closure of proposed pairs (legacy grouping) → 4 failed. Two fixture defects were found by these checks and fixed before they were counted. |
 | CLI smokes re-run after the change: `--status`, `--readiness`, `--mode historical --date 2020-01-01` | **Exit 0**, grep checks pass, 2026-10-10 on `arena/732e107e-arb`. The smokes created empty git-ignored `data/`, `logs/`, `reports/`; these were removed afterwards. |
 | `benchmarks/candidate_retrieval/fallback_window.py` | **Run 2026-10-10.** A 60-min cross-venue fallback is not adopted. Reference: 15/16 → 16/16 at 36 → 42 pairs. Synthetic: 3,262 → 5,112 pairs (+57 %), det-pass 720 → 796, eq∩det unchanged 256/256. Output `results/fallback_60min.json`. |
 | `python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'` | **Succeeded 2026-10-10**; Python 3.11.2, including pytest 9.1.1, PyYAML 6.0.3, Rich 15.0.0 and project runtime dependencies |
-| `.venv/bin/pytest -o addopts=""` | **549 collected, 549 passed in 26.52 s**, re-run after the paper-risk changes on 2026-10-10 (baseline at `320130e` before edits: **534 passed in 28.11 s**; `tests/test_risk_enforcement.py` adds 15). All offline. Note: the project's `addopts = "-q"` plus `-q` on the command line suppresses the summary line; use `-o addopts=""` to see the count |
-| `.venv/bin/pytest --collect-only -q` | **549 tests:** arbitrage_engine 9, candidate_generation 27, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 25, polymarket_us 41, readiness 138, **risk_enforcement 15**, safety 26, settlement_timing 44, spec_cases 13, unavailable_costs 35, units 43 |
+| `.venv/bin/pytest -o addopts=""` | **597 collected, 597 passed in 29.23 s**, re-run after Arb.9 matching budget & dedup on 2026-10-10 (baseline 582 before: Arb.8 retrieval). All offline. Note: the project's `addopts = "-q"` plus `-q` on the command line suppresses the summary line; use `-o addopts=""` to see the count |
+| `.venv/bin/pytest --collect-only -q` | **597 tests:** arbitrage_engine 9, candidate_generation 29, candidate_retrieval 31, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, matching_arb9 15, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 25, polymarket_us 41, readiness 138, risk_enforcement 15, safety 26, settlement_timing 44, spec_cases 13, unavailable_costs 35, units 43 |
 | Paper risk/exposure fault injection | **15/15 passed 2026-10-10** in `tests/test_risk_enforcement.py`. Verifies explicit capital for all enabled venues and missing-capital refusal; all 12 configured names; seven pre-leg-A capital/state breaches with zero submissions; exact state update then a blocked second trade; aggregate/per-incident prospective exposure and aged exposure; successful partial-fill retry; failed hedge + failed unwind → retained exposure + persistent kill; timeout breach → kill while recovery remains allowed; simulated unwind really removes the position; concession cap; recovery loss feeds the daily gate. `FaultEngine` is simulation-only and holds no adapter. Caveats D21–D24 are not promoted to enforced |
 | D18 baseline reproduction and mutation checks | **Run 2026-10-10.** In a worktree at `caa57c8`, a past-dated Kalshi/ForecastEx pair with synthetic complete fees returned `TRADE`, `settlement_delay_cost=0.0000`, `net_profit=7.3200`; same script on this branch → `BLOCK`, `None`. Eight mutations (Kalshi back to expected+0, past clamp, Polymarket US 0-day, ForecastEx 0-day, ignoring `evaluation_time` in the evaluator, half-even rounding, compounded cost, dropping it in `run_arbitrage_scan`) fail 6 / 5 / 3 / 2 / 1 / 1 / 12 / 1 tests respectively (counts for the first seven taken before the 44th test was added); source restored and diff-checked afterwards |
 | Focused YAML load + `FeeCalculator.from_config` | **Succeeded 2026-10-10**. Kalshi, Polymarket US, ForecastEx, and IBKR/ForecastEx parse; all active trade and settlement statuses are `INCOMPLETE`; references are respectively `0.07/0.0175`, `0.0695/-0.0125`, and `$0.01` per executed side. Kalshi's source gives no global effective date, so its reference snapshot date is kept separate and calculations block |
@@ -590,6 +592,29 @@ counts, doc updates, and the next action. Milestone-end reporting format:
 
 **Most recent meaningful changes** (newest first):
 
+00000. **2026-10-10 — Arb.9 semantic-matching budget & deduplication (branch
+   `arena/a5c3486d-arb`, base `0b99106`).** Verified current budget consumption:
+   per-cycle counter reset in `run_matching`, cache hits never consume budget,
+   budget-exhausted pairs return REVIEW with error and are deliberately NOT cached
+   so they remain eligible. Candidate ordering was discovery-order (sorted index
+   pairs). Replaced with deterministic prioritization by defensible pre-LLM
+   evidence: venue independence (INDEPENDENT 100, SAME_VENUE -200), shared blocking
+   keys (thr=20, num=5, tok=1), settlement proximity (smaller delta first), with
+   lexical tie-breakers. No gross edge or unverified match used for ordering;
+   deterministic REJECT remains final; semantic matching cannot approve a pair
+   that fails independence. Fixed cache keys to include contract versions +
+   matcher/prompt/model versions for correctness; fixed match_id to include
+   contract versions + model version and to be sorted (deterministic regardless
+   of input order), so version changes create new rows preserving history.
+   Fixed persistence deduplication: `save_match_certificate` now skips writes
+   when meaningful fields (status, score, independence, versions) are identical,
+   preventing unbounded duplicate REVIEW records on repeated scans; meaningful
+   changes (verdict, version) still update. Documented smallest viable migration
+   for full verdict-change history (audit log table) in
+   `docs/MATCHING_DEDUP_MIGRATION.md` rather than rewriting schema. Added 15
+   tests in `tests/test_matching_arb9.py` covering deterministic ordering,
+   budget exhaustion, cache invalidation, duplicate persistence, repeated cycles.
+   Full suite: **597 passed in 29.23 s**.
 0000. **2026-10-10 — Arb.8 candidate-retrieval reduction (branch
    `arena/732e107e-arb`, base `91d46df`).** Measured the inherited behaviour
    first. The giant component (1,000 contracts → 1 component) reproduces; the

@@ -13,7 +13,8 @@ from decimal import Decimal
 from typing import Optional
 
 from ..arbitrage.optimizer import search_event
-from ..core.types import Mode, NormalizedContract, Opportunity, OrderBook
+from ..core.clock import ensure_utc
+from ..core.types import Independence, Mode, NormalizedContract, Opportunity, OrderBook
 from ..fees.calculator import FeeCalculator
 from ..fees.freshness import freshness_enforced
 from ..matching.deterministic_matcher import deterministic_match
@@ -21,11 +22,51 @@ from ..matching.llm_matcher import LLMMatcher
 from ..matching.match_certificates import MatchCertificate, build_certificate
 from ..matching.rules_validator import validate_match
 from ..normalization.contracts import (
+    blocking_keys,
     candidate_pairs,
     group_by_event,
     groups_from_pairs,
     with_normalized_keys,
 )
+from ..provenance.independence import contracts_independent
+
+
+def _independence_priority_score(ind: Independence) -> int:
+    # Higher is more valuable to resolve: INDEPENDENT pairs can become
+    # APPROVED and thus lead to executable opportunities; SAME_VENUE can
+    # never be APPROVED (§33, D15) and should not consume budget first.
+    return {
+        Independence.INDEPENDENT: 100,
+        Independence.LIKELY_INDEPENDENT: 50,
+        Independence.UNKNOWN: 0,
+        Independence.LIKELY_SAME_VENUE: -100,
+        Independence.SAME_VENUE: -200,
+    }.get(ind, 0)
+
+
+def _shared_keys_score(a: NormalizedContract, b: NormalizedContract) -> tuple[int, int]:
+    ka = blocking_keys(a)
+    kb = blocking_keys(b)
+    shared = ka & kb
+    score = 0
+    for k in shared:
+        if k.startswith("thr:"):
+            score += 20
+        elif k.startswith("num:"):
+            score += 5
+        elif k.startswith("tok:"):
+            score += 1
+    return score, len(shared)
+
+
+def _settlement_delta_seconds(a: NormalizedContract, b: NormalizedContract) -> float:
+    if a.settlement_time is None or b.settlement_time is None:
+        return 0.0
+    try:
+        delta = abs(ensure_utc(a.settlement_time) - ensure_utc(b.settlement_time))
+        return float(delta.total_seconds())
+    except Exception:
+        return 0.0
 
 
 @dataclass
@@ -43,7 +84,19 @@ async def run_matching(contracts: list[NormalizedContract],
     """Stage 1+2+certificate for all cross-venue pairs within event groups.
 
     Returns (approved_pairs, partial ScanResult). approved_pairs maps
-    sorted contract-key tuples to (match_id, confidence)."""
+    sorted contract-key tuples to (match_id, confidence).
+
+    Candidate processing is deterministic and budget-efficient (Arb.9):
+    * deterministic REJECT is final and never reaches the LLM;
+    * surviving pairs are scored by defensible, pre-LLM evidence:
+      venue independence (INDEPENDENT first), shared blocking keys
+      (thr > num > tok), and settlement-time proximity;
+    * pairs are processed in priority order, so a limited per-cycle LLM
+      budget is spent on the most promising, highest-value candidates
+      first;
+    * ordering is fully deterministic (priority, delta, lexical contract
+      ids/versions) — no discovery-order dependence.
+    """
     result = ScanResult(markets_scanned=len(contracts))
     contracts = [with_normalized_keys(c) for c in contracts]
     # Retrieval (§96): pairwise, bounded, non-transitive. Only these pairs
@@ -54,7 +107,8 @@ async def run_matching(contracts: list[NormalizedContract],
     # `max_comparisons_per_cycle` NEW LLM calls; excess pairs stay REVIEW.
     llm.begin_cycle()
 
-    approved: dict[tuple[str, str], tuple[str, float]] = {}
+    # First pass: deterministic filter + priority scoring (cheap, defensible).
+    scored: list[tuple[tuple, int, int, NormalizedContract, NormalizedContract, object]] = []
     for i, j in pairs:
         a, b = contracts[i], contracts[j]
         result.pairs_considered += 1
@@ -62,6 +116,37 @@ async def run_matching(contracts: list[NormalizedContract],
         if not det.passed:
             continue
         result.pairs_deterministic_pass += 1
+
+        # Defensible pre-LLM evidence for prioritization.
+        ind = contracts_independent(a, b)
+        ind_score = _independence_priority_score(ind)
+        shared_score, _shared_cnt = _shared_keys_score(a, b)
+        delta_s = _settlement_delta_seconds(a, b)
+        # Smaller delta is better → subtract hours from priority.
+        delta_hours = delta_s / 3600.0
+        total_priority = ind_score + shared_score - delta_hours
+
+        # Deterministic tie-breakers: delta, lexical contract ids, versions.
+        ca = f"{a.venue}:{a.contract_id}"
+        cb = f"{b.venue}:{b.contract_id}"
+        # Use sorted ids for tie-breaking stability regardless of input order.
+        sorted_ca, sorted_cb = (ca, cb) if ca <= cb else (cb, ca)
+        # For version tie-breaker, keep versions aligned with sorted ids.
+        if ca <= cb:
+            va, vb = a.contract_version, b.contract_version
+        else:
+            va, vb = b.contract_version, a.contract_version
+
+        # Sort key: higher priority first → -priority, then smaller delta,
+        # then lexical ids/versions (all deterministic).
+        sort_key = (-total_priority, delta_s, sorted_ca, sorted_cb, va, vb)
+        scored.append((sort_key, i, j, a, b, det))
+
+    # Deterministic prioritization: most promising first.
+    scored.sort(key=lambda x: x[0])
+
+    approved: dict[tuple[str, str], tuple[str, float]] = {}
+    for sort_key, i, j, a, b, det in scored:
         llm_res = await llm.compare(a, b)
         outcome = validate_match(a, b, det, llm_res)
         cert = build_certificate(a, b, det, llm_res, outcome)

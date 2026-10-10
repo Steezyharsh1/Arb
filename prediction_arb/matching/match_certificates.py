@@ -62,13 +62,29 @@ def build_certificate(a: NormalizedContract, b: NormalizedContract,
                       outcome: ValidationOutcome) -> MatchCertificate:
     ca = f"{a.venue}:{a.contract_id}"
     cb = f"{b.venue}:{b.contract_id}"
+    # Deterministic ordering for auditability — same logical pair always
+    # yields same match_id regardless of input order (Arb.9).
+    if ca <= cb:
+        contract_a = ca
+        contract_b = cb
+        first_ver = f"{ca}:{a.contract_version}"
+        second_ver = f"{cb}:{b.contract_version}"
+    else:
+        contract_a = cb
+        contract_b = ca
+        first_ver = f"{cb}:{b.contract_version}"
+        second_ver = f"{ca}:{a.contract_version}"
+    # Include contract versions + model version for cache invalidation and
+    # auditability. A version change creates a new match_id → new row,
+    # preserving history of the previous version.
     match_id = hashlib.sha256(
-        f"{ca}|{cb}|{MATCHER_VERSION}|{llm.prompt_version}".encode()
+        f"{first_ver}|{second_ver}|{MATCHER_VERSION}|"
+        f"{llm.prompt_version}|{llm.model_version}".encode()
     ).hexdigest()[:16]
     return MatchCertificate(
         match_id=match_id,
-        contract_a=ca,
-        contract_b=cb,
+        contract_a=contract_a,
+        contract_b=contract_b,
         checks=dict(det.checks),
         independence=outcome.independence.value,
         llm_confidence=llm.confidence,

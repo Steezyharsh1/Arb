@@ -206,13 +206,51 @@ class Repository:
                                independence: str, certificate_json: str,
                                llm_version: str, llm_prompt_version: str,
                                matcher_version: str) -> None:
+        """Persist a match certificate with deduplication for unchanged pairs.
+
+        Arb.9: the same unchanged pair must not create unbounded duplicate
+        REVIEW records on every scan cycle. We deduplicate by checking whether
+        all meaningful fields (status, score, independence, versions) are
+        identical to the existing row — if so, we skip the write entirely.
+        When something meaningful changes (verdict, model/prompt/matcher
+        version, independence), we update the existing row, preserving the
+        latest state while avoiding per-cycle bloat.
+
+        Historical auditability: meaningful changes are recorded via the
+        updated row (status, versions, certificate_json). Full history of
+        unchanged repeats is intentionally NOT stored to prevent unbounded
+        growth. If full versioned history is required, the smallest viable
+        migration is documented in docs/MATCHING_DEDUP_MIGRATION.md — a
+        separate audit log table rather than removing the unique constraint
+        on match_id.
+        """
         with Session(self.engine) as s:
             existing = s.scalar(select(ContractMatchRow).where(
                 ContractMatchRow.match_id == match_id))
             if existing is not None:
+                # Deduplicate unchanged: if all meaningful fields match,
+                # skip the write to avoid per-cycle bloat.
+                if (existing.validation_status == status
+                        and existing.match_score == score
+                        and existing.independence == independence
+                        and existing.llm_version == llm_version
+                        and existing.llm_prompt_version == llm_prompt_version
+                        and existing.matcher_version == matcher_version
+                        # certificate_json includes created_at which changes
+                        # every call; compare without it by checking status
+                        # and versions already, or parse and ignore created_at.
+                        # For simplicity, we treat same status+versions+score
+                        # as unchanged — the JSON's checks/reasons are covered
+                        # by status and versions for deduplication purposes.
+                        ):
+                    return
                 existing.validation_status = status
                 existing.match_score = score
                 existing.certificate_json = certificate_json
+                existing.independence = independence
+                existing.llm_version = llm_version
+                existing.llm_prompt_version = llm_prompt_version
+                existing.matcher_version = matcher_version
             else:
                 s.add(ContractMatchRow(
                     mode=self.mode.value, match_id=match_id,
