@@ -21,11 +21,29 @@ class Mode(str, Enum):
 
 
 class APIStatus(str, Enum):
-    VERIFIED = "VERIFIED"
+    """Strongest adapter evidence currently recorded.
+
+    These states are deliberately cumulative but not interchangeable:
+    documentation is not a connection, connectivity is not usable market
+    data, and observed public market data is not full adapter verification.
+    """
+    VERIFIED = "VERIFIED"  # full adapter evidence, including required surfaces
+    MARKET_DATA_OBSERVED = "MARKET_DATA_OBSERVED"
+    CONNECTIVITY_OBSERVED = "CONNECTIVITY_OBSERVED"
     UNVERIFIED = "UNVERIFIED"
     API_DOCUMENTED_UNTESTED = "API_DOCUMENTED_UNTESTED"
     SAME_VENUE_ROUTE = "SAME_VENUE_ROUTE"
     NO_API_AVAILABLE = "NO_API_AVAILABLE"
+
+    @property
+    def supports_market_data(self) -> bool:
+        """Whether public market data is admitted for collect/paper reads.
+
+        A connection check alone is insufficient. Full adapter verification
+        remains a separate, higher bar (and the only state admitted by live
+        order paths).
+        """
+        return self in (APIStatus.MARKET_DATA_OBSERVED, APIStatus.VERIFIED)
 
 
 class Independence(str, Enum):
@@ -175,8 +193,10 @@ class NormalizedContract:
 
     contract_version: str
 
-    tick_size: Decimal
-    min_order_size: Decimal
+    # Unknown venue rules stay None; adapters must not publish defaults as
+    # observed market metadata (§92).
+    tick_size: Optional[Decimal]
+    min_order_size: Optional[Decimal]
     max_order_size: Optional[Decimal]
 
     jurisdiction_requirements: str

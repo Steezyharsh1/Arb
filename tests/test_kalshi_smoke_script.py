@@ -1,25 +1,23 @@
-"""Offline tests for scripts/kalshi_smoke.py — the Phase 2 exit artifact.
+"""Offline tests for the public-only Kalshi smoke and its evidence labels.
 
-The script's network path cannot run in this sandbox (Kalshi is
-TLS-unreachable here — evidence row K9, UNAVAILABLE / LIVE), so these tests
-exercise its decision functions and its safety posture instead:
-
-* it detects the documented ``orderbook_fp`` book format and flags drift;
-* it checks the invariants the arbitrage engine relies on;
-* it constructs a read-only adapter that can never place an order;
-* it refuses any host that is not on the official-host ledger (§13);
-* the rate-limit report can only ever show a lowered budget (§13).
+No venue call is made. Tests cover orderbook_fp parsing, invariants,
+endpoint allow-listing, non-use of credentials, and the distinction between
+UNAVAILABLE network evidence and adapter/data failures.
 """
 from __future__ import annotations
 
+import argparse
+import asyncio
 import importlib.util
+import json
 import sys
 from decimal import Decimal
 from pathlib import Path
 
+import httpx
 import pytest
 
-from prediction_arb.adapters.kalshi import KalshiAdapter, KalshiRateLimits
+from prediction_arb.adapters.kalshi import KalshiAdapter
 from prediction_arb.core.types import MicrostructureType, OrderBook, PriceLevel
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -111,70 +109,83 @@ class TestBookInvariants:
 
 
 class TestSafetyPosture:
-    def test_adapter_is_built_read_only(self):
-        adapter = smoke.build_adapter(
-            {"kalshi": {
-                "rest_base": "https://external-api.kalshi.com/trade-api/v2",
-                "rest_base_fallbacks": [
-                    "https://api.elections.kalshi.com/trade-api/v2"],
-                "ws_url": "wss://external-api-ws.kalshi.com/trade-api/ws/v2",
-            }},
-            {})
+    def _config(self):
+        return {"kalshi": {
+            "rest_base": "https://external-api.kalshi.com/trade-api/v2",
+            "rest_base_fallbacks": [
+                "https://api.elections.kalshi.com/trade-api/v2"],
+            "ws_url": "wss://external-api-ws.kalshi.com/trade-api/ws/v2",
+            "rate_limit_reads_per_sec": 8,
+            "rate_limit_writes_per_sec": 3,
+        }}
+
+    def test_adapter_is_public_only_and_cannot_use_credentials(self):
+        adapter = smoke.build_adapter(self._config())
         assert adapter.allow_order_placement is False
         assert adapter.has_credentials is False
+        assert adapter.api_key_id is None and adapter.private_key_pem is None
         assert adapter.rest_bases[0].startswith(
             "https://external-api.kalshi.com")
         assert len(adapter.rest_bases) == 2
-
-    def test_credentials_are_picked_up_but_never_enable_orders(self):
-        adapter = smoke.build_adapter(
-            {"kalshi": {"rest_base":
-                        "https://external-api.kalshi.com/trade-api/v2"}},
-            {"KALSHI_API_KEY_ID": "key-id",
-             "KALSHI_PRIVATE_KEY_PEM": "-----BEGIN RSA PRIVATE KEY-----"})
-        assert adapter.has_credentials is True
-        assert adapter.allow_order_placement is False
+        assert adapter.effective_reads_per_sec() <= 8
+        assert adapter.effective_writes_per_sec() <= 3
 
     def test_unofficial_host_is_refused(self):
         with pytest.raises(PermissionError, match="not a documented official"):
-            smoke.build_adapter(
-                {"kalshi": {"rest_base": "https://kalshi-mirror.example/v2"}},
-                {})
+            smoke.build_adapter({"kalshi": {
+                "rest_base": "https://kalshi-mirror.example/v2"}})
 
-    def test_rate_limit_report_never_raises_the_budget(self):
-        adapter = smoke.build_adapter(
-            {"kalshi": {"rest_base":
-                        "https://external-api.kalshi.com/trade-api/v2",
-                        "rate_limit_reads_per_sec": 8,
-                        "rate_limit_writes_per_sec": 3}},
-            {})
-        # A generous tier must not raise the configured budget (§13).
-        adapter.apply_rate_limits(KalshiRateLimits(
-            usage_tier="prestige", read_refill_rate=10000.0,
-            read_bucket_capacity=10000.0, write_refill_rate=8000.0,
-            write_bucket_capacity=8000.0))
-        report = smoke.rate_limit_report(adapter)
-        assert report["usage_tier"] == "prestige"
-        assert report["effective_reads_per_sec"] == 8
-        assert report["effective_writes_per_sec"] == 3
+    def test_transport_and_5xx_are_unavailable_not_adapter_failure(self):
+        assert smoke.classify_exception(
+            httpx.ConnectError("TLS/SSL EOF")) == "UNAVAILABLE"
+        response = httpx.Response(
+            503, request=httpx.Request("GET", "https://example.test"))
+        with pytest.raises(httpx.HTTPStatusError) as exc:
+            response.raise_for_status()
+        assert smoke.classify_exception(exc.value) == "UNAVAILABLE"
 
-        # The published Basic tier (200 read / 100 write tokens per second
-        # at the default 10-token endpoint cost) allows 20/10 req/s, so at
-        # 80% headroom the configured 8/3 is already under it and must stay.
-        adapter.apply_rate_limits(KalshiRateLimits(
-            usage_tier="basic", read_refill_rate=200.0,
-            read_bucket_capacity=200.0, write_refill_rate=100.0,
-            write_bucket_capacity=100.0))
-        report = smoke.rate_limit_report(adapter)
-        assert report["effective_reads_per_sec"] == 8
-        assert report["effective_writes_per_sec"] == 3
+    def test_schema_or_client_errors_are_not_mislabeled_network_failures(self):
+        assert smoke.classify_exception(ValueError("bad book schema")) == "FAIL"
+        response = httpx.Response(
+            404, request=httpx.Request("GET", "https://example.test"))
+        with pytest.raises(httpx.HTTPStatusError) as exc:
+            response.raise_for_status()
+        assert smoke.classify_exception(exc.value) == "FAIL"
 
-        # A genuinely tight tier must clamp lower: 50 tokens/s at a
-        # 10-token endpoint cost x 0.8 headroom = 4 req/s (and 25 -> 2).
-        adapter.apply_rate_limits(KalshiRateLimits(
-            usage_tier="restricted", read_refill_rate=50.0,
-            read_bucket_capacity=50.0, write_refill_rate=25.0,
-            write_bucket_capacity=25.0))
-        report = smoke.rate_limit_report(adapter)
-        assert report["effective_reads_per_sec"] == 4.0
-        assert report["effective_writes_per_sec"] == 2.0
+    def test_evidence_layers_never_promote_full_adapter_automatically(self):
+        evidence = {}
+        smoke._set_evidence_levels(evidence, "OBSERVED", True)
+        assert evidence["evidence_levels"]["documentation"]["state"] == "DOCUMENTED"
+        assert evidence["evidence_levels"]["connectivity"]["state"] == "OBSERVED"
+        assert evidence["evidence_levels"]["usable_market_data"]["state"] == "OBSERVED"
+        assert evidence["evidence_levels"]["full_adapter_verification"]["state"] == "NOT_VERIFIED"
+        assert evidence["promotion_candidate"] == "MARKET_DATA_OBSERVED"
+        assert evidence["promotion_requires_manual_review"] is True
+
+    def test_tls_failure_writes_unavailable_evidence_and_uses_no_order_path(
+            self, tmp_path, monkeypatch):
+        class OfflineAdapter:
+            rest_bases = ["https://external-api.kalshi.com/trade-api/v2"]
+            active_rest_base = rest_bases[0]
+
+            async def connect(self):
+                raise ConnectionError("TLS/SSL EOF before HTTP response")
+
+            async def disconnect(self):
+                return None
+
+        monkeypatch.setattr(smoke, "_read_venues_config", lambda: {})
+        monkeypatch.setattr(smoke, "build_adapter",
+                            lambda _venues: OfflineAdapter())
+        out = tmp_path / "evidence.json"
+        code = asyncio.run(smoke.run(argparse.Namespace(
+            limit=1, ticker=None, out=str(out), json=False)))
+        payload = json.loads(out.read_text())
+        assert code == 1
+        assert payload["result"] == "UNAVAILABLE"
+        assert payload["evidence_levels"]["connectivity"]["state"] == "UNAVAILABLE"
+        assert payload["evidence_levels"]["usable_market_data"]["state"] == "NOT_OBSERVED"
+        assert payload["evidence_levels"]["full_adapter_verification"]["state"] == "NOT_VERIFIED"
+        assert payload["credentials_loaded"] is False
+        assert payload["credentials_used"] is False
+        assert payload["orders_placed"] == 0

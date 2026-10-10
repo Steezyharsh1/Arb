@@ -41,9 +41,12 @@ For authenticated streaming or future owner-approved order testing:
    `KALSHI-ACCESS-SIGNATURE`, and `KALSHI-ACCESS-TIMESTAMP`.
 4. Start with demo and retain the adapter-level and mode/firewall gates.
 
-A fresh Phase 1 sandbox HTTP smoke test failed before an HTTP response with a
-TLS EOF. That result is **UNAVAILABLE / LIVE**, not proof of an outage or a
-successful current payload test.
+Latest bounded public-only probe (2026-10-10 06:13:37.919175 UTC) failed on
+both configured REST hosts with `ConnectError: TLS/SSL connection has been
+closed (EOF) (_ssl.c:992)` before HTTP response. The result is
+**UNAVAILABLE / LIVE**, not proof of an outage, adapter failure, or a
+successful current payload test. `scripts/kalshi_smoke.py --limit 1` does not
+load credentials, call account/authenticated surfaces, or place orders.
 
 Direct Kalshi trading is also fee-blocked: series/event fee metadata and
 account/fill rounding state are not yet carried into `FeeCalculator`.
@@ -56,10 +59,14 @@ ranked matrix in `docs/VENUE_RESEARCH.md`.
 ### Polymarket US (recommended direct candidate)
 
 Official REST/WebSocket/auth documentation exists at
-https://docs.polymarket.us/ (**VERIFIED / DOC / 2026-09-13**). A live sandbox
-response and owner account/Utah eligibility were **UNAVAILABLE**. Do not confuse
-Polymarket US (QCX DCM) with the international platform. Fee rounding and
-cumulative order state are not integrated.
+https://docs.polymarket.us/ (**VERIFIED / DOC / 2026-09-13**). The latest
+bounded public-only smoke (2026-10-10 06:13:41.226497 UTC) failed before HTTP
+response with `ConnectionError: TLS/SSL connection has been closed (EOF)
+(_ssl.c:992)` at `https://gateway.polymarket.us`; it is **UNAVAILABLE**, not
+proof of an outage or adapter failure. No credentials or orders were used.
+The adapter remains `API_DOCUMENTED_UNTESTED` and is not admitted to collect.
+Do not confuse Polymarket US (QCX DCM) with the international platform. Fee
+rounding and cumulative order state are not integrated.
 
 ### Gemini Predictions (second direct candidate)
 

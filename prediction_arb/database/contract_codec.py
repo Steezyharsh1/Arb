@@ -86,8 +86,10 @@ def encode_contract(contract: NormalizedContract) -> dict[str, Any]:
         "early_resolution_rules": contract.early_resolution_rules or None,
         "cancellation_rules": contract.cancellation_rules or None,
         "contract_version": contract.contract_version or None,
-        "tick_size": str(contract.tick_size),
-        "min_order_size": str(contract.min_order_size),
+        "tick_size": (None if contract.tick_size is None
+                      else str(contract.tick_size)),
+        "min_order_size": (None if contract.min_order_size is None
+                           else str(contract.min_order_size)),
         "max_order_size": (None if contract.max_order_size is None
                            else str(contract.max_order_size)),
         "jurisdiction_requirements": (
@@ -111,11 +113,11 @@ def encode_contract(contract: NormalizedContract) -> dict[str, Any]:
 
 
 #: Columns that must be present (non-NULL) to rebuild a contract at all.
-#: Without these the matcher would be reasoning about a contract whose
-#: economics were never observed, so the row is skipped instead.
+#: Tick/minimum order rules are optional observations: NULL round-trips as
+#: unknown, and any future order-capable consumer must gate on them rather
+#: than infer a value.
 _REQUIRED_FIELDS = (
-    "outcome_type", "payout", "tick_size", "min_order_size",
-    "contract_version",
+    "outcome_type", "payout", "contract_version",
 )
 
 
@@ -130,9 +132,15 @@ def decode_contract(row: Any) -> Optional[NormalizedContract]:
             return None
 
     payout = _dec(row.payout)
-    tick = _dec(row.tick_size)
-    min_size = _dec(row.min_order_size)
-    if payout is None or tick is None or min_size is None:
+    tick = _dec(getattr(row, "tick_size", None))
+    min_size = _dec(getattr(row, "min_order_size", None))
+    if payout is None:
+        return None
+    # NULL rules remain explicitly unknown for faithful data replay. A
+    # recorded non-finite or non-positive rule is corrupt, not a default.
+    if tick is not None and (not tick.is_finite() or tick <= 0):
+        return None
+    if min_size is not None and (not min_size.is_finite() or min_size <= 0):
         return None
 
     try:

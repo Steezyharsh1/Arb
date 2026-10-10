@@ -4,6 +4,8 @@
 
 **Fee-source re-review:** 2026-10-10 (UTC); current fee readiness and exact gaps are in [`docs/FEE_READINESS.md`](FEE_READINESS.md).
 
+**Adapter evidence review:** 2026-10-10 (UTC); bounded public-only Kalshi and Polymarket US smoke attempts were both `UNAVAILABLE` before an HTTP response. This changes neither adapter's status to broken or fully verified.
+
 **Milestone:** M1 / Phase 1 research only — no new adapter was implemented
 
 **Jurisdiction configured by this repository:** US-UT (Utah)
@@ -61,23 +63,23 @@ Owner agreement is required before Phase 2/3 adapter work.
 | K6 | Series metadata carries `fee_type` and `fee_multiplier`; event responses carry `fee_type_override` and `fee_multiplier_override`; series and event fee-change endpoints expose scheduled changes. A cleared/null event override must not be retained as a stale selector. A venue-wide coefficient is insufficient. | VERIFIED / DOC | https://docs.kalshi.com/api-reference/market/get-series ; https://docs.kalshi.com/api-reference/exchange/get-series-fee-changes ; https://docs.kalshi.com/api-reference/events/get-event ; https://docs.kalshi.com/api-reference/events/get-event-fee-changes ; https://docs.kalshi.com/llms.txt | 2026-10-10 |
 | K7 | Standard taker reference is `0.07 × M × C × P × (1-P)`; maker-enabled series use `0.0175 × M × C × P × (1-P)`. The fee page lists no upcoming changes but gives no global effective date; fee type and multiplier remain series/event contextual, so these are not a venue-wide execution schedule. | VERIFIED / DOC | https://kalshi.com/fee-schedule ; https://docs.kalshi.com/api-reference/market/get-series ; https://docs.kalshi.com/api-reference/events/get-event | 2026-10-10 |
 | K8 | Per-fill fee rounding uses six-decimal model-fee precision, member-specific balance precision (direct member `$0.0001`, non-direct `$0.01`), an order accumulator spanning maker/taker fills, and balance-alignment adjustments/rebates. | VERIFIED / DOC | https://docs.kalshi.com/getting_started/fee_rounding | 2026-10-10 |
-| K9 | A fresh unauthenticated HTTP smoke test did not reach an HTTP response; the sandbox terminated TLS with EOF. This does **not** establish a Kalshi outage or validate the current payload. | UNAVAILABLE / LIVE | `https://external-api.kalshi.com/trade-api/v2/exchange/status` (attempted) | 2026-09-13 |
+| K9 | Bounded unauthenticated smoke (`scripts/kalshi_smoke.py --limit 1`, 2026-10-10 06:13:37.919175 UTC) failed before HTTP response on both configured public bases: `https://external-api.kalshi.com/trade-api/v2` and `https://api.elections.kalshi.com/trade-api/v2`; each raised `ConnectError: TLS/SSL connection has been closed (EOF) (_ssl.c:992)`. No credentials or orders; 1-market limit. This does **not** establish a Kalshi outage, adapter defect, or usable current payload. | UNAVAILABLE / LIVE | `/exchange/status` on both configured bases (attempted by public-only smoke) | 2026-10-10 |
 | K10 | Settlement guidance limits the zero-settlement-fee statement to simple yes/no determinations; sub-cent scalar settlement may incur a fee. The current evaluator has no settlement-type guard, so the production settlement schedule must not be globally zero. | VERIFIED / DOC; runtime scope incomplete | https://docs.kalshi.com/getting_started/market_settlement | 2026-10-10 |
+| K11 | Historical public collection on 2026-08-30 recorded 500 markets and 40 non-empty books, supporting a `MARKET_DATA_OBSERVED` claim only. It is not evidence that the current adapter revision, authenticated bulk books, WebSocket, or order paths are fully verified. The latest smoke remains K9 (`UNAVAILABLE`). | OBSERVED / LIVE (historical public collection) | `docs/TESTING.md` integration-testing record; `tests/test_collect_mode.py` and current offline adapter tests cover code behavior only | 2026-08-30; re-reviewed 2026-10-10 |
 
-**Code consequence (updated 2026-09-13, Phase 2):** `config/venues.yaml` now
-uses the recommended `external-api` hosts from K1/K2 with the legacy shared
-hosts kept as documented fallbacks; the adapter fails over on 5xx/transport
-errors, streams order books over the authenticated WebSocket with
-seq-gap-triggered recovery (K4), supports the authenticated bulk
-`GET /markets/orderbooks` (K3), and clamps its request budgets below the
-discovered account tier (K5). The parser handles both REST
-(`yes_dollars`/`no_dollars`) and WebSocket (`*_fp`) fixed-point bid books and
-drops malformed/non-tradeable levels. This still does **not** claim a fresh
-live payload: the sandbox cannot reach Kalshi (K9, UNAVAILABLE), and all Phase
-2 tests run against mock/local servers. Live verification of the new hosts,
-streaming session, bulk endpoint, and tier discovery requires the owner's
-machine and API key (H2) — tracked in the Phase 2 exit criteria in
-`docs/ROADMAP.md`.
+**Code consequence (adapter evidence reviewed 2026-10-10):** `config/venues.yaml`
+uses the documented recommended `external-api` hosts from K1/K2 and keeps
+legacy hosts as fallbacks. `KalshiAdapter` is `MARKET_DATA_OBSERVED` from the
+historical public collection (K11), not `VERIFIED`; current network access is
+`UNAVAILABLE` (K9). Offline tests cover 5xx/transport failover, fixed-point
+REST and WebSocket parsing, sequence-gap recovery, reconnect behavior,
+authenticated bulk-book parsing, and account-tier budget clamping, but none
+of those offline tests establishes live payload validity or authenticated
+connectivity. The current bounded smoke is deliberately public-only: it does
+not load credentials, query account/tier, call bulk books or WebSocket, or
+place orders. No full current-adapter verification is claimed. Kalshi's
+production fee/settlement schedules remain `INCOMPLETE` (K6-K8, K10 and
+`docs/FEE_READINESS.md`).
 
 ## 2b. Polymarket US API ledger (Phase 3, added 2026-09-13)
 
@@ -93,7 +95,7 @@ re-read 2026-10-10. Venue *identity* evidence stays in row V2 below.
 | P4 | Books carry a `state` enum. Only `MARKET_STATE_OPEN` is trading; `PREOPEN`, `SUSPENDED`, `HALTED`, `EXPIRED`, `TERMINATED`, and `MATCH_AND_CLOSE_AUCTION` are returned but are not executable. | VERIFIED / DOC | https://docs.polymarket.us/api-reference/markets/get-market-book ; https://docs.polymarket.us/concepts/market-data | 2026-09-13 |
 | P5 | Rate limits are **20 requests/second** for authenticated endpoints (per API key) and 20 requests/second public (per IP). `429` carries no `Retry-After`; the documented remedy is to stop, wait ≥1 s, and back off exponentially. A separate 5-second **latency stopgap** rejects unprocessed inbound orders with the message `Global Rate Limit Exceeded`; that message is explicitly **not** a rate limit and must not trigger throttling. | VERIFIED / DOC | https://docs.polymarket.us/api-reference/rate-limits | 2026-09-13 |
 | P6 | The markets WebSocket is `wss://api.polymarket.us/v1/ws/markets` and **requires API-key authentication in the handshake** even for public market data. Subscribe with `{"subscribe":{"request_id","subscription_type","market_slugs"}}`; `subscription_type` 1 = `MARKET_DATA` (full book), 2 = `MARKET_DATA_LITE`, 3 = `TRADE`. Responses carry a **complete** `market_data` book (`bids`/`offers`), not incremental deltas, so there is no sequence number to gap-check. Server sends `{"heartbeat":{}}`; errors arrive as `{"request_id", "error"}`; max **100 markets per subscription**. | VERIFIED / DOC | https://docs.polymarket.us/api-reference/websocket/overview ; https://docs.polymarket.us/api-reference/websocket/markets | 2026-09-13 |
-| P7 | A fresh unauthenticated HTTP smoke test against `gateway.polymarket.us` did not reach an HTTP response; the sandbox terminated TLS with EOF. This does **not** establish an outage and does **not** validate the current payload. | UNAVAILABLE / LIVE | `https://gateway.polymarket.us/v1/markets` (attempted) | 2026-09-13 |
+| P7 | Bounded unauthenticated smoke (`scripts/polymarket_us_smoke.py --limit 1`, 2026-10-10 06:13:41.226497 UTC) failed before HTTP response: `https://gateway.polymarket.us` raised `ConnectionError: TLS/SSL connection has been closed (EOF) (_ssl.c:992)`. No credentials or orders; 1-market limit. This does **not** establish a Polymarket US outage, adapter defect, or usable current payload. | UNAVAILABLE / LIVE | Public gateway `/v1/markets` connection probe (attempted) | 2026-10-10 |
 | P8 | Current schedule effective **2026-10-07 10:00 ET**: standard taker `Θ = 0.0695`, Table Tennis taker `Θ = 0.10`, and maker rebate `Θ = -0.0125` under `Θ × C × p × (1-p)`. Fees use nearest-cent **banker's rounding**; aggressive-order fills are capped at the banker's rounding of cumulative exact fee (adjustment can only reduce a charge); maker rebates are independently rounded per fill and not capped. Prior-calendar-month taker amount-at-risk tiers (10/25/50% at `$250k`/`$1m`/`$10m`) are paid weekly, not discounted per trade; the page also permits accelerated placement using verifiable trailing-30-day external volume. This is not one universal family: Table Tennis differs, and combos use a separate curve (P13). | VERIFIED / DOC | https://docs.polymarket.us/fees | 2026-10-10 |
 | P9 | Recurring **weekly maintenance Thursday 02:00–06:00 ET** (effective 2026-07-09; previously 06:00–08:00). All open orders are cancelled before the window, **all API requests return `503 Service Unavailable`** during it, and books **reopen empty** because every order was cancelled. Markets move `SUSPENDED → OPEN` when it ends. | VERIFIED / DOC | https://docs.polymarket.us/faqs/general-faqs | 2026-09-13 |
 | P10 | Fractional-contract support is **documented inconsistently**. The retail/learn docs state "Polymarket US does not support fractional contracts. All trades are executed in **whole event contracts**", while the API docs describe `minimumTradeQty: 0.01` as "the market supports 1% contract increments" and the institutional data model carries a per-instrument `fractionalQtyScale`. Resolution adopted in code: the per-market `minimumTradeQty` from the payload is authoritative and is **never inferred**; the engine's own sizing stays whole-contract, so the conflict cannot make it size a fractional order. | VERIFIED / DOC (conflict) | https://docs.polymarket.us/learn/trading/basics/fractional-shares ; https://docs.polymarket.us/api-reference/market/overview ; https://docs.polymarket.us/faqs/general-faqs | 2026-09-13 |
@@ -101,20 +103,25 @@ re-read 2026-10-10. Venue *identity* evidence stays in row V2 below.
 | P12 | Customer settlement-fee treatment is **not established**. Public settlement materials describe `$1.00`/`$0.00` payouts; the Payments API exposes `TRANSACTION_TYPE_SETTLEMENT_FEE`, and the balance-ledger API lists `LEDGER_ENTRY_TYPE_BALANCE_SETTLEMENT_FEE` but says suppressed entry types are filtered out. That does not establish whether, when, or how much a customer is charged; `settlement_calculation_status` stays **INCOMPLETE**. | UNVERIFIED / DOC (customer treatment unresolved) | https://docs.polymarket.us/learn/markets/contract-settlement ; https://docs.polymarket.us/institutional/funding/overview ; https://docs.polymarket.us/api-reference/funding/get-account-balance-ledger ; https://docs.polymarket.us/institutional/payments/overview ; https://docs.polymarket.us/trader-guide/reporting | 2026-10-10 |
 | P13 | Combo instruments are available through the Retail API; the fee page gives a separate taker formula `C × p × [0.0695 × (1-p) + 0.06 × (1-p)^4]`, applied to the combo as a whole, with **no maker rebate**. The current adapter/evaluator does not model combo instruments. | VERIFIED / DOC; runtime UNSUPPORTED | https://docs.polymarket.us/changelog ; https://docs.polymarket.us/api-reference/combos/overview ; https://docs.polymarket.us/fees#combo-taker-fees | 2026-10-10 |
 
-**Code consequence (Phase 3, 2026-09-13):** `prediction_arb/adapters/polymarket_us.py`
-reads discovery and books from the **public** gateway with no credentials
-(P1), so paper/collect work without a key; the Ed25519 signer (P2) is used
-only for the WebSocket and portfolio surfaces. Per-market tick size and
-minimum quantity are carried onto every `NormalizedContract` rather than
-inferred (P3). `parse_order_book` returns **None** for any market whose
-state is not `MARKET_STATE_OPEN` (P4), so a halted book can never be sized
-against. Request budgets are clamped to 80% of the published 20 req/s
-ceiling and `429` is surfaced for backoff, never swallowed (P5, §13).
-`polymarket_us_ws.py` implements the full-snapshot markets stream with
-reconnect/resubscribe and terminal auth handling; it deliberately contains
-**no** sequence-gap machinery because the protocol sends complete books,
-not deltas (P6) — inventing one would fabricate a guarantee the venue does
-not provide.
+**Code consequence (adapter evidence reviewed 2026-10-10):**
+`prediction_arb/adapters/polymarket_us.py` implements public-gateway discovery
+and books without credentials (P1); the Ed25519 signer (P2) is for authenticated
+surfaces, not required by this smoke. Offline tests cover those code paths, but
+current connectivity and payload behavior are **not observed**: the bounded
+public probe on 2026-10-10 returned TLS EOF before HTTP response (P7). Therefore
+`api_status` remains `API_DOCUMENTED_UNTESTED`, and collect/paper do not admit
+this venue. Tick size and minimum quantity are optional per-market values:
+provided values are parsed and validated; missing/malformed values remain
+unknown (`None`) and are never inferred (P3). `parse_order_book` rejects a
+missing/unknown or non-`MARKET_STATE_OPEN` state (P4); the smoke also requires a
+usable two-sided uncrossed book and valid tick/minimum rules before it can
+report market-data evidence. Request budgets are clamped to 80% of the
+published 20 req/s ceiling and `429` is surfaced for backoff (P5, §13).
+`polymarket_us_ws.py` implements full-snapshot streaming with
+reconnect/resubscribe and terminal auth handling; it deliberately has no
+sequence-gap machinery because the documented protocol sends replacement
+books rather than deltas (P6). Neither offline mocks nor an unavailable public
+probe establish full adapter verification.
 
 **Fees (re-reviewed 2026-10-10; Phase 3 fee gate REOPENED):** the prior
 `0.06` schedule effective 2026-07-01 was superseded by the current
@@ -127,10 +134,10 @@ reconciliation, combo support, or settlement-fee treatment. The older claim
 that the full production fee model was complete is withdrawn. Weekly volume
 rebates remain evidence-only and are never applied per order. See
 `docs/FEE_READINESS.md` for direct sources, exact gaps, and operator steps.
-`api_status` remains `API_DOCUMENTED_UNTESTED`; collect mode skips the venue
-until observed-payload evidence is captured with
-`scripts/polymarket_us_smoke.py` (P7 stands: this sandbox cannot reach the
-venue).
+`api_status` remains `API_DOCUMENTED_UNTESTED`; collect mode skips the venue.
+A future successful public smoke would provide a manual
+`MARKET_DATA_OBSERVED` candidate only, not full adapter verification; the
+2026-10-10 attempt is `UNAVAILABLE` (P7).
 
 **Operational note (P9):** Thursday 02:00–06:00 ET the venue returns `503`
 for every request and reopens with **empty** books. `503` is a 5xx, so the

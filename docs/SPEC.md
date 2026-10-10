@@ -1,20 +1,21 @@
 # SPECIFICATION (RECONSTRUCTED) — prediction_arb v1
 
-**Status:** RECONSTRUCTED, 2026-09-13 (America/Denver).
+**Status:** RECONSTRUCTED; evidence-state section §101 added 2026-10-10 (America/Denver).
 **Confidence:** derived, not authoritative. See "How this was reconstructed".
 
 The original numbered specification that this codebase was built against was
-never committed to the repository. Its section numbers, however, survive
-everywhere: **73 distinct `§N` sections are cited at 224 sites** across code,
-config, docs and tests (measured 2026-09-13 with
-`grep -roE "§[0-9]+" --include="*.py" --include="*.md" --include="*.yaml"`,
-excluding this file, `docs/ROADMAP.md` and `docs/AGENT_KICKOFF.md`, which
-discuss the numbering itself). This document reconstructs those sections from
-the evidence at each citation site so that every existing `§N` reference
-resolves to something readable.
+never committed to the repository. Its section numbers survive across code,
+config, docs and tests. The original audit counted 73 distinct references at
+224 sites on 2026-09-13; after §§96–§101 and subsequent documentation changes,
+79 sections are reconstructed and 451 citation sites were measured on
+2026-10-10 (excluding this file, `docs/ROADMAP.md` and `docs/AGENT_KICKOFF.md`).
+This document reconstructs the cited requirements from surviving code,
+documentation, tests and configuration; numbers with insufficient surviving
+evidence remain listed as UNKNOWN in Appendix B. Section §101 is the explicitly
+requested adapter-evidence addition and is cited by `prediction_arb/adapters/evidence.py`.
 
-**Coverage is exact:** every cited section has an entry below, and no entry was
-written for a number the codebase does not cite.
+**Coverage is explicit:** reconstructed sections and unresolved historical
+gaps are listed separately. Do not infer content for an UNKNOWN number.
 
 ## How this was reconstructed
 
@@ -59,13 +60,18 @@ so that implementing them later requires no changes to the arbitrage engine.
 `arbitrage/multi_leg.py`, `backtesting/engine.py`, `monitoring/dashboard.py`,
 `docs/ARCHITECTURE.md` ("Extending").
 
-### §5 — No unverified integrations  `[C]`
-**Requirement.** A venue integration MUST be either VERIFIED against the real
-API or an honestly-labelled structured stub. Code that pretends to work
-without verification is prohibited: an adapter MUST NOT return plausible data
-it has not obtained from the venue.
-**Evidence.** `prediction_arb/adapters/forecast_ex.py` ("Per spec §5/§84, this
-adapter is a properly structured stub"), `adapters/stubs.py`.
+### §5 — Evidence-scoped integrations, no fabricated claims  `[C]`
+**Requirement.** A venue integration MUST report the strongest evidence
+actually held: documentation, endpoint connectivity, usable market data, and
+full adapter verification are distinct claims. A partial implementation MAY
+be used only for the evidenced, explicitly admitted read-only surface. It MUST
+NOT claim `VERIFIED` from documentation, connectivity, mocks, or an unavailable
+network attempt; it MUST NOT fabricate venue data. Missing evidence stays
+unknown, and an unavailable attempt is neither a broken-adapter finding nor
+verification.
+**Evidence.** `prediction_arb/adapters/evidence.py`, `core/types.py`
+(`APIStatus`), `prediction_arb/main.py` (`cmd_status`),
+`tests/test_kalshi_smoke_script.py`, `tests/test_polymarket_us_smoke_script.py`.
 
 ### §7 — Structured stub contract  `[C,T]`
 **Requirement.** A stub adapter MUST be importable, fully typed against the
@@ -733,14 +739,16 @@ venue text.
 **Evidence.** `docs/LLM_MATCHING.md`,
 `prediction_arb/matching/llm_matcher.py`, `matching/rules_validator.py`.
 
-### §90 — Data-collection mode  `[C,D]`
-**Requirement.** A collect mode MUST record markets and order books and MUST
-have NO execution engine at all — the safest possible first operational phase.
-It MUST skip venues whose status is NO_API_AVAILABLE, SAME_VENUE_ROUTE or
-API_DOCUMENTED_UNTESTED, MUST record only non-empty books, and MUST require no
-credentials for public market data.
-**Evidence.** `prediction_arb/modes/collect/engine.py`, `main.py`,
-`docs/API_SETUP.md`.
+### §90 — Data-collection mode  `[C,D,T]`
+**Requirement.** A collect mode MUST record markets and usable order-book
+snapshots and MUST have NO execution engine at all. It MUST admit only
+`MARKET_DATA_OBSERVED` or `VERIFIED` adapters; documentation or connectivity
+alone MUST NOT admit a venue. Snapshots MUST be two-sided, finite, positive-size,
+in-range, sorted, and uncrossed. Public market-data collection MUST require no
+credentials, and collection MUST never construct or invoke an execution path.
+**Evidence.** `prediction_arb/modes/collect/engine.py`,
+`prediction_arb/orderbooks/validation.py`, `tests/test_collect_mode.py`,
+`main.py`, `docs/API_SETUP.md`.
 
 ### §92 — No fabricated history or data  `[C,D,T]`
 **Requirement.** Historical replay MUST use only recorded data. When no data
@@ -834,9 +842,11 @@ of "freshness is mandatory everywhere" would suggest.
 
 ### §99 — Readiness verdicts are computed, never hardcoded  `[C,T]`
 **Requirement.** Added 2026-10-10 (defect D10 fix). Every readiness criterion
-MUST be derived from observed system state: adapter verification
-(`APIStatus.VERIFIED` **and** verified order-type support), provenance
-independence (§15), matcher configuration (§97), fee completeness (§24) and
+MUST be derived from observed system state: collect/paper data capability
+(`APIStatus.MARKET_DATA_OBSERVED` or `VERIFIED`) and separate full/live
+adapter verification (`APIStatus.VERIFIED` **and** verified order-type
+support), provenance independence (§15), matcher configuration (§97), fee
+completeness (§24) and
 freshness (§98), settlement-timing evidence (§28), recorded-data volume (§40),
 jurisdiction eligibility (§35), the persistent kill switch (§71), configured
 hard risk limits (§70), the order-book staleness gates (§23) and — for live
@@ -871,6 +881,23 @@ reinterpreted by the renderer.
 `prediction_arb/modes/historical/engine.py`, `tests/test_readiness.py`
 (`TestBlockReasonsAreVisible`).
 
+### §101 — Claim-level public adapter evidence  `[C,D,T]`
+**Requirement.** Adapter status MUST keep documentation review, connectivity,
+usable market data, and full adapter verification as separate dated claims.
+A transport/TLS failure or service unavailability MUST be recorded with the
+exact attempt and classified `UNAVAILABLE`; it MUST NOT demote a historical
+observation, label an adapter broken, or promote it as verified. Connectivity
+alone MUST NOT enable collection. Public smoke tests MUST use documented,
+read-only endpoints within bounded published limits, require no credentials,
+and never place orders. A public market-data observation MAY admit read-only
+collection after manual evidence review; it MUST NOT imply authenticated,
+streaming, order, or full-adapter verification.
+**Evidence.** `prediction_arb/adapters/evidence.py`,
+`prediction_arb/main.py` (`cmd_status`), `scripts/kalshi_smoke.py`,
+`scripts/polymarket_us_smoke.py`, `tests/test_collect_mode.py`,
+`tests/test_kalshi_smoke_script.py`,
+`tests/test_polymarket_us_smoke_script.py`.
+
 ---
 
 ## Appendix A — Index of reconstructed sections
@@ -878,7 +905,7 @@ reinterpreted by the renderer.
 | § | Title | Tag | Primary evidence |
 |---|---|---|---|
 | §3 | v1 scope boundary | [C,D] | `README.md`, `prediction_arb/arbitrage/graph.py` |
-| §5 | No unverified integrations | [C] | `prediction_arb/adapters/forecast_ex.py`, `adapters/stubs.py` |
+| §5 | Evidence-scoped integrations, no fabricated claims | [C] | `prediction_arb/adapters/evidence.py`, `prediction_arb/core/types.py` |
 | §7 | Structured stub contract | [C,T] | `prediction_arb/adapters/stubs.py`, `StubAdapter._blocked` |
 | §9 | Concurrency model | [C,D] | `prediction_arb/orderbooks/aggregator.py`, `risk/exposure.py` |
 | §10 | Venue adapter interface | [C] | `prediction_arb/adapters/base.py`, `adapters/kalshi.py` |
@@ -947,7 +974,7 @@ reinterpreted by the renderer.
 | §87 | Matcher cache discipline | [C,D] | `prediction_arb/matching/llm_matcher.py`, `docs/LLM_MATCHING.md` |
 | §88 | LLM output validation | [C,T] | `prediction_arb/matching/llm_matcher.py`, `validate_llm_output` |
 | §89 | LLM role boundary | [C,D] | `docs/LLM_MATCHING.md`, `prediction_arb/matching/llm_matcher.py` |
-| §90 | Data-collection mode | [C,D] | `prediction_arb/modes/collect/engine.py`, `main.py` |
+| §90 | Data-collection mode | [C,D,T] | `prediction_arb/modes/collect/engine.py`, `orderbooks/validation.py`, `tests/test_collect_mode.py` |
 | §92 | No fabricated history or data | [C,D,T] | `prediction_arb/modes/historical/engine.py`, `backtesting/engine.py` |
 | §95 | Safe defaults | [G,C] | `config/settings.yaml`, `prediction_arb/core/config.py` |
 | §96 | Cross-venue candidate blocking | [C,T] | `prediction_arb/normalization/contracts.py`, `tests/test_candidate_generation.py`, `docs/LLM_MATCHING.md` |
@@ -955,6 +982,7 @@ reinterpreted by the renderer.
 | §98 | Mandatory fee-schedule freshness, per mode | [C,T] | `prediction_arb/fees/freshness.py`, `prediction_arb/fees/calculator.py`, `tests/test_readiness.py`, `docs/FEE_READINESS.md` |
 | §99 | Readiness verdicts are computed, never hardcoded | [C,T] | `prediction_arb/monitoring/readiness.py`, `prediction_arb/main.py`, `tests/test_readiness.py`, `docs/MODE_SEPARATION.md` |
 | §100 | Rejections state their reason to the operator | [C,D,T] | `prediction_arb/monitoring/dashboard.py`, `prediction_arb/modes/paper/engine.py`, `tests/test_readiness.py` |
+| §101 | Claim-level public adapter evidence | [C,D,T] | `prediction_arb/adapters/evidence.py`, smoke scripts, `tests/test_collect_mode.py` |
 
 ## Appendix B — Numbers with no surviving citation
 
@@ -987,10 +1015,10 @@ Ranges imply that every number inside them existed in the original spec.
 
 ## Appendix D — Reconstruction confidence
 
-* Sections reconstructed: **78** (every `§` cited in the repo resolves;
-  re-measured 2026-10-10 with `grep -c "^### §" docs/SPEC.md`, which also
-  corrects the stale 73 recorded before §96–§100 existed).
-* Citation sites covered: **224**.
+* Sections reconstructed: **79** (re-measured 2026-10-10 with
+  `grep -c "^### §" docs/SPEC.md`; includes the user-requested §101).
+* Citation sites counted: **451** (2026-10-10; excludes this file,
+  `docs/ROADMAP.md`, and `docs/AGENT_KICKOFF.md`).
 * Sections carrying an `[I]` INFERRED flag — confirm or correct these first:
 
   * §33 — Pre-trade checklist
@@ -1002,8 +1030,8 @@ Tag distribution:
 |---|---|
 | `[C,T]` | 21 |
 | `[C]` | 18 |
-| `[C,D]` | 15 |
-| `[C,D,T]` | 11 |
+| `[C,D]` | 14 |
+| `[C,D,T]` | 13 |
 | `[C,G,T]` | 4 |
 | `[C,G]` | 3 |
 | `[C,D,I]` | 1 |
@@ -1016,7 +1044,7 @@ Tag distribution:
 ## Appendix E — Maintaining this document
 
 1. **Never renumber.** 200+ call sites cite these numbers.
-2. New requirements get new numbers at the end (§98, §99, §100, …) and a real
+2. New requirements get new numbers at the end (§96–§101, …) and a real
    source: a decision record, an issue, or owner confirmation — not a guess.
 3. When you change behaviour that a section describes, update the section
    in the same commit and keep its `Evidence.` list accurate.

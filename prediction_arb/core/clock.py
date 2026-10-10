@@ -34,7 +34,14 @@ def parse_iso_utc(value: Optional[str]) -> Optional[datetime]:
 
 
 def age_ms(ts: Optional[datetime], now: Optional[datetime] = None) -> Optional[float]:
+    """Return non-negative age, or ``None`` for missing/future timestamps.
+
+    A future venue timestamp cannot prove freshness: it may indicate clock
+    skew, malformed data, or an invalid observation. Callers already fail
+    closed on ``None``, so do not let a negative age pass their limits.
+    """
     if ts is None:
         return None
     now = now or utcnow()
-    return (now - ensure_utc(ts)).total_seconds() * 1000.0
+    elapsed = (now - ensure_utc(ts)).total_seconds() * 1000.0
+    return elapsed if elapsed >= 0 else None

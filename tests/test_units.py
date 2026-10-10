@@ -219,12 +219,12 @@ class TestIndependence:
         }
         assert {venue: adapter.get_api_status()
                 for venue, adapter in adapters.items()} == {
-                    "kalshi": APIStatus.VERIFIED,
+                    "kalshi": APIStatus.MARKET_DATA_OBSERVED,
                     "polymarket_us": APIStatus.API_DOCUMENTED_UNTESTED,
                     "forecast_ex": APIStatus.API_DOCUMENTED_UNTESTED,
                 }
-        # This is the actual paper-data gate: it admits Kalshi alone, so it
-        # cannot furnish books from any independent pair.
+        # The current data gate admits Kalshi's historical MARKET_DATA_OBSERVED
+        # evidence for REST, but does not treat it as full/live verification.
         provider = PaperDataProvider(adapters)
         assert set(provider.adapters) == {"kalshi"}
 

@@ -1,19 +1,19 @@
-"""Paper-mode data provider: live market data via verified adapters,
-REST polling in v1 (Kalshi WS requires an API key). Structurally
-identical interface to historical/live providers (§57)."""
+"""Paper-mode data provider: public data via adapters with observed
+usable market data or full verification. WebSockets still require full
+adapter verification; otherwise paper uses REST polling (§57)."""
 from __future__ import annotations
 
 from typing import Optional
 
 from ...adapters.base import PredictionMarketAdapter
-from ...core.types import APIStatus, NormalizedContract, OrderBook
+from ...core.types import NormalizedContract, OrderBook
 
 
 class PaperDataProvider:
     def __init__(self, adapters: dict[str, PredictionMarketAdapter]):
         self.adapters = {
             v: a for v, a in adapters.items()
-            if a.get_api_status() == APIStatus.VERIFIED}
+            if a.get_api_status().supports_market_data}
 
     async def get_markets(self, limit: int = 200
                           ) -> list[NormalizedContract]:

@@ -32,6 +32,7 @@ from ..core.types import (
     MicrostructureType,
     OrderTypeSupport,
 )
+from .evidence import AdapterEvidence, EvidenceClaim, EvidenceState
 from .stubs import StubAdapter
 
 
@@ -66,4 +67,27 @@ class ForecastExAdapter(StubAdapter):
             verified=False,
             source="CFTC ForecastEx rules filed 2026-03-02 and 2026-03-24: "
                    "YES_bid + NO_bid = $1.00; separate $0.01 fee per side",
+        )
+
+    def get_evidence(self) -> AdapterEvidence:
+        return AdapterEvidence(
+            documentation=EvidenceClaim(
+                EvidenceState.DOCUMENTED,
+                as_of="2026-09-13",
+                source="docs/VENUE_RESEARCH.md V1 and F1-F4",
+                detail="Exchange identity and route documentation reviewed; retail API requires an authenticated IBKR session."),
+            connectivity=EvidenceClaim(
+                EvidenceState.NOT_OBSERVED,
+                as_of="2026-10-10",
+                detail="No authorized IBKR account/session connectivity test is recorded."),
+            usable_market_data=EvidenceClaim(
+                EvidenceState.NOT_IMPLEMENTED,
+                as_of="2026-10-10",
+                detail="This adapter is a structured stub and does not fetch ForecastEx market data."),
+            full_adapter=EvidenceClaim(
+                EvidenceState.NOT_IMPLEMENTED,
+                as_of="2026-10-10",
+                detail="Market-data and order surfaces are not implemented."),
+            latest_smoke=EvidenceClaim(EvidenceState.NOT_APPLICABLE),
+            surfaces=("IBKR Client Portal/TWS/FIX route (stub; not connected)",),
         )

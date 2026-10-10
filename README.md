@@ -24,22 +24,25 @@ Consumer apps still require contract-qualified routing:
 | DraftKings contract | CME, CDNA, or proprietary DKeX/Railbird | UNKNOWN until route identified |
 
 The conditional adapter shortlist was **Polymarket US**, **Gemini**, then
-**IBKR ForecastEx/CME**. The owner selected **Polymarket US** on 2026-09-13
-and its adapter is now implemented (Phase 3): public discovery and
-two-sided order books work with **no API key**, and the venue registers as
-INDEPENDENT of Kalshi. It stays `API_DOCUMENTED_UNTESTED` — and collect
-mode skips it — until observed-payload evidence is captured with
-`python scripts/polymarket_us_smoke.py` from a machine that can reach the
-venue. Only three of the researched DCMs expose a usable public API at
-all; Railbird/DKeX, Ludlow/Novig, Rothera, and CDNA have none, and
-reaching them would require scraping, which is prohibited (§13).
+**IBKR ForecastEx/CME**. The owner selected **Polymarket US** on 2026-09-13.
+Its public REST implementation and offline tests exist, but this sandbox has
+not received a live HTTP response; it remains `API_DOCUMENTED_UNTESTED` and
+collect skips it. Kalshi is `MARKET_DATA_OBSERVED`, based on historical public
+collection (2026-08-30), not full verification of the current adapter. The
+2026-10-10 public smoke attempts for both venues were `UNAVAILABLE` (TLS EOF),
+not evidence that either adapter is broken or verified. `--status` keeps
+reviewed documentation, connectivity, usable market data, and full adapter
+verification separate. Only three of the researched DCMs expose a usable
+public API at all; reaching venues without one would require prohibited
+scraping (§13).
 
 Utah sports contracts are **RESTRICTED** across venues; Utah non-sports
 eligibility is **UNKNOWN**. Context-incomplete fees fail closed. Of the three
 enabled venue pairs, all are provenance-independent but **none is currently
 end-to-end cost-evaluable**: Kalshi, Polymarket US, and ForecastEx each have
-at least one mandatory fee/settlement component marked `INCOMPLETE`; only
-Kalshi currently passes the paper API-status gate. Capital-lockup timing is
+at least one mandatory fee/settlement component marked `INCOMPLETE`. Only
+Kalshi has historical usable-market-data evidence for read-only collection;
+no venue has current full adapter verification. Capital-lockup timing is
 evidenced only for Kalshi (documented per-market bound); Polymarket US and
 ForecastEx settlement timing is `UNKNOWN`, so their legs also block on
 lockup (`docs/TRADING_LOGIC.md`, D18). See
@@ -57,18 +60,15 @@ pytest                                               # run the full safety suite
 # safest first step — inspect provenance/readiness; sends no orders
 python -m prediction_arb.main --status
 
-# collect public Kalshi data (recommended hosts + legacy fallback;
-# with a Kalshi API key in .env.paper it uses bulk books + WS streaming)
+# collect usable snapshots only from adapters with market-data evidence;
+# read-only collection does not invoke the execution engine
 python -m prediction_arb.main --mode collect
 
-# Polymarket US read-only smoke test + evidence capture (no API key, no
-# account, no orders) — promotes the venue out of API_DOCUMENTED_UNTESTED
+# bounded, public-only read-only smoke probes (no credentials or orders);
+# network failure is recorded as UNAVAILABLE, not adapter failure. A
+# successful smoke is only evidence for manual review, never full verification.
 python scripts/polymarket_us_smoke.py
-
-# Kalshi read-only smoke test: both hosts + the orderbook_fp book format
-# (no API key needed; with a key it also checks tier, bulk books and the
-# WebSocket). This is Phase 2's owner-runnable verification step.
-python scripts/kalshi_smoke.py --with-stream 10
+python scripts/kalshi_smoke.py
 
 # paper trading (default mode): real data, simulated execution
 python -m prediction_arb.main --mode paper
@@ -91,26 +91,26 @@ python -m prediction_arb.main --unkill
 ```
 
 Live mode (`--mode live`) requires typing `I UNDERSTAND LIVE TRADING`
-interactively; no flag bypasses it. With only one live-capable venue,
-live mode is monitor-only by construction.
+interactively; no flag bypasses it. No adapter currently has full live
+verification, so there are zero live-capable venues; live mode remains
+monitor-only by construction.
 
 ## What works today
-- The Kalshi adapter runs on the recommended `external-api` hosts with the
-  legacy hosts as automatic fallbacks (5xx/transport failover, connect-time
-  probing). Public REST works without credentials; with a key it adds
-  authenticated **bulk order books** (`GET /markets/orderbooks`, ≤100
-  tickers/request) in collect mode, **WebSocket streaming**
-  (`orderbook_delta` with sequenced snapshots/deltas, gap-triggered
-  recovery, reconnect backoff) in paper mode, and startup discovery of the
-  account's rate-limit tier with budget clamping below the published limits.
-  All of it degrades to public polling when no key is configured.
+- Kalshi's **implementation** includes recommended `external-api` hosts with
+  legacy fallback on transport/5xx, public REST, authenticated bulk books
+  (≤100 tickers/request), sequenced WebSocket snapshots/deltas with gap
+  recovery, and account-tier budget clamping. Offline tests cover parsing,
+  sequence-gap recovery and REST fallback. Its current API evidence is only
+  `MARKET_DATA_OBSERVED`, based on a historical public collection; full
+  adapter verification, authenticated bulk behavior and WebSocket behavior
+  have not been established by a current live probe. The bounded public smoke
+  on 2026-10-10 was `UNAVAILABLE` (connection/TLS failure), which neither
+  verifies nor marks the adapter broken.
 - The Kalshi parser handles documented fixed-point bid books and synthesizes
-  complementary asks. Official hosts, formats, sequencing, and limits were
-  documentation-verified on 2026-09-13; fee sources were re-reviewed on
-  2026-10-10. The Kalshi trade and settlement schedules remain
-  `INCOMPLETE — BLOCK` until per-series/event, account/fill, and settlement
-  context is represented. A fresh sandbox network smoke test was
-  **UNAVAILABLE**, not reported as live-tested.
+  complementary asks. Documentation for hosts, formats, sequencing and limits
+  was reviewed on 2026-09-13; fee sources were re-reviewed on 2026-10-10. The
+  Kalshi trade and settlement schedules remain `INCOMPLETE — BLOCK` until
+  per-series/event, account/fill, and settlement context is represented.
 - Cross-venue **candidate generation now works**: a pair is proposed when
   the two contracts are on different venues, settle within 6 hours of each
   other, and share a discriminative key (exact normalized threshold, numeric
@@ -136,14 +136,14 @@ live mode is monitor-only by construction.
   simulated execution. Incomplete fees
   now block rather than becoming estimates, so direct Kalshi opportunities
   remain blocked until contextual metadata is integrated.
-- Collect mode now records the **full** normalized contract — settlement
-  and cutoff times, resolution source/method, threshold + operator +
-  units, early-resolution and cancellation rules, payout, tick size,
-  order-size bounds, contract version, provenance, microstructure,
-  supported order types, and the venue's own payload — so historical
-  replay reconstructs what was actually observed instead of inventing
-  plausible defaults. Reconstruction that cannot be done faithfully is
-  counted and reported, never substituted.
+- Collect mode records only usable two-sided snapshots for adapters with
+  `MARKET_DATA_OBSERVED` or `VERIFIED` evidence. It never invokes execution.
+  Normalized contracts retain observed settlement/cutoff, provenance,
+  microstructure, and per-market trading rules when supplied; unknown tick or
+  minimum-quantity rules remain unknown instead of receiving invented defaults.
+  Invalid, crossed, stale or otherwise unusable books are rejected and counted.
+  Historical replay reconstructs what was observed; unreconstructable values
+  are counted, never substituted.
 - Historical mode reads the recorded store **read-only** (SQLite `mode=ro`,
   so writes are refused by the database engine rather than by convention)
   and writes replay output to its own database. A missing recorded store
@@ -164,9 +164,11 @@ live mode is monitor-only by construction.
   Books that fail the freshness gate are counted and reported, never
   silently dropped.
 - Mode isolation, kill switch, crash-recovery intents, and all ten mandatory
-  spec cases are covered by the test suite (`pytest` — **534 passing** on
-  Python 3.11.2, all offline; last run 2026-10-10, also green with the fee
-  clock frozen at 2026-10-14 / 2027-10-09 / 2031-01-02).
+  spec cases are covered by the test suite (`.venv/bin/pytest -o addopts=''` —
+  **632 passed in 28.75 s** on Python 3.11.2, all offline, 2026-10-10). The
+  earlier 534-test suite also passed with the fee clock frozen at
+  2026-10-14 / 2027-10-09 / 2031-01-02; that future-clock sweep was not
+  repeated for the 632-test suite.
 - Readiness is **derived, not asserted** (D10, SPEC §99). `--readiness`
   reports one block per mode (COLLECT, HISTORICAL, PAPER, LIVE) and every
   criterion is computed from observed state — adapter verification *and*
@@ -177,9 +179,9 @@ live mode is monitor-only by construction.
   `.env.live` (existence only; live credentials are never read outside live
   mode). A mode is READY only when nothing applicable is BLOCKED, and each
   unmet criterion names the observation that failed, so the operator sees the
-  actual blocker. Live is NOT READY today for those derived reasons — one
-  live-capable venue, 0/3 complete fee schedules, UNKNOWN settlement timing on
-  two venues, no recorded volume, eligibility UNKNOWN, no `.env.live` — and
+  actual blocker. On 2026-10-10, readiness reported zero fully verified
+  live-capable venues, 0/3 complete fee schedules, UNKNOWN settlement timing
+  on two venues, no recorded volume, eligibility UNKNOWN, and no `.env.live`;
   the report enables nothing.
 - Mandatory fee freshness is a real gate (D19, SPEC §98). One rule derives the
   strictness from the mode: **live and paper MANDATORY**, **historical

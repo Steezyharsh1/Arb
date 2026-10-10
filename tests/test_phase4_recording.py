@@ -100,6 +100,36 @@ class TestContractRecording:
                    if getattr(original, f) != getattr(restored, f)]
         assert missing == [], f"fields lost in round trip: {missing}"
 
+    def test_unknown_market_rules_round_trip_as_null_not_defaults(self, tmp_path):
+        original = replace(self._rich_contract(),
+                           tick_size=None, min_order_size=None)
+        repo = Repository(tmp_path / "unknown-rules.sqlite3", Mode.COLLECT)
+        repo.record_contract(original, status="open")
+
+        with Session(repo.engine) as s:
+            row = s.scalar(select(MarketRow).where(
+                MarketRow.mode == "collect"))
+            assert row.tick_size is None and row.min_order_size is None
+            restored = decode_contract(row)
+
+        assert restored is not None
+        assert restored.tick_size is None
+        assert restored.min_order_size is None
+
+    def test_decode_rejects_corrupt_nonpositive_or_nonfinite_market_rules(
+            self, tmp_path):
+        repo = Repository(tmp_path / "corrupt-rules.sqlite3", Mode.COLLECT)
+        repo.record_contract(self._rich_contract(), status="open")
+        with Session(repo.engine) as s:
+            row = s.scalar(select(MarketRow).where(
+                MarketRow.mode == "collect"))
+            row.tick_size = "NaN"
+            s.commit()
+        with Session(repo.engine) as s:
+            row = s.scalar(select(MarketRow).where(
+                MarketRow.mode == "collect"))
+            assert decode_contract(row) is None
+
     def test_decode_never_invents_for_under_recorded_rows(self, tmp_path):
         """A row written by the legacy narrow upsert has no contract data.
         It must decode to None — never to a plausible-looking contract."""
@@ -119,6 +149,11 @@ class TestContractRecording:
         assert values["clearing_entity"] is None
         assert values["max_order_size"] is None
         assert values["resolution_method"] is None
+
+        unknown_rules = encode_contract(replace(
+            c, tick_size=None, min_order_size=None))
+        assert unknown_rules["tick_size"] is None
+        assert unknown_rules["min_order_size"] is None
 
     def test_provider_counts_unreconstructable_instead_of_dropping(self,
                                                                    tmp_path):

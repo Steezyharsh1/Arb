@@ -67,6 +67,7 @@ from ..core.types import (
     Side,
 )
 from .base import OrderBookCallback, PredictionMarketAdapter
+from .evidence import AdapterEvidence, EvidenceClaim, EvidenceState
 from .kalshi_ws import (
     KalshiWebSocketFeed,
     KalshiWSAuthError,
@@ -159,21 +160,33 @@ class KalshiAdapter(PredictionMarketAdapter):
             self._client = httpx.AsyncClient(timeout=15.0)
         # Probe /exchange/status on each configured base and stick to the
         # first healthy one (failover is live from the very first request).
+        # Preserve per-host failures so an offline smoke report can distinguish
+        # TLS/DNS failures from an HTTP response or an inactive exchange.
+        probe_errors: list[str] = []
+        inactive_bases: list[str] = []
         for step in range(len(self.rest_bases)):
             i = (self._base_index + step) % len(self.rest_bases)
             base = self.rest_bases[i]
             try:
                 r = await self._probe_status(base)
             except Exception as exc:
+                probe_errors.append(
+                    f"{base}: {type(exc).__name__}: {exc}")
                 log.warning("kalshi: base %s unreachable: %s", base, exc)
                 continue
             if r.get("exchange_active", False):
                 self._base_index = i
                 return
+            inactive_bases.append(base)
             log.warning("kalshi: base %s reports exchange inactive", base)
+        details = []
+        if probe_errors:
+            details.append("probe failures: " + " | ".join(probe_errors))
+        if inactive_bases:
+            details.append("exchange inactive: " + ", ".join(inactive_bases))
         raise ConnectionError(
-            "Kalshi exchange unreachable or inactive on all configured "
-            f"bases: {self.rest_bases}")
+            "Kalshi exchange was not confirmed active on any configured "
+            f"base ({'; '.join(details) or 'no usable response'})")
 
     async def disconnect(self) -> None:
         if self._feed is not None:
@@ -463,7 +476,13 @@ class KalshiAdapter(PredictionMarketAdapter):
 
         strike_type = m.get("strike_type") or ""
         floor_strike = m.get("floor_strike")
-        threshold = Decimal(str(floor_strike)) if floor_strike is not None else None
+        try:
+            threshold = (Decimal(str(floor_strike))
+                         if floor_strike is not None else None)
+            if threshold is not None and not threshold.is_finite():
+                threshold = None
+        except (InvalidOperation, ValueError, TypeError):
+            threshold = None
 
         settlement_time = parse_iso_utc(m.get("expected_expiration_time")
                                         or m.get("expiration_time"))
@@ -496,8 +515,10 @@ class KalshiAdapter(PredictionMarketAdapter):
             early_resolution_rules="can_close_early" if m.get("can_close_early") else "",
             cancellation_rules=m.get("rules_secondary", "")[:500],
             contract_version=str(m.get("updated_time", "")),
-            tick_size=Decimal("0.01"),
-            min_order_size=Decimal("1"),
+            # These are not populated by this public payload adapter. Keep
+            # absent rules unknown rather than storing invented defaults.
+            tick_size=None,
+            min_order_size=None,
             max_order_size=None,
             jurisdiction_requirements="US",
             category=series,
@@ -574,7 +595,8 @@ class KalshiAdapter(PredictionMarketAdapter):
                     log.warning("kalshi: skipping malformed %s level %r",
                                 what, pair)
                     continue
-                if not (Decimal(0) < price < Decimal(1)) or qty <= 0:
+                if (not price.is_finite() or not qty.is_finite()
+                        or not (Decimal(0) < price < Decimal(1)) or qty <= 0):
                     log.warning("kalshi: skipping non-tradeable %s level %r",
                                 what, pair)
                     continue
@@ -736,7 +758,42 @@ class KalshiAdapter(PredictionMarketAdapter):
         )
 
     def get_api_status(self) -> APIStatus:
-        return APIStatus.VERIFIED
+        # A historical public-data run captured markets and books, but the
+        # current adapter revision has not had a successful live end-to-end
+        # verification. This is enough for read-only collection only.
+        return APIStatus.MARKET_DATA_OBSERVED
+
+    def get_evidence(self) -> AdapterEvidence:
+        return AdapterEvidence(
+            documentation=EvidenceClaim(
+                EvidenceState.DOCUMENTED,
+                as_of="2026-09-13",
+                source="docs/VENUE_RESEARCH.md K1-K5",
+                detail="REST hosts, public book format, WS protocol, and rate limits reviewed."),
+            connectivity=EvidenceClaim(
+                EvidenceState.OBSERVED,
+                as_of="2026-08-30",
+                source="historical collect observation recorded in docs/AGENT_HANDOFF.md",
+                detail="A prior public run reached the venue; a newer 2026-10-10 probe was unavailable."),
+            usable_market_data=EvidenceClaim(
+                EvidenceState.OBSERVED,
+                as_of="2026-08-30",
+                source="historical collect observation recorded in docs/AGENT_HANDOFF.md",
+                detail="Historical collection reported 500 markets and 40 non-empty books; this is not full verification of the current adapter revision."),
+            full_adapter=EvidenceClaim(
+                EvidenceState.NOT_VERIFIED,
+                as_of="2026-10-10T06:13:37.919175+00:00",
+                source="scripts/kalshi_smoke.py and offline tests; docs/VENUE_RESEARCH.md K9",
+                detail="Current public endpoints were unavailable; authenticated bulk/WS paths and current production payloads are not live-verified. Tick/minimum rules remain unknown."),
+            latest_smoke=EvidenceClaim(
+                EvidenceState.UNAVAILABLE,
+                as_of="2026-10-10T06:13:37.919175+00:00",
+                source="scripts/kalshi_smoke.py; docs/VENUE_RESEARCH.md K9",
+                detail="Both https://external-api.kalshi.com/trade-api/v2 and https://api.elections.kalshi.com/trade-api/v2 failed with ConnectError: TLS/SSL connection has been closed (EOF) (_ssl.c:992) before HTTP response; no credentials or orders."),
+            surfaces=("public REST discovery", "public REST order book",
+                      "authenticated bulk books (offline-tested)",
+                      "authenticated WebSocket (offline-tested)"),
+        )
 
 
 def _dedup_hosts(hosts: list[str]) -> list[str]:
