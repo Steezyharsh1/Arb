@@ -833,6 +833,14 @@ class TestVenueGates:
             _adapters((SECOND, APIStatus.VERIFIED, False)))
         assert caps[0].data_capable and not caps[0].live_capable
 
+    def test_observed_market_data_is_not_full_or_live_verification(self):
+        caps = venue_capabilities(_adapters((
+            "kalshi", APIStatus.MARKET_DATA_OBSERVED, True)))
+        assert caps[0].data_capable
+        assert not caps[0].live_capable
+        assert "MARKET_DATA_OBSERVED" in caps[0].data_note
+        assert criterion_live_capable_venues(caps, 1).state is CriterionState.BLOCKED
+
     def test_data_venues_pass_and_fail_on_adapter_status(self):
         caps = venue_capabilities(_adapters(
             ("kalshi", APIStatus.VERIFIED, True),
@@ -1310,7 +1318,7 @@ class TestCurrentStateIsReportedHonestly:
                 "fee_completeness", "settlement_timing", "recorded_evidence",
                 "eligibility", "live_configuration"} <= keys
         by_key = {c.key: c for c in live.blockers}
-        assert "1 of 3" in by_key["live_capable_venues"].value
+        assert "0 of 3" in by_key["live_capable_venues"].value
         assert "API_DOCUMENTED_UNTESTED" in by_key["live_capable_venues"].reason
         assert "INCOMPLETE" in by_key["fee_completeness"].reason
         assert "polymarket_us" in by_key["settlement_timing"].reason
@@ -1495,6 +1503,20 @@ def _capture(fn, *args, **kwargs) -> str:
     finally:
         main_module.console = original
     return exit_code, buffer.getvalue()
+
+
+class TestAdapterStatusCLI:
+    def test_status_keeps_evidence_layers_and_unavailability_separate(
+            self, isolated_root):
+        config = core_config.load_config("paper")
+        exit_code, out = _capture(main_module.cmd_status, config)
+        assert exit_code == 0
+        assert "ADAPTER EVIDENCE" in out
+        assert "MARKET_DATA_OBSERVED" in out
+        assert "Documentation" in out and "Connectivity" in out
+        assert "Usable market data" in out and "Full adapter" in out
+        assert "UNAVAILABLE (2026-10-10T06:13:37.919175+00:00)" in out
+        assert "UNAVAILABLE describes an attempt" in out
 
 
 class TestReadinessCLI:

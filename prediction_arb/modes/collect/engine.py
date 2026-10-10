@@ -10,7 +10,8 @@ from rich.console import Console
 
 from ...adapters.base import PredictionMarketAdapter
 from ...core.logging import get_logger
-from ...core.types import APIStatus, Mode
+from ...core.types import Mode
+from ...orderbooks.validation import order_book_problems
 from ...database.repository import Repository
 from ...monitoring.health import HealthMonitor
 
@@ -45,13 +46,11 @@ class CollectEngine:
     async def _cycle(self, cycle: int) -> None:
         for venue, adapter in self.adapters.items():
             status = adapter.get_api_status()
-            if status in (APIStatus.NO_API_AVAILABLE,
-                          APIStatus.SAME_VENUE_ROUTE,
-                          APIStatus.API_DOCUMENTED_UNTESTED):
+            if not status.supports_market_data:
                 if cycle == 1:
                     self.console.print(
                         f"[yellow]{venue}[/yellow]: skipping collection "
-                        f"(status={status.value})")
+                        f"(status={status.value}; usable market data not evidenced)")
                 continue
             try:
                 t0 = time.monotonic()
@@ -76,13 +75,19 @@ class CollectEngine:
             books = await self._fetch_books(adapter, venue, tickers)
             books_saved = 0
             for book in books:
-                if book is None or (not book.bids and not book.asks):
+                if book is None:
+                    continue
+                problems = order_book_problems(book)
+                if problems:
+                    log.warning("%s/%s: skipping unusable order-book "
+                                "snapshot: %s", venue, book.contract_id,
+                                "; ".join(problems))
                     continue
                 self.repo.save_orderbook_snapshot(book)
                 books_saved += 1
             self.console.print(
-                f"[cycle {cycle}] {venue}: {books_saved} non-empty order "
-                f"books recorded")
+                f"[cycle {cycle}] {venue}: {books_saved} usable order-book "
+                f"snapshots recorded (no execution)")
 
     async def _fetch_books(self, adapter: PredictionMarketAdapter,
                            venue: str,

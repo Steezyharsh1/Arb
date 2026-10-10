@@ -184,7 +184,7 @@ def cmd_status(config: AppConfig) -> int:
     adapters = build_adapters(config)
     t = Table(title="VENUE STATUS")
     for col in ("Venue", "API status", "Underlying exchange", "Clearing",
-                "Verified"):
+                "Provenance reviewed"):
         t.add_column(col)
     for venue, adapter in adapters.items():
         p = get_provenance(venue)
@@ -193,6 +193,29 @@ def cmd_status(config: AppConfig) -> int:
                   p.clearing_entity if p else "UNKNOWN",
                   p.verified_at if p else "-")
     console.print(t)
+
+    evidence_table = Table(title="ADAPTER EVIDENCE (claim layers kept separate)")
+    for col in ("Venue", "Evidence layer", "State / as of", "Source", "Detail"):
+        evidence_table.add_column(col)
+    layers = (
+        ("Documentation", "documentation"),
+        ("Connectivity", "connectivity"),
+        ("Usable market data", "usable_market_data"),
+        ("Full adapter", "full_adapter"),
+        ("Latest smoke", "latest_smoke"),
+    )
+    for venue, adapter in adapters.items():
+        evidence = adapter.get_evidence()
+        for label, key in layers:
+            claim = getattr(evidence, key)
+            evidence_table.add_row(
+                venue, label, claim.label, claim.source or "-",
+                claim.detail or "-")
+    console.print(evidence_table)
+    console.print(
+        "Connectivity is not usable market data; UNAVAILABLE describes an "
+        "attempt and is not evidence that an adapter is broken. Full adapter "
+        "verification is a separate, higher evidence state.")
 
     t2 = Table(title="INDEPENDENCE MATRIX")
     venues = list(adapters)

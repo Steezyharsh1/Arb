@@ -32,11 +32,13 @@ class FakeAdapter:
 
     def __init__(self, venue: str, contracts: list, *,
                  streaming: bool = False, credentials: bool = True,
-                 fail_subscribe: bool = False):
+                 fail_subscribe: bool = False,
+                 api_status: APIStatus = APIStatus.VERIFIED):
         self.venue = venue
         self.supports_streaming = streaming
         self._credentials = credentials
         self.fail_subscribe = fail_subscribe
+        self.api_status = api_status
         self._contracts = {c.market_id: c for c in contracts}
         self.subscribed: dict[str, object] = {}
         self.polled: list[str] = []
@@ -54,7 +56,7 @@ class FakeAdapter:
         return None
 
     def get_api_status(self) -> APIStatus:
-        return APIStatus.VERIFIED
+        return self.api_status
 
     def get_supported_order_types(self) -> OrderTypeSupport:
         return OrderTypeSupport(limit=True)
@@ -204,6 +206,25 @@ class TestPaperStreaming:
         assert kalshi.subscribed == {}
         assert kalshi.polled == ["KXTEST-1"]
         assert engine._streaming == set()
+
+    def test_market_data_observed_admits_rest_but_not_ws_streaming(
+            self, tmp_path, complete_fee_calc):
+        """REST market data may be observed while WS/full verification is not."""
+        k = make_contract(venue="kalshi", contract_id="KXTEST-1",
+                          event="Fed raises rates in September 2026")
+        kalshi = FakeAdapter(
+            "kalshi", [k], streaming=True, credentials=True,
+            api_status=APIStatus.MARKET_DATA_OBSERVED)
+        engine, _ = _engine(tmp_path, {"kalshi": kalshi}, complete_fee_calc)
+
+        asyncio.run(engine.run(cycles=1))
+
+        assert kalshi.subscribed == {}
+        assert kalshi.polled == ["KXTEST-1"]
+        assert engine._streaming == set()
+        assert engine._streaming_failed_venues == set()
+        assert asyncio.run(engine.aggregator.keys()) == [
+            ("kalshi", "KXTEST-1")]
 
     def test_streaming_market_disappearing_releases_subscription(
             self, tmp_path, complete_fee_calc):

@@ -20,6 +20,7 @@ from ..core.types import (
     OrderResult,
     OrderTypeSupport,
 )
+from .evidence import AdapterEvidence, unevidenced_adapter
 
 OrderBookCallback = Callable[[OrderBook], Awaitable[None]]
 
@@ -101,6 +102,14 @@ class PredictionMarketAdapter(abc.ABC):
 
     @abc.abstractmethod
     def get_api_status(self) -> APIStatus: ...
+
+    def get_evidence(self) -> AdapterEvidence:
+        """Claim-level evidence for status displays.
+
+        Existing adapters and test doubles may omit this method; absence of
+        a ledger is reported as unknown rather than inferred from status.
+        """
+        return unevidenced_adapter()
 
     # -- health ----------------------------------------------------------
     async def healthcheck(self) -> bool:

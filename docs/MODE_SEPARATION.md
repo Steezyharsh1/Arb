@@ -59,9 +59,9 @@ What each mode is held to, and why the bar differs:
 
 | Mode | Criteria it must pass | Fee-freshness policy (§98) |
 |---|---|---|
-| COLLECT (3 criteria) | verified data adapters (it records only venues whose `APIStatus` is VERIFIED), kill switch disengaged | NOT_APPLICABLE — it records contracts, matches and order books and never calculates a fee |
+| COLLECT (3 criteria) | adapters with `MARKET_DATA_OBSERVED` or `VERIFIED` evidence; records only usable books and has no execution path; kill switch disengaged | NOT_APPLICABLE — it records contracts, matches and order books and never calculates a fee |
 | HISTORICAL (6) | recorded-data volume (a missing store blocks; it is reported, never created), kill switch disengaged | RESEARCH — a stale schedule still prices the replay, and the run, its summary and its report are labelled `RESEARCH USE ONLY: fee schedule(s) older than …`; fee completeness, settlement timing and the matcher are WARN rather than BLOCKED, because replay measures logic instead of executing |
-| PAPER (9) | verified adapters, a provenance-INDEPENDENT pair, a configured matcher, complete fee schedules, evidenced settlement timing, book-staleness gates, kill switch disengaged; eligibility is WARN here (it only blocks live) | MANDATORY — paper results are the evidence live readiness is built on, so they may not be costed on a schedule nobody has re-verified |
+| PAPER (9) | REST adapters with `MARKET_DATA_OBSERVED` or `VERIFIED`, a provenance-INDEPENDENT pair, a configured matcher, complete fee schedules, evidenced settlement timing, book-staleness gates, kill switch disengaged; paper WebSocket streaming requires full adapter verification; eligibility is WARN here (it only blocks live) | MANDATORY — paper results are the evidence live readiness is built on, so they may not be costed on a schedule nobody has re-verified |
 | LIVE (12) | everything PAPER is held to (with eligibility BLOCKING), plus ≥2 live-capable independent venues (adapter `APIStatus.VERIFIED` **and** verified order-type support), recorded paper/replay volume, resolved jurisdiction eligibility, every hard risk value explicitly configured and positive, and the existence of `.env.live` (existence only — §48 forbids reading live credentials outside live mode) | MANDATORY |
 
 The readiness risk row is configuration validation, not runtime-wiring proof.

@@ -109,6 +109,23 @@ class TestHostFailover:
         assert asyncio.run(go()) == {"markets": []}
         assert a.active_rest_base == FALLBACK
 
+    def test_connect_error_preserves_each_host_failure(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("TLS/SSL EOF before HTTP response")
+
+        a = _adapter()
+        _inject_client(a, handler)
+
+        async def go():
+            await a.connect()
+
+        with pytest.raises(ConnectionError) as exc:
+            asyncio.run(go())
+        message = str(exc.value)
+        assert PRIMARY in message and FALLBACK in message
+        assert message.count("TLS/SSL EOF before HTTP response") == 2
+        asyncio.run(a.disconnect())
+
     def test_all_bases_5xx_raises(self):
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(500, json={"error": "down"})
@@ -174,7 +191,7 @@ class TestHostFailover:
 
         a = _adapter()
         _inject_client(a, handler)
-        with pytest.raises(ConnectionError, match="all configured bases"):
+        with pytest.raises(ConnectionError, match="any configured base"):
             asyncio.run(a.connect())
 
 
@@ -330,6 +347,8 @@ class TestBookParsing:
                 ["0.50", "-5.00"],     # negative quantity
                 ["0.60", "0.00"],      # zero quantity
                 ["abc", "5.00"],       # not a number
+                ["NaN", "5.00"],       # non-finite price
+                ["0.65", "Infinity"],  # non-finite size
                 ["0.70"],              # short pair
             ],
             "no_dollars": [["0.55", "7.5"]],

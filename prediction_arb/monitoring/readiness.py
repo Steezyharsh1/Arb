@@ -331,9 +331,9 @@ class VenueCapability:
     venue: str
     api_status: str
     order_types_verified: bool
-    #: ``APIStatus.VERIFIED`` — what collect/paper discovery admits.
+    #: ``MARKET_DATA_OBSERVED`` or ``VERIFIED`` — what collect/paper admit.
     data_capable: bool
-    #: Data-capable *and* order behaviour verified: able to trade live.
+    #: Full adapter ``VERIFIED`` plus verified order behaviour: live-capable.
     live_capable: bool
 
     @property
@@ -367,12 +367,13 @@ def venue_capabilities(
                 adapter.get_supported_order_types().verified)
         except Exception:
             order_types_verified = False
-        data_capable = api_status == APIStatus.VERIFIED
+        data_capable = api_status.supports_market_data
         out.append(VenueCapability(
             venue=venue, api_status=f"{api_status.value}{note}",
             order_types_verified=order_types_verified,
             data_capable=data_capable,
-            live_capable=data_capable and order_types_verified))
+            live_capable=(api_status == APIStatus.VERIFIED
+                          and order_types_verified)))
     return tuple(out)
 
 
@@ -381,8 +382,8 @@ def venue_capabilities(
 
 def criterion_data_venues(caps: Sequence[VenueCapability], minimum: int,
                           purpose: str) -> Criterion:
-    """Adapters whose API status is VERIFIED — the only ones modes admit."""
-    key, label = "data_venues", "Verified data adapters"
+    """Adapters with observed usable market data or full verification."""
+    key, label = "data_venues", "Usable market-data adapters"
     capable = [c.venue for c in caps if c.data_capable]
     excluded = [c.data_note for c in caps if not c.data_capable]
     value = f"{len(capable)} of {len(caps)}"
@@ -393,9 +394,11 @@ def criterion_data_venues(caps: Sequence[VenueCapability], minimum: int,
            else "no adapters are enabled")
     return blocked(
         key, label,
-        f"{purpose}. {minimum} venue(s) must report APIStatus.VERIFIED; found "
-        f"{len(capable)} — {why}. Promote an adapter only from observed-payload "
-        f"evidence (scripts/polymarket_us_smoke.py, scripts/kalshi_smoke.py)",
+        f"{purpose}. {minimum} venue(s) must report "
+        f"MARKET_DATA_OBSERVED or VERIFIED; found {len(capable)} — {why}. "
+        f"Connectivity alone is insufficient. Promote only from observed "
+        f"market/book payload evidence (scripts/polymarket_us_smoke.py, "
+        f"scripts/kalshi_smoke.py)",
         value)
 
 
@@ -863,8 +866,9 @@ def evaluate_mode(mode: Mode, inputs: ReadinessInputs) -> ModeReadiness:
         # execution engine and never calculates a fee (§90).
         criteria.append(criterion_data_venues(
             caps, minimum=1,
-            purpose="collect records only venues whose adapter reports a "
-                    "VERIFIED API and skips every other status (§90)"))
+            purpose="collect records only adapters with "
+                    "MARKET_DATA_OBSERVED or VERIFIED usable-data evidence "
+                    "(§90)"))
         criteria.append(criterion_fee_freshness(
             inputs.fee_calc, all_venues, mode, inputs.today))
         criteria.append(criterion_kill_switch(inputs.kill_switch_engaged, mode))
@@ -906,8 +910,9 @@ def evaluate_mode(mode: Mode, inputs: ReadinessInputs) -> ModeReadiness:
         # evidence, so it carries the execution-facing gates (§44, §98).
         criteria.append(criterion_data_venues(
             caps, minimum=thresholds.minimum_data_venues,
-            purpose="paper discovery admits only VERIFIED APIs, and a "
-                    "cross-venue pair needs two of them"))
+            purpose="paper REST discovery uses adapters with observed "
+                    "market-data evidence, and a cross-venue pair needs "
+                    "two of them"))
         criteria.append(criterion_independent_pairs(
             data_venues, "paper evaluates only provenance-INDEPENDENT pairs"))
         criteria.append(criterion_matcher(inputs.matcher, mode))

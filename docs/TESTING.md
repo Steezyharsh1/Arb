@@ -111,7 +111,8 @@ decision — `schedule_for`, `evaluate_two_leg`, `run_arbitrage_scan`, simulated
 paper execution, historical execution, and a full historical replay — plus the
 age boundary (`max_schedule_age_days` exactly, and a stricter configured
 limit). *Readiness verdicts are computed, never hardcoded* (§99): every
-criterion is shown passing **and** failing on its own observation (adapter
+criterion is shown passing **and** failing on its own observation (claim-level
+documentation/connectivity/usable-market-data/full-verification evidence,
 `APIStatus` and verified order types, provenance independence including
 UNKNOWN, matcher configuration, fee completeness and freshness, settlement
 timing, recorded-evidence volume, eligibility, kill switch, risk limits,
@@ -155,7 +156,8 @@ mock HTTP transport + a scripted **local WebSocket server**):
   clamping that only ever LOWERS the configured read/write budgets
   (headroom 80%), zero-budget tier keeps configured values;
 * parser hardening — WebSocket `*_fp` key names, sequence passthrough,
-  malformed / non-tradeable levels dropped and logged;
+  malformed/nonfinite/non-tradeable levels dropped and logged; missing
+  market tick/minimum rules stay unknown rather than receiving defaults;
 * WebSocket feed against the local server — handshake signature over the
   host-independent `GET /trade-api/ws/v2` path (verified with a
   generated RSA key), snapshot + in-order delta application with ask
@@ -173,8 +175,9 @@ offline: mock HTTP transport + a scripted **local WebSocket server**):
   levels dropped;
 * market-state gating — each of the six non-`OPEN` states yields **no
   book** (parameterized), so a halted market can never be sized against;
-* per-market rules — `orderPriceMinTickSize` / `minimumTradeQty` carried
-  from the payload, coarsest-safe fallback when absent, closed/archived
+* per-market rules — valid `orderPriceMinTickSize` /
+  `minimumTradeQty` carried from the payload; missing, malformed, nonfinite,
+  or out-of-range values remain unknown and are never inferred; closed/archived
   markets skipped, sports signals preserved for the Utah gate;
 * Ed25519 signing verified against a generated keypair over
   `timestamp + METHOD + path`, authenticated calls hit the authed host,
@@ -191,13 +194,28 @@ offline: mock HTTP transport + a scripted **local WebSocket server**):
   errors terminal, clean-close reconnect + resubscribe, unsubscribe
   stops delivery.
 
-**Paper streaming** (`test_paper_streaming.py`, 2026-09-13 — all offline,
-fake adapters): a streamed contract is no longer REST-polled and pushed
-books land in the live cache; a streaming failure falls back to polling
-exactly once per venue per run (never a per-cycle retry storm); with no
-credentials the engine polls only; and a market that leaves discovery is
-unsubscribed and evicted from the book cache (even when discovery
-returns nothing at all).
+**Evidence-scoped adapter and collection validation** (`test_collect_mode.py`,
+`test_kalshi_smoke_script.py`, `test_polymarket_us_smoke_script.py`,
+2026-10-10 — all offline):
+- collection admits only `MARKET_DATA_OBSERVED` / `VERIFIED`, records valid
+  two-sided uncrossed snapshots, rejects empty/invalid/crossed/non-finite
+  books, and never constructs or invokes an execution engine;
+- Kalshi and Polymarket US public smoke decision logic keeps
+  documentation/connectivity/usable-market-data/full-verification distinct,
+  classifies TLS/transport/5xx/429 as `UNAVAILABLE` rather than adapter
+  failure, and does not load credentials or place orders;
+- a successful public smoke is marked as a manual market-data candidate only;
+  unknown per-market rules cannot be filled from defaults.
+These tests assert script behavior and status policy, not live connectivity.
+
+**Paper streaming** (`test_paper_streaming.py`, all offline, fake adapters): a
+streamed contract is no longer REST-polled and pushed books land in the live
+cache; a streaming failure falls back to polling exactly once per venue per
+run (never a per-cycle retry storm); with no credentials the engine polls
+only; a `MARKET_DATA_OBSERVED` adapter can serve REST reads but cannot subscribe
+to the WebSocket; streamed books are validated before caching; and a market
+that leaves discovery is unsubscribed and evicted from the book cache (even
+when discovery returns nothing at all).
 
 ## Integration-testing record
 
@@ -205,21 +223,38 @@ On 2026-08-30, a prior run exercised `--mode collect --cycles 1` against the
 Kalshi compatibility host (500 markets and 40 non-empty books), paper mode,
 historical no-data behavior, kill-switch refusal, and startup isolation.
 
-On 2026-09-13, Phase 1 re-verified Kalshi/Polymarket US/Gemini documentation,
-but fresh sandbox HTTP smoke tests ended in a TLS EOF before any HTTP response.
-Those fresh network results are **UNAVAILABLE**, not successful live tests.
-`--status` and the full suite remain local verification gates.
+On 2026-10-10, the current bounded public-only probes were run with no
+credentials and no orders: `scripts/kalshi_smoke.py --limit 1` exited 1 as
+`UNAVAILABLE` before HTTP response because both configured bases
+(`external-api.kalshi.com` and `api.elections.kalshi.com`) raised
+`ConnectError: TLS/SSL connection has been closed (EOF) (_ssl.c:992)`;
+`scripts/polymarket_us_smoke.py --limit 1` exited 1 as `UNAVAILABLE` before
+HTTP response because `gateway.polymarket.us` raised
+`ConnectionError: TLS/SSL connection has been closed (EOF) (_ssl.c:992)`.
+Neither outcome establishes an outage or adapter failure; neither established
+usable current market data or full adapter verification.
 
-On 2026-10-10, `python -m prediction_arb.main --readiness` was re-run offline
-after the D10/D19 work: exit 0, four per-mode blocks with derived criteria
+Historical D10/D19 readiness result (2026-10-10, before D27):
+`python -m prediction_arb.main --readiness` exited 0 with four per-mode blocks
+and derived criteria
 (`COLLECT: READY`, `HISTORICAL: NOT READY — 1 blocker(s)`,
 `PAPER (this run's mode): NOT READY — 5 blocker(s)`,
 `LIVE: NOT READY — 8 blocker(s)`), `LIVE MODE: NOT RECOMMENDED YET`, and **no**
 `data/`, `logs/` or `reports/` directory created by the run — CI asserts the
 runtime tree is unchanged by it (a before/after delta, because the suite
 itself leaves an empty `data/paper/` behind). `--mode historical --date 2020-01-01` still exits 0 with the honest
-empty-replay message, and `--mode paper --cycles 1` exits 0 reporting no
-active-venue markets — with no opportunities there are no block reasons, and
-`print_block_reasons` correctly prints nothing rather than an empty table;
-artifacts were deleted afterwards. Venue network results remain **UNAVAILABLE** in this
-sandbox (TLS EOF before any HTTP response).
+empty-replay message, and the prior `--mode paper --cycles 1` smoke exited 0
+reporting no active-venue markets — with no opportunities there are no block
+reasons, and `print_block_reasons` correctly prints nothing rather than an
+empty table; generated artifacts were deleted afterwards.
+
+**D27 verification (2026-10-10):** the full suite re-ran with
+`.venv/bin/pytest -o addopts=''`: **632 passed in 28.75 s**. The current
+`--status` output reports Kalshi `MARKET_DATA_OBSERVED`, Polymarket US and
+ForecastEx `API_DOCUMENTED_UNTESTED`, and no fully verified adapter; both
+latest smoke attempts remain `UNAVAILABLE` (exact details above and in
+`docs/VENUE_RESEARCH.md`). `--readiness` exits 0 with `COLLECT: READY` (one
+market-data-evidenced adapter), `HISTORICAL: NOT READY — 1 blocker(s)`,
+`PAPER: NOT READY — 5 blocker(s)`, and `LIVE: NOT READY — 8 blocker(s)`
+(0 live-capable venues). The report creates no runtime data. Network failures
+are attempt evidence only, not adapter failure or verification.

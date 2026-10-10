@@ -71,6 +71,7 @@ from ..core.types import (
     PriceLevel,
 )
 from .base import OrderBookCallback, PredictionMarketAdapter
+from .evidence import AdapterEvidence, EvidenceClaim, EvidenceState
 from .polymarket_us_ws import (
     PolymarketWebSocketFeed,
     PolymarketWSAuthError,
@@ -106,9 +107,13 @@ class PolymarketOrderPlacementDisabled(Exception):
 
 @dataclass(frozen=True)
 class PolymarketMarketRules:
-    """Per-market trading rules the docs say never to infer (P3)."""
-    tick_size: Decimal
-    min_order_size: Decimal
+    """Per-market trading rules the docs say never to infer (P3).
+
+    Missing or invalid fields stay unknown; 0.01/1 defaults would turn an
+    absent observation into false market metadata.
+    """
+    tick_size: Optional[Decimal]
+    min_order_size: Optional[Decimal]
 
 
 class PolymarketUSAdapter(PredictionMarketAdapter):
@@ -373,20 +378,19 @@ class PolymarketUSAdapter(PredictionMarketAdapter):
 
     @staticmethod
     def _rules_for(m: dict[str, Any]) -> PolymarketMarketRules:
-        """Read per-market tick/min-qty, never infer them (P3).
+        """Read positive finite per-market tick/min-qty values (P3).
 
-        The docs are explicit: do not infer tick size or minimum quantity
-        from product type, symbol, or slug. When a market omits them we
-        fall back to the coarsest SAFE values (a 1-cent tick and a
-        1-contract minimum) and say so, rather than inventing a finer
-        grid that could produce an unplaceable price.
+        The docs explicitly prohibit inferring either value from product
+        type, symbol, or slug. Missing, non-finite, zero, or negative values
+        remain ``None`` so callers can fail closed without fabricating a
+        plausible-looking rule.
         """
         tick = _opt_decimal(m.get("orderPriceMinTickSize"))
         min_qty = _opt_decimal(m.get("minimumTradeQty"))
-        if tick is None or tick <= 0:
-            tick = Decimal("0.01")
-        if min_qty is None or min_qty <= 0:
-            min_qty = Decimal("1")
+        if tick is not None and not (Decimal(0) < tick < Decimal(1)):
+            tick = None
+        if min_qty is not None and min_qty <= 0:
+            min_qty = None
         return PolymarketMarketRules(tick_size=tick, min_order_size=min_qty)
 
     @staticmethod
@@ -432,10 +436,14 @@ class PolymarketUSAdapter(PredictionMarketAdapter):
                         market_id)
             return None
 
-        state = md.get("state") or md.get("marketState")
-        if state is not None and state != TRADEABLE_STATE:
-            log.debug("polymarket_us: %s not tradeable (state=%s)",
-                      market_id, state)
+        state = md.get("state")
+        if state is None:
+            state = md.get("marketState")
+        if not isinstance(state, str) or state != TRADEABLE_STATE:
+            # Unknown is not OPEN. An omitted or malformed status must never
+            # reach the paper/collection consumers as an executable book.
+            log.debug("polymarket_us: %s not tradeable or state unknown "
+                      "(state=%r)", market_id, state)
             return None
 
         bids = _levels(md.get("bids"), "bid", market_id)
@@ -599,9 +607,40 @@ class PolymarketUSAdapter(PredictionMarketAdapter):
         )
 
     def get_api_status(self) -> APIStatus:
-        # Documentation is verified; no live call has succeeded from here
-        # (P7, UNAVAILABLE / LIVE). Never upgrade this from docs alone.
+        # Documentation is reviewed, but this environment has no successful
+        # live response. Never upgrade status from offline mocks or docs alone.
         return APIStatus.API_DOCUMENTED_UNTESTED
+
+    def get_evidence(self) -> AdapterEvidence:
+        return AdapterEvidence(
+            documentation=EvidenceClaim(
+                EvidenceState.DOCUMENTED,
+                as_of="2026-09-13",
+                source="docs/VENUE_RESEARCH.md P1-P6",
+                detail="Public gateway, market state, per-market rules, limits, and WS protocol reviewed."),
+            connectivity=EvidenceClaim(
+                EvidenceState.NOT_OBSERVED,
+                as_of="2026-10-10T06:13:41.226497+00:00",
+                source="docs/VENUE_RESEARCH.md P7",
+                detail="The latest public probe returned TLS EOF before an HTTP response; no successful public response is recorded."),
+            usable_market_data=EvidenceClaim(
+                EvidenceState.NOT_OBSERVED,
+                as_of="2026-10-10T06:13:41.226497+00:00",
+                source="docs/VENUE_RESEARCH.md P7",
+                detail="No live market or valid book payload was received."),
+            full_adapter=EvidenceClaim(
+                EvidenceState.NOT_VERIFIED,
+                as_of="2026-10-10T06:13:41.226497+00:00",
+                source="offline mock-transport and local WebSocket tests; docs/VENUE_RESEARCH.md P7",
+                detail="Offline behavior is tested; public REST connectivity and current live payloads are not verified."),
+            latest_smoke=EvidenceClaim(
+                EvidenceState.UNAVAILABLE,
+                as_of="2026-10-10T06:13:41.226497+00:00",
+                source="scripts/polymarket_us_smoke.py; docs/VENUE_RESEARCH.md P7",
+                detail="https://gateway.polymarket.us failed with ConnectionError: TLS/SSL connection has been closed (EOF) (_ssl.c:992) before HTTP response; no credentials or orders."),
+            surfaces=("public REST discovery", "public REST order book",
+                      "authenticated WebSocket (offline-tested)"),
+        )
 
 
 # ------------------------------------------------------------- helpers
@@ -618,7 +657,8 @@ def _opt_decimal(value: Any) -> Optional[Decimal]:
     if value is None or value == "":
         return None
     try:
-        return Decimal(str(value))
+        result = Decimal(str(value))
+        return result if result.is_finite() else None
     except (InvalidOperation, ValueError, TypeError):
         return None
 

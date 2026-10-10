@@ -156,6 +156,8 @@ class TestPublicMarketData:
             {"px": _amount("1.00"), "qty": "5"},     # price out of (0,1)
             {"px": _amount("0.30"), "qty": "0"},     # non-positive qty
             {"px": _amount("abc"), "qty": "5"},      # unparseable
+            {"px": _amount("NaN"), "qty": "5"},      # non-finite
+            {"px": _amount("0.30"), "qty": "Infinity"},
             "not-a-level",                            # malformed
         ]
         book = _adapter().parse_order_book("fed-cut-2026", payload)
@@ -192,6 +194,21 @@ class TestMarketState:
                                   _book_payload("MARKET_STATE_OPEN"))
         assert book is not None and len(book.bids) == 2
 
+    @pytest.mark.parametrize("field_value", [None, "", 0])
+    def test_missing_or_malformed_state_fails_closed(self, field_value):
+        payload = _book_payload()
+        if field_value is None:
+            del payload["marketData"]["state"]
+        else:
+            payload["marketData"]["state"] = field_value
+        assert _adapter().parse_order_book("fed-cut-2026", payload) is None
+
+    def test_parsed_book_uses_exchange_timestamp_when_present(self):
+        from datetime import datetime, timezone
+        book = _adapter().parse_order_book("fed-cut-2026", _book_payload())
+        assert book.timestamp == datetime(2026, 9, 13, 10, 30,
+                                         tzinfo=timezone.utc)
+
     def test_get_order_book_filters_non_tradeable(self):
         def handler(request):
             return httpx.Response(200,
@@ -212,16 +229,22 @@ class TestMarketRules:
         assert nc.tick_size == Decimal("0.005")
         assert nc.min_order_size == Decimal("0.01")
 
-    def test_missing_rules_fall_back_to_coarsest_safe_values(self):
+    def test_missing_rules_remain_unknown_instead_of_fabricated_defaults(self):
         a = _adapter()
         m = _market_payload()
         del m["orderPriceMinTickSize"]
         del m["minimumTradeQty"]
         nc = a._normalize_market(m)
-        # Coarser than any real market → a price on this grid is always
-        # placeable; a finer invented grid could be rejected.
-        assert nc.tick_size == Decimal("0.01")
-        assert nc.min_order_size == Decimal("1")
+        assert nc.tick_size is None
+        assert nc.min_order_size is None
+
+    @pytest.mark.parametrize("value", [0, -1, "NaN", "Infinity", "bad"])
+    def test_invalid_tick_or_minimum_quantity_stays_unknown(self, value):
+        a = _adapter()
+        nc = a._normalize_market(_market_payload(
+            orderPriceMinTickSize=value, minimumTradeQty=value))
+        assert nc.tick_size is None
+        assert nc.min_order_size is None
 
     def test_closed_and_archived_markets_are_skipped(self):
         a = _adapter()

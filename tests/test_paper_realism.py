@@ -8,7 +8,7 @@ live is worse than one that never validated at all.
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -193,6 +193,20 @@ class TestPaperBookFreshness:
         asyncio.run(agg.update(book))
         assert agg.peek("kalshi", "KX") is None
         assert asyncio.run(agg.stale_keys()) == [("kalshi", "KX")]
+
+    def test_future_timestamp_is_not_a_fresh_book(self):
+        """Clock skew or malformed future time must not pass freshness."""
+        from prediction_arb.core.clock import age_ms
+        now = datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc)
+        future = now + timedelta(seconds=1)
+        assert age_ms(future, now) is None
+
+        agg = OrderBookAggregator(max_staleness_ms=1000)
+        book = make_book("kalshi", "KX", asks=[("0.40", "10")])
+        book.timestamp = future
+        asyncio.run(agg.update(book))
+        assert agg.peek("kalshi", "KX", now=now) is None
+        assert asyncio.run(agg.stale_keys(now=now)) == [("kalshi", "KX")]
 
 
 class TestPaperFreshnessEndToEnd:

@@ -94,12 +94,15 @@ EXCHANGE_REGISTRY: dict[str, ExchangeRecord] = {
         clearing_entity="kalshi_klear_dco",
         settlement_authority="kalshi_dcm",
         dcm_status="CFTC-designated contract market (VERIFIED)",
-        api_status="API_DOCUMENTED_UNTESTED",
+        api_status="MARKET_DATA_OBSERVED",
         source="https://www.cftc.gov/IndustryOversight/IndustryFilings/TradingOrganizations; https://docs.kalshi.com/getting_started/api_environments",
         verified_at="2026-09-13", independence_confidence="VERIFIED",
-        notes="Official REST/WS documentation was re-verified. A sandbox TLS "
-              "EOF prevented a fresh live HTTP response, so this is not a 2026 "
-              "live-test claim."),
+        notes="Official REST/WS documentation was reviewed. Historical "
+              "public collection on 2026-08-30 recorded 500 markets and 40 "
+              "non-empty books, supporting MARKET_DATA_OBSERVED only. The "
+              "2026-10-10 06:13:37 UTC public smoke was unavailable: TLS EOF "
+              "before HTTP response on both configured hosts. Full current-"
+              "adapter verification is not established."),
     "forecast_ex": ExchangeRecord(
         venue_id="forecast_ex", display_name="ForecastEx via IBKR",
         underlying_exchange="forecastex_dcm",
@@ -126,7 +129,9 @@ EXCHANGE_REGISTRY: dict[str, ExchangeRecord] = {
         source="https://www.cftc.gov/IndustryOversight/IndustryFilings/TradingOrganizations/49571; https://docs.polymarket.us/",
         verified_at="2026-09-13", independence_confidence="VERIFIED",
         notes="QCX LLC d/b/a Polymarket US is distinct from the international "
-              "Polymarket platform. Sandbox live smoke test was UNAVAILABLE."),
+              "Polymarket platform. The latest 2026-10-10 06:13:41 UTC public "
+              "smoke was UNAVAILABLE (TLS EOF before HTTP response); usable "
+              "market data and full adapter verification remain unobserved."),
     "gemini": ExchangeRecord(
         venue_id="gemini", display_name="Gemini Predictions / Titan",
         underlying_exchange="gemini_titan_dcm",

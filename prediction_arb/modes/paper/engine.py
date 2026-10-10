@@ -30,6 +30,7 @@ from ...monitoring.alerts import ConsoleAlertSink
 from ...monitoring.dashboard import opportunities_table, print_block_reasons
 from ...monitoring.health import HealthMonitor
 from ...orderbooks.aggregator import OrderBookAggregator
+from ...orderbooks.validation import order_book_problems
 from ...risk import kill_switch
 from ...risk.exposure import ExposureTracker
 from ...risk.limits import RiskLimits, RiskState
@@ -223,7 +224,7 @@ class PaperEngine:
         limit = int(self.config.settings.get("scanner", {}).get(
             "max_markets_per_venue", 200))
         for venue, adapter in self.adapters.items():
-            if adapter.get_api_status() != APIStatus.VERIFIED:
+            if not adapter.get_api_status().supports_market_data:
                 continue
             try:
                 ms = await adapter.get_markets(limit=limit)
@@ -282,6 +283,13 @@ class PaperEngine:
         sequence-number guard and staleness accounting as polled ones
         (D11).
         """
+        problems = order_book_problems(book)
+        if problems:
+            await self.health.record_error(
+                key[0], "invalid streamed book: " + "; ".join(problems))
+            log.warning("%s/%s: ignoring invalid streamed order book: %s",
+                        key[0], key[1], "; ".join(problems))
+            return
         await self.aggregator.update(book)
         await self.health.record_success(key[0])
 
@@ -311,7 +319,8 @@ class PaperEngine:
             if key in self._streaming:
                 continue  # WS feed updates the aggregator directly
             adapter = self.adapters.get(c.venue)
-            if adapter is None or adapter.get_api_status() != APIStatus.VERIFIED:
+            if (adapter is None
+                    or not adapter.get_api_status().supports_market_data):
                 continue
             try:
                 book = await adapter.get_order_book(c.market_id)
@@ -319,6 +328,11 @@ class PaperEngine:
                 await self.health.record_error(c.venue, str(exc))
                 continue
             if book is not None:
+                problems = order_book_problems(book)
+                if problems:
+                    log.warning("%s/%s: ignoring invalid order book: %s",
+                                c.venue, c.market_id, "; ".join(problems))
+                    continue
                 books[key] = book
         return books
 
