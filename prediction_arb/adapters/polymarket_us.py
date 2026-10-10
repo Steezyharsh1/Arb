@@ -69,6 +69,7 @@ from ..core.types import (
     OrderTypeSupport,
     OutcomeType,
     PriceLevel,
+    Side,
 )
 from .base import OrderBookCallback, PredictionMarketAdapter
 from .evidence import AdapterEvidence, EvidenceClaim, EvidenceState
@@ -455,8 +456,10 @@ class PolymarketUSAdapter(PredictionMarketAdapter):
         bids.sort(key=lambda level: -level.price)
         offers.sort(key=lambda level: level.price)
 
-        timestamp = parse_iso_utc(md.get("transactTime")
-                                  or md.get("transact_time")) or utcnow()
+        received_at = utcnow()
+        source_time = parse_iso_utc(md.get("transactTime")
+                                    or md.get("transact_time"))
+        timestamp = source_time or received_at
 
         return OrderBook(
             venue=self.venue,
@@ -465,6 +468,9 @@ class PolymarketUSAdapter(PredictionMarketAdapter):
             bids=bids,
             asks=offers,
             timestamp=timestamp,
+            received_at=received_at,
+            timestamp_source="venue" if source_time else "local_receipt",
+            outcome_side=Side.YES,
             sequence_number=None,   # venue sends full snapshots, not deltas
             microstructure_type=MicrostructureType.CLOB,
             raw=data,

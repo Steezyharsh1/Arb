@@ -19,21 +19,22 @@ producing real, costed arbitrage candidates in paper mode."
 
 ## MISSION (in priority order)
 
-1. **PRIMARY — stop at the owner venue-selection checkpoint.** Phase 1
-   conditionally ranks Polymarket US direct first, Gemini direct second, and
-   IBKR ForecastEx+CME third. Do not write adapter code until the owner selects
-   a route. After selection, add a second genuinely independent venue through
-   documented reads, paper/sandbox validation, contract-qualified provenance,
-   complete fees, and Utah non-sports eligibility evidence.
-2. **Unblock the pipeline** so that a real opportunity could actually be
-   detected once two venues exist: fix packaging, the Kalshi API host,
-   cross-venue candidate generation, and LLM matcher wiring.
-3. **Keep the reconstructed spec current.** `docs/SPEC.md` now resolves all
-   73 `§` sections the code cites; two of them (§33, §68) are flagged `[I]`
-   INFERRED and need the owner's confirmation. New requirements get new
-   numbers (§96+); never renumber.
-4. **Keep every safety invariant intact.** You are not allowed to trade
-   real money in this engagement.
+1. **PRIMARY — evidence for the owner-selected Kalshi ↔ Polymarket US pair.**
+   Selection is complete; do not restart the shortlist or add another venue.
+   Obtain authorized read-only market/account/fee/settled-position evidence and
+   keep INCOMPLETE/UNKNOWN until reconciled. No new live order for validation.
+2. **Preserve the validated core and causal historical evaluator.** Packaging,
+   Kalshi host refresh, matching/LLM wiring, paper risk and Arb.12 synthetic core
+   tests are implemented. Arb.13 adds exact-time as-of evaluation, conditional
+   depth/latency/cash simulation and honest theory/simulation/exposure reporting.
+   Full offline suite: **704 passed in 68.46 s**, 2026-10-10. There is **no genuine
+   two-venue dataset**, tick-accurate feed ledger or realized performance proof.
+3. **Keep the reconstructed spec current.** Every cited section resolves in
+   `docs/SPEC.md`; §102 describes causal historical requirements. §33/§68 remain
+   `[I]` and need owner confirmation. Append new numbers, never renumber.
+4. **Keep every safety invariant intact.** No real money is traded. Follow the
+   active session's fixed branch, preserve mode isolation/firewall/kill switch,
+   and never invent historical context, simultaneity, fills or settlement cash.
 
 ## READ THESE FIRST (in this order)
 
@@ -43,7 +44,7 @@ producing real, costed arbitrage candidates in paper mode."
    critical path, deferred work, and the recommended next task. It is kept
    current; everything else below is background.
 1. `docs/ROADMAP.md` — the phase map, verified current state, defect
-   register (D1–D12), and the human-action checklist (H1–H6). **This is
+   register (D1–D28), and the human-action checklist (H1–H6). **This is
    your primary reference; keep it updated as you work.**
 2. `docs/SPEC.md` — the reconstructed specification. Every `§N` cited in the
    code resolves here; read the sections covering whatever you are changing.
@@ -53,7 +54,8 @@ producing real, costed arbitrage candidates in paper mode."
 4. `docs/ARCHITECTURE.md`, `docs/MODE_SEPARATION.md`,
    `docs/TRADING_LOGIC.md`, `docs/RISK_MANAGEMENT.md`,
    `docs/CRASH_RECOVERY.md`, `docs/LLM_MATCHING.md`,
-   `docs/COMPLIANCE.md`, `docs/TESTING.md`, `docs/API_SETUP.md`.
+   `docs/COMPLIANCE.md`, `docs/TESTING.md`, `docs/API_SETUP.md`,
+   `docs/HISTORICAL_EVALUATION.md` (required before historical work).
 5. Code, in this order: `main.py` → `prediction_arb/core/config.py` → `prediction_arb/core/types.py` →
    `prediction_arb/adapters/base.py` + `prediction_arb/adapters/kalshi.py` + `prediction_arb/adapters/stubs.py` →
    `provenance/*` → `prediction_arb/modes/shared.py` → `prediction_arb/normalization/contracts.py` →
@@ -231,21 +233,31 @@ venues._
 - **Exit**: on real two-venue data the pipeline emits candidate pairs and
   certificates, with a human-reviewable false-match rate.
 
-### M5 — Replay, backtest, and paper realism (Phases 4 + 6, defects D3, D4, D11, D12)
-_Status note (2026-09-13, third pass): **Phase 4 is code complete — D3 and D4 are fixed.** Collect mode persists all 37 `NormalizedContract` fields plus the raw payload via `record_contract()`; migration `002` is forward-only and `PRAGMA`-guarded (`SCHEMA_VERSION` 1 → 2); `database/contract_codec.py` owns both directions and a round trip is verified lossless across every field. Historical mode reads the recorded store **read-only** (SQLite `mode=ro`, enforced by the engine, not by convention) and writes only its own database; a missing store raises rather than being created empty. Reconstruction **never invents** — an under-recorded row returns `None` and is counted, replacing the old invented `payout=1.00`/`tick_size=0.01`/`contract_version="historical"`. The metric battery (opportunity duration keyed on the stable leg pair, fill probability, partial-fill rate, drawdown, capital utilisation, fee drag) is implemented in `backtesting/metrics.py` with measured and modelled results kept apart and assumptions disclosed on every result. 25 new tests in `tests/test_phase4_recording.py`, including one that pins the battery to the CLI path: the metric code was briefly reachable only from `BacktestEngine`, so `--mode historical` reported counts but not metrics and the exit criterion was not actually met. **The Phase 6 half of M5 is now done too — D11 and D12 are fixed** (14 more tests in `tests/test_paper_realism.py`, both mutation-verified): the paper engine reads books through `OrderBookAggregator` with a real staleness gate, and `simulated_fill_probability_at_touch` finally scales the at-touch portion of a fill instead of being read, stored and ignored. **Still open:** the Phase 4 exit needs the owner's real collected data (neither venue is reachable from the sandbox), and Phase 6's exit needs the owner's multi-week paper run. `HistoricalExecutionEngine` deliberately stays unwired; wiring it would imply execution evidence that does not exist._
-- ~~Persist the full `NormalizedContract` + raw payload at collect time
-  (migration `002` through the forward-only runner) and make the recorded
-  store readable by historical mode; reconstruct faithfully in
-  `prediction_arb/modes/historical/data_provider.py`.~~ **DONE 2026-09-13.**
-- ~~Implement `prediction_arb/backtesting/engine.py::run_backtest` metrics (opportunity
-  duration, fill probability, partial-fill rate, drawdown, capital
-  utilisation, fee drag).~~ **DONE 2026-09-13.**
-- Enforce book freshness in paper (use `OrderBookAggregator`, which is
-  currently dead code) and either implement
-  `simulated_fill_probability_at_touch` or delete the config key and
-  document why.
-- **Exit**: `--mode historical --date <collected date>` replays real
-  frames reproducibly; paper fills are defensibly modelled.
+### M5 — Causal replay / conditional simulation (Phase 4; Arb.13 / D28)
+
+**Implemented offline 2026-10-10, genuine-data/calibration exit owner-gated.**
+D3/D4 read-only lineage/full recording are retained; schema 4 adds immutable
+snapshot terms and receipt/provenance/outcome evidence without legacy backfill.
+CLI/library share exact availability-time/as-of decisions/arrivals and explicit
+cost/time gates. `HistoricalFillSimulator` is the actual configured engine;
+legacy undated `HistoricalExecutionEngine` stays outside the dated evaluator.
+
+Report schema 2 separates observed inputs, calculated gross/costed theory,
+assumed latency/depth/continuity, simulated contingent IOC fills, paired positions,
+conditional net and unresolved exposure. No sizing-derived fill probability,
+repeated-profit equity, fabricated recovery or credited settlement cash.
+Unknown/partial execution cannot silently earn a complete portfolio profit;
+realized net remains unavailable. Historical startup uses no venue adapters.
+61 new deterministic cases / full 704 tests pass; eight leaking/optimistic
+mutations are caught. This does not establish real strategy performance.
+
+**Next:** follow `docs/HISTORICAL_EVALUATION.md` §6 and the handoff's owner-evidence
+plan. Adequate paired common-clock recording through both arrivals and complete
+cost evidence are prerequisites. The current 10-second sequential collector
+lacks empty/halt/gap/session coverage; old unstamped rows remain theory. Do not
+fabricate a missing backtest or place a live order to calibrate it. Phase 6's
+multi-week paper/calibration exit remains unmet; historical conditional depth
+assumptions are not empirical fill probabilities or all paper/live risk controls.
 
 ## ENGINEERING STANDARDS
 
@@ -325,10 +337,11 @@ milestone's first action. Keep `docs/ROADMAP.md` statuses current.
    so you know how the `§` numbering works before you touch code that cites it.
 4. Skim `main.py`, `prediction_arb/core/config.py`, `prediction_arb/adapters/kalshi.py`,
    `provenance/*`, `prediction_arb/modes/shared.py`, `prediction_arb/normalization/contracts.py`.
-5. Confirm your understanding of the defect register by re-deriving at least
-   D3, D6, D9 and D11 from the code yourself (D1, D2 and D8 are already fixed).
-6. Present the completed M1 shortlist and wait for the owner's route selection;
-   do not start M2/M3 adapter work before that response.
+5. Review current open D21–D26 and D28's collection/calibration limitations;
+   do not redo fixed defects or broaden the milestone without direction.
+6. Confirm the owner-selected Kalshi ↔ Polymarket US evidence plan before any
+   new venue work. Use the safe read-only checklist, no credentials in chat,
+   no live order, no fabricated history or unsupported verification claim.
 
 ## FORBIDDEN
 

@@ -310,9 +310,14 @@ async def async_main(args: argparse.Namespace, config: AppConfig) -> int:
             f"endpoint={config.env.get('LLM_API_BASE', '').strip()} "
             f"(the key is never logged); per-cycle comparison budget="
             f"{llm.max_comparisons_per_cycle}")
-    adapters = build_adapters(config)
-    await connect_all(adapters)
-    await maybe_calibrate_kalshi_rate_limits(adapters, config)
+    # Historical replay has no reason to construct/connect venue adapters or
+    # inspect authenticated account limits. Its only market-data source is
+    # the recorded store, even when credentials happen to be configured.
+    adapters: dict[str, PredictionMarketAdapter] = {}
+    if config.mode != Mode.HISTORICAL:
+        adapters = build_adapters(config)
+        await connect_all(adapters)
+        await maybe_calibrate_kalshi_rate_limits(adapters, config)
 
     try:
         if config.mode == Mode.COLLECT:

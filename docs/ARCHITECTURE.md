@@ -12,18 +12,19 @@
               ┌────────────────────┼────────────────────┐
               ▼                    ▼                    ▼
         HISTORICAL              PAPER                 LIVE
-   HistoricalExecution    PaperExecution       LiveExecutionEngine
-        Engine                Engine                   │
-     (simulation)          (simulation)         LiveOrderFirewall
+   HistoricalFill         PaperExecution       LiveExecutionEngine
+       Simulator              Engine                   │
+    (as-of depth)          (simulation)         LiveOrderFirewall
                                                        │
                                                   REAL ORDERS
 ```
 
 ## Security boundary (not a UI feature)
 
-- `prediction_arb/execution/simulated.py` (Historical/Paper engines) has **no adapter
-  attribute**. There is no object reachable from a simulation engine
-  that can transmit an order.
+- `prediction_arb/backtesting/simulator.py::HistoricalFillSimulator` and the
+  paper/unit engines in `execution/simulated.py` have **no adapter attribute**
+  or real-order submit path. Historical CLI startup skips venue adapters and
+  account calibration entirely; its only market-data source is recorded state.
 - `prediction_arb/adapters/kalshi.py` refuses `place_order` unless constructed with
   `allow_order_placement=True`; `main.py` passes that only when
   `config.mode == Mode.LIVE`.
@@ -70,6 +71,18 @@
    PaperExecutionEngine → partial-fill handler if leg B fails.
 7. Everything persisted to the paper DB; JSONL audit logs per mode.
 
+## Historical flow (§102)
+
+Schema-4 capture binds normalized book receipt/provenance/outcome and immutable
+observed terms → read-only `HistoricalDataProvider` (exact as-of state) → common
+`BacktestEngine` matching and decision-date costing → data/cost qualification
+→ explicitly enabled `HistoricalFillSimulator` (arrival lookup, contingent IOC
+legs, residual depth, cash/fee reserves, paired positions and naked exposure)
+→ report schema 2. CLI persists calculated opportunities in its own historical
+store, separately from simulated fills. No equity-by-opportunity summation,
+forward quote selection, implied queue probability or settlement cash credit.
+Legacy/incomplete records remain theory; see `docs/HISTORICAL_EVALUATION.md`.
+
 ## Repository layout & path resolution
 
 The importable package is `prediction_arb/` and contains **code only**.
@@ -88,8 +101,9 @@ would write one mode's data into another mode's directory.
 - New venue: implement `PredictionMarketAdapter`, add a provenance
   record with evidence, add a fee schedule, add eligibility records.
   The arbitrage engine needs no changes (§65).
-- Multi-leg/logical/backtest/web-dashboard: stub interfaces are stable;
-  implement behind them (§3).
+- Multi-leg/logical/web-dashboard: stub interfaces are stable; implement
+  behind them (§3). Historical evaluation has a conditional depth simulator,
+  not a full tick-accurate/realized-performance backtest (§102).
 
 ## Concurrency
 

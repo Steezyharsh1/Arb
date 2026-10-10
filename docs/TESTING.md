@@ -59,7 +59,7 @@ mode-tag enforcement.
 **Failure** (`test_failure_modes.py`): stale/out-of-order books hidden;
 FEE_DATA_INCOMPLETE blocks (never zero); strict fee freshness;
 insufficient sim cash; limit-price respected; historical no-data
-honesty; backtest stub raises; capital non-fungibility.
+honesty; backtest no-data behavior; capital non-fungibility.
 
 **Unavailable mandatory costs** (`test_unavailable_costs.py`, D17,
 2026-10-10 — all offline, synthetic fee schedules): an opportunity whose
@@ -243,6 +243,33 @@ to the WebSocket; streamed books are validated before caching; and a market
 that leaves discovery is unsubscribed and evicted from the book cache (even
 when discovery returns nothing at all).
 
+**Arb.13 — causal historical evaluation**
+(`test_phase4_recording.py`, `test_historical_evaluation.py`, all offline):
+- migration 004 adds nullable receipt/provenance/outcome/sequence/microstructure/
+  immutable-term evidence, preserves old rows, and never invents legacy context;
+  SQLite read-only replay supports schema ≤3 without migration or source writes;
+- exact receipt-time/as-of frames never contain later observations; pre-range
+  initialization, delayed/out-of-order/future/ambiguous/corrupt updates, pair
+  skew, quote/receipt staleness, outcome conversion and context binding are
+  deterministic; minute-bucket future leakage is pinned;
+- dated decision/arrival fees enforce historical effective/expiry bounds;
+  incomplete inputs remain null and cannot contribute simulated profitability;
+- explicit latency, IOC limits, contingent leg B, partial/zero/unavailable fills,
+  residual exposure, shared-depth consumption, cash/total/per-trade caps,
+  settlement-fee reserves, known negative paired P&L and balanced simulation
+  are asserted; no repeat-frame fill/P&L multiplication;
+- schema 2 separates observed inputs, theoretical walks/edge, assumptions and
+  simulated orders/positions/P&L; old fill-probability/equity keys are absent;
+  empty runs retain null P&L and collection requirements;
+- historical CLI/library parity and persisted decision-time evidence are checked;
+  actual `main.async_main` may never construct/connect/calibrate venue adapters.
+
+Arb.13 verification (2026-10-10): **61 new deterministic cases passed in 28.24 s**;
+full suite **704 passed in 68.46 s**. Eight optimistic/leaking mutations are
+caught (source restored before validation). No genuine dataset, live fill or
+settlement was tested. Precise semantics/limits: **`docs/HISTORICAL_EVALUATION.md`**.
+Phase 4's real-data exit is still unmet.
+
 ## Integration-testing record
 
 On 2026-08-30, a prior run exercised `--mode collect --cycles 1` against the
@@ -293,3 +320,12 @@ edits: **632 passed in 28.86 s**. Focused
 (Python 3.11.2). All synthetic path inputs are local; no network, credential,
 database, adapter, or real order-placement method is involved. Exact exercise
 and non-claims are listed above and in `docs/AGENT_HANDOFF.md` §7c.
+
+
+**Arb.13 CLI verification (2026-10-10):** `--status`, `--readiness`, and
+`--mode historical --date 2020-01-01` exit 0. Readiness verdicts remain COLLECT
+READY, HISTORICAL 1 blocker, PAPER 5, LIVE 8; a before/after filesystem check
+confirms no runtime-tree changes or recorded-store creation by readiness.
+The empty historical report has null simulated/realized P&L and collection
+requirements; the CLI attempts no venue connection. Remote CI, venue/data
+probes, real fills and settlement were not performed in this task.

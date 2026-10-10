@@ -150,6 +150,13 @@ class OrderBook:
     microstructure_type: MicrostructureType = MicrostructureType.CLOB
     raw: Any = None  # original venue payload, preserved
 
+    # Historical availability is NOT the venue's quote time. These fields
+    # are observations, not defaults: legacy/unstamped books keep None.
+    received_at: Optional[datetime] = None
+    timestamp_source: Optional[str] = None  # "venue" or "local_receipt"
+    outcome_side: Optional[Side] = None     # which outcome these ladders price
+    snapshot_id: Optional[int] = None      # recorded-row provenance in replay
+
     def best_bid(self) -> Optional[PriceLevel]:
         return self.bids[0] if self.bids else None
 
@@ -346,6 +353,10 @@ class Opportunity:
     #: by ``evaluate_two_leg``; hand-built opportunities default to an
     #: empty (therefore incomplete) ledger.
     costs: CostLedger = field(default_factory=CostLedger)
+
+    # Replay evidence, including decision time and the exact input snapshots.
+    # Empty for callers that did not perform a historical data assessment.
+    evaluation_metadata: dict[str, Any] = field(default_factory=dict)
 
     # ------------------------------------------------------------ metrics
     @property

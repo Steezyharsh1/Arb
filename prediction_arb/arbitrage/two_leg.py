@@ -28,7 +28,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Callable, Optional
 
-from ..core.clock import utcnow
+from ..core.clock import ensure_utc, utcnow
 from ..core.types import (
     CostComponent,
     CostLedger,
@@ -154,6 +154,8 @@ def evaluate_two_leg(
 
     # One resolution point for the mandatory-freshness policy (§98).
     strict_freshness = freshness_enforced(mode, strict_fee_freshness)
+    decision_time = ensure_utc(evaluation_time) if evaluation_time is not None else utcnow()
+    fee_time = decision_time if mode == Mode.HISTORICAL else None
 
     block: list[str] = []
 
@@ -215,22 +217,22 @@ def evaluate_two_leg(
             f"{yes_contract.venue}:trade_fee",
             lambda: fee_calc.trade_fee_fills(
                 yes_contract.venue, _fill_slices(yes_walk), is_taker=True,
-                strict_freshness=strict_freshness).total),
+                strict_freshness=strict_freshness, as_of=fee_time).total),
         _component(
             f"{no_contract.venue}:trade_fee",
             lambda: fee_calc.trade_fee_fills(
                 no_contract.venue, _fill_slices(no_walk), is_taker=True,
-                strict_freshness=strict_freshness).total),
+                strict_freshness=strict_freshness, as_of=fee_time).total),
         _component(
             f"{yes_contract.venue}:settlement_fee",
             lambda: fee_calc.settlement_fee(
                 yes_contract.venue, qty,
-                strict_freshness=strict_freshness)),
+                strict_freshness=strict_freshness, as_of=fee_time)),
         _component(
             f"{no_contract.venue}:settlement_fee",
             lambda: fee_calc.settlement_fee(
                 no_contract.venue, qty,
-                strict_freshness=strict_freshness)),
+                strict_freshness=strict_freshness, as_of=fee_time)),
     )
     # None whenever any fee component is unavailable: an unknown fee is not
     # a zero fee, so the fee total is unknown too.
@@ -322,7 +324,7 @@ def evaluate_two_leg(
         status = OpportunityStatus.BLOCK
         block.append("net profit not positive after all costs")
 
-    now = utcnow()
+    now = decision_time
     # Preserve venue-specific fee allocation for capital-at-venue checks in
     # the execution coordinator. An unavailable component is not turned into
     # an executable zero: such an opportunity is BLOCK above and never reaches
@@ -346,7 +348,12 @@ def evaluate_two_leg(
             fees=no_leg_fees),
     ]
     return Opportunity(
-        opportunity_id=str(uuid.uuid4()),
+        opportunity_id=(str(uuid.uuid5(uuid.NAMESPACE_URL,
+            f"historical:{now.isoformat()}:{yes_contract.venue}:"
+            f"{yes_contract.contract_id}:{yes_contract.contract_version}:yes:"
+            f"{no_contract.venue}:{no_contract.contract_id}:"
+            f"{no_contract.contract_version}:no"))
+            if mode == Mode.HISTORICAL else str(uuid.uuid4())),
         mode=mode,
         opportunity_type=OpportunityType.TYPE_A_GUARANTEED,
         timestamp=now,

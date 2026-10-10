@@ -1,18 +1,22 @@
 # SPECIFICATION (RECONSTRUCTED) — prediction_arb v1
 
-**Status:** RECONSTRUCTED; evidence-state section §101 added 2026-10-10 (America/Denver).
+**Status:** RECONSTRUCTED; causal historical-evaluation §102 added 2026-10-10
+(UTC), after evidence-state §101.
 **Confidence:** derived, not authoritative. See "How this was reconstructed".
 
 The original numbered specification that this codebase was built against was
 never committed to the repository. Its section numbers survive across code,
 config, docs and tests. The original audit counted 73 distinct references at
-224 sites on 2026-09-13; after §§96–§101 and subsequent documentation changes,
-79 sections are reconstructed and 451 citation sites were measured on
-2026-10-10 (excluding this file, `docs/ROADMAP.md` and `docs/AGENT_KICKOFF.md`).
+224 sites on 2026-09-13. After the historical addition (§102), **80 sections**
+are reconstructed. The current tracked/nonignored Python + YAML inventory has
+**313 literal citation sites across 76 distinct numbers** (2026-10-10);
+every code/config citation resolves here. Documentation-local numbered headings
+are not global spec citations and are excluded from that count. The older
+451-site code/doc audit is historical, not a current measurement.
 This document reconstructs the cited requirements from surviving code,
 documentation, tests and configuration; numbers with insufficient surviving
-evidence remain listed as UNKNOWN in Appendix B. Section §101 is the explicitly
-requested adapter-evidence addition and is cited by `prediction_arb/adapters/evidence.py`.
+evidence remain listed as UNKNOWN in Appendix B. Section §101 is the adapter-
+evidence addition; §102 records the user-requested causal historical requirements. Both have code/test evidence.
 
 **Coverage is explicit:** reconstructed sections and unresolved historical
 gaps are listed separately. Do not infer content for an UNKNOWN number.
@@ -52,9 +56,11 @@ Rules this document follows (and that future edits must follow):
 ### §3 — v1 scope boundary  `[C,D]`
 **Requirement.** v1 delivers guaranteed (TYPE A) two-leg cross-venue
 arbitrage only. Multi-leg/N-outcome arbitrage, logical (TYPE B) arbitrage,
-graph cycle search, full backtest metrics, the web dashboard and email/webhook
-alerts are OUT OF SCOPE for v1 and MUST ship as stubs with stable interfaces,
-so that implementing them later requires no changes to the arbitrage engine.
+graph cycle search, the web dashboard and email/webhook alerts are OUT OF SCOPE
+for v1 and MUST ship as stubs with stable interfaces. Historical evaluation now
+includes the explicitly conditional snapshot-based simulator/metrics in §102;
+tick-accurate feed reconstruction, realized settlement P&L and a genuine
+performance evaluation remain unsupported. No simulation guarantees execution.
 **Evidence.** `README.md` ("What is stubbed … §3 v1 scope"),
 `prediction_arb/arbitrage/graph.py`, `arbitrage/logical.py`,
 `arbitrage/multi_leg.py`, `backtesting/engine.py`, `monitoring/dashboard.py`,
@@ -898,6 +904,42 @@ streaming, order, or full-adapter verification.
 `tests/test_kalshi_smoke_script.py`,
 `tests/test_polymarket_us_smoke_script.py`.
 
+### §102 — Causal historical evidence and conditional simulation  `[C,D,T,G]`
+**Requirement.** Historical evaluation MUST separate observed book data,
+calculated gross/costed opportunities, assumed execution parameters and simulated
+orders/positions/P&L. A sizing walk MUST NOT imply measured fill probability;
+repeated opportunity-profit sums MUST NOT be labelled equity, trading P&L or a
+performance bound. CLI and library MUST share the evaluator.
+
+Decision/arrival lookup MUST use only already-available observations at exact
+times, never a later quote or rounded earlier bucket. Source regressions,
+future/ambiguous/corrupt state, excessive book age/skew, missing receipt/outcome/
+provenance/as-of terms/rules or incomplete costs MUST fail execution qualification
+closed; computable unsupported theory MAY remain separately labelled. Recording
+MUST bind only already-observed immutable contract context, preserve legacy
+missing evidence, and never migrate/write read-only input.
+
+Simulation MUST be explicitly configured and conditional on supported data/costs.
+It MUST declare latency/depth/continuity/capital assumptions; use dated arrival
+depth, contingent IOC legs and decision-price limits; consume residual liquidity;
+include actual simulated fees/reserves/capital; avoid repeated-pair profit
+harvesting; and distinguish known no fills from unavailable execution. Incomplete
+hedges MUST retain exposure and stop new entries. Aggregate simulated terminal
+net MUST be withheld for naked/unavailable/incomplete execution, retain losses,
+and never credit unobserved payouts as cash or realized P&L.
+
+Reports MUST include input/cost provenance, skipped/blocked and unavailable data,
+open paired positions/exposure, assumptions and minimum additional collection.
+Empty/missing datasets MUST use the same honest schema with unavailable P&L.
+No genuine dataset, measured fill/settlement, continuous feed coverage or
+real-execution guarantee MAY be inferred from synthetic success. Day-granular
+fee bounds and static supplied versions are not an intraday cost-history stream.
+**Evidence.** `prediction_arb/backtesting/{policy,engine,simulator,metrics}.py`,
+`prediction_arb/modes/historical/data_provider.py`, `database/{repository,models}.py`,
+`database/migrations/runner.py` (004), `config/historical.yaml`,
+`tests/test_historical_evaluation.py`, `tests/test_phase4_recording.py`,
+`docs/HISTORICAL_EVALUATION.md`.
+
 ---
 
 ## Appendix A — Index of reconstructed sections
@@ -983,6 +1025,7 @@ streaming, order, or full-adapter verification.
 | §99 | Readiness verdicts are computed, never hardcoded | [C,T] | `prediction_arb/monitoring/readiness.py`, `prediction_arb/main.py`, `tests/test_readiness.py`, `docs/MODE_SEPARATION.md` |
 | §100 | Rejections state their reason to the operator | [C,D,T] | `prediction_arb/monitoring/dashboard.py`, `prediction_arb/modes/paper/engine.py`, `tests/test_readiness.py` |
 | §101 | Claim-level public adapter evidence | [C,D,T] | `prediction_arb/adapters/evidence.py`, smoke scripts, `tests/test_collect_mode.py` |
+| §102 | Causal historical evidence and conditional simulation | [C,D,T,G] | `prediction_arb/backtesting/*`, historical provider, schema 4, `tests/test_historical_evaluation.py` |
 
 ## Appendix B — Numbers with no surviving citation
 
@@ -1015,10 +1058,10 @@ Ranges imply that every number inside them existed in the original spec.
 
 ## Appendix D — Reconstruction confidence
 
-* Sections reconstructed: **79** (re-measured 2026-10-10 with
-  `grep -c "^### §" docs/SPEC.md`; includes the user-requested §101).
-* Citation sites counted: **451** (2026-10-10; excludes this file,
-  `docs/ROADMAP.md`, and `docs/AGENT_KICKOFF.md`).
+* Sections reconstructed: **80** (2026-10-10; includes §101 and §102).
+* Python/config literal citation sites: **313**, **76 distinct numbers**
+  (tracked/nonignored `.py` / `.yaml`; all resolve). Documentation's own local
+  numbered headings are excluded rather than confused with spec references.
 * Sections carrying an `[I]` INFERRED flag — confirm or correct these first:
 
   * §33 — Pre-trade checklist
@@ -1040,22 +1083,21 @@ Tag distribution:
 | `[T]` | 1 |
 | `[T,D]` | 1 |
 | `[G,C]` | 1 |
+| `[C,D,T,G]` | 1 |
 
 ## Appendix E — Maintaining this document
 
 1. **Never renumber.** 200+ call sites cite these numbers.
-2. New requirements get new numbers at the end (§96–§101, …) and a real
+2. New requirements get new numbers at the end (§96–§102, …) and a real
    source: a decision record, an issue, or owner confirmation — not a guess.
 3. When you change behaviour that a section describes, update the section
    in the same commit and keep its `Evidence.` list accurate.
-4. Re-measure coverage after any large change:
-   ```bash
-   grep -rhoE "§[0-9]+" --include="*.py" --include="*.md" --include="*.yaml" . \
-     | sort -u | wc -l          # distinct sections cited
-   grep -c "^### §" docs/SPEC.md  # sections reconstructed here
-   ```
-   The two numbers must stay equal (excluding this file, `docs/ROADMAP.md`
-   and `docs/AGENT_KICKOFF.md`, which discuss the numbering itself).
+4. Re-measure reconstructed sections and code/config citations after large
+   changes. Use tracked/nonignored `.py` / `.yaml`, not `.venv` or generated
+   reports. Every **code/config** cited number must resolve in this index;
+   documentation-local section headings are not necessarily global spec numbers.
+   Retained reconstructed sections may have documentation evidence without a
+   current literal source citation, so the counts need not be equal.
 5. If the original specification is ever recovered, this file becomes a
    diff target: replace inferred text with the real text, keep the numbers,
    and drop the `[I]` tags that no longer apply.

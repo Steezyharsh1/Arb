@@ -13,8 +13,10 @@ from ..core.types import (
     Opportunity,
     OpportunityStatus,
     OrderBook,
+    Side,
 )
 from ..fees.calculator import FeeCalculator
+from ..orderbooks.orderbook import book_for_side
 from ..provenance.independence import contracts_independent
 from .two_leg import evaluate_two_leg
 
@@ -72,6 +74,7 @@ def search_event(
     fee_calc: FeeCalculator,
     mode: Mode,
     approved_pairs: dict[tuple[str, str], tuple[str, float]],
+    resolve_recorded_sides: bool = False,
     **eval_kwargs,
 ) -> list[Opportunity]:
     """Search all independent venue orderings for one normalized event.
@@ -101,6 +104,9 @@ def search_event(
             no_book = books.get((no_c.venue, no_c.contract_id))
             if yes_book is None or no_book is None:
                 continue
+            if resolve_recorded_sides:
+                yes_book = book_for_side(yes_book, Side.YES, yes_c.payout)
+                no_book = book_for_side(no_book, Side.NO, no_c.payout)
             op = evaluate_two_leg(
                 yes_c, no_c, yes_book, no_book, fee_calc, mode,
                 match_id=approval[0], match_confidence=approval[1],

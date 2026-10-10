@@ -11,7 +11,7 @@ flag (`--mode X`), but isolation is architectural (§43–§60).
 | `allow_live_orders` legality | `prediction_arb/core/config.py` | true outside live → refused |
 | Env-file separation | `prediction_arb/core/config.py::load_mode_env` | `*LIVE*` keys in non-live env → refused |
 | Per-mode DB file + internal mode tag | `prediction_arb/database/repository.py` | opening live DB from paper → RuntimeError |
-| Simulation engines hold no adapters | `prediction_arb/execution/simulated.py` | no code path from paper/historical to a venue |
+| Simulation engines hold no adapters | `prediction_arb/execution/simulated.py` (paper/unit), `backtesting/simulator.py` (dated historical) | no real-order submit path; historical startup skips venue adapters/account calibration |
 | Adapter-level order gate | `prediction_arb/adapters/kalshi.py` | `place_order` raises unless constructed for live |
 | Firewall-only live path | `prediction_arb/execution/live.py` | unguarded `submit_order` raises FirewallBlocked |
 | Confirmation phrase object | `LiveConfirmationToken` | live engine cannot be built without the typed phrase |
@@ -73,3 +73,16 @@ Rejected candidates are explained where the operator is looking (§100):
 `block_reasons` with their counts, most common first, after the opportunity
 table in both paper and historical runs, and prints nothing when nothing was
 blocked.
+
+## Historical input versus output (§102)
+
+Historical config/banner names the actual `HistoricalFillSimulator` model.
+The recorded collect/paper store is opened SQLite read-only; older schemas are
+not migrated by replay and missing receipt/contract evidence is never filled
+from today's records. Historical opportunities/report output belongs only in
+the historical mode store. Simulated order/fill/position results live in the
+labelled report, not as real order/account evidence in the input database.
+The legacy undated `HistoricalExecutionEngine` remains a direct unit-test engine,
+not the dated evaluator. Costed theory and conditional terminal simulation P&L
+are not realized trading cash. See `docs/HISTORICAL_EVALUATION.md` for the gates,
+assumptions and collection gaps.

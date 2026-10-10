@@ -27,11 +27,11 @@ enforcement switch that policy resolves.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, ROUND_CEILING, ROUND_HALF_EVEN
 from typing import Any, Optional, Sequence
 
-from ..core.clock import utcnow
+from ..core.clock import ensure_utc, utcnow
 from ..core.types import FeeDataError
 from .freshness import (
     FeeFreshness,
@@ -269,14 +269,14 @@ class FeeCalculator:
             schedules[schedule.venue] = schedule
         return cls(schedules, max_schedule_age_days)
 
-    def schedule_for(self, venue: str, strict_freshness: bool = False
-                     ) -> FeeSchedule:
+    def schedule_for(self, venue: str, strict_freshness: bool = False,
+                     *, as_of: Optional[datetime] = None) -> FeeSchedule:
         schedule = self.schedules.get(venue)
         if schedule is None:
             raise FeeDataError(
                 f"FEE_DATA_INCOMPLETE: no fee schedule on file for venue "
                 f"{venue!r}. Refusing to compute fees (never assume zero).")
-        today = utcnow().date()
+        today = (ensure_utc(as_of) if as_of is not None else utcnow()).date()
         if schedule.effective_date is None:
             raise FeeDataError(
                 f"FEE_DATA_INCOMPLETE: {venue} fee schedule has no verified "
@@ -374,7 +374,8 @@ class FeeCalculator:
     def trade_fee_fills(self, venue: str, fills: Sequence[FillSlice],
                         is_taker: bool = True,
                         strict_freshness: bool = False,
-                        context: Optional[FeeContext] = None
+                        context: Optional[FeeContext] = None,
+                        *, as_of: Optional[datetime] = None
                         ) -> FeeBreakdown:
         """Exact per-fill trade fee for one walking order, or fail closed.
 
@@ -398,7 +399,7 @@ class FeeCalculator:
         This method has no estimate mode. Research-only formula examples
         belong in tests/docs, not an execution-facing API.
         """
-        schedule = self.schedule_for(venue, strict_freshness)
+        schedule = self.schedule_for(venue, strict_freshness, as_of=as_of)
         self._require_calculable(schedule, "trade", context)
         role = "taker" if is_taker else "maker"
         applicable = [
@@ -483,7 +484,8 @@ class FeeCalculator:
     def trade_fee(self, venue: str, price: Decimal, quantity: Decimal,
                   is_taker: bool = True,
                   strict_freshness: bool = False,
-                  context: Optional[FeeContext] = None) -> Decimal:
+                  context: Optional[FeeContext] = None,
+                  *, as_of: Optional[datetime] = None) -> Decimal:
         """Single-fill trade fee. Prefer :meth:`trade_fee_fills`.
 
         Convenience wrapper for callers that genuinely have one fill. Using
@@ -494,12 +496,13 @@ class FeeCalculator:
         return self.trade_fee_fills(
             venue, (FillSlice(price=price, quantity=quantity),),
             is_taker=is_taker, strict_freshness=strict_freshness,
-            context=context).total
+            context=context, as_of=as_of).total
 
     def settlement_fee(self, venue: str, quantity: Decimal,
                        strict_freshness: bool = False,
-                       context: Optional[FeeContext] = None) -> Decimal:
-        schedule = self.schedule_for(venue, strict_freshness)
+                       context: Optional[FeeContext] = None,
+                       *, as_of: Optional[datetime] = None) -> Decimal:
+        schedule = self.schedule_for(venue, strict_freshness, as_of=as_of)
         self._require_calculable(schedule, "settlement", context)
         rules = [
             rule for rule in schedule.rules

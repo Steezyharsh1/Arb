@@ -609,12 +609,16 @@ class KalshiAdapter(PredictionMarketAdapter):
         yes_asks = [PriceLevel(price=Decimal("1") - l.price, quantity=l.quantity)
                     for l in no_bids]
 
+        received_at = utcnow()
         return OrderBook(
             venue=self.venue,
             contract_id=market_id,
             bids=yes_bids,
             asks=yes_asks,
-            timestamp=utcnow(),
+            timestamp=received_at,
+            received_at=received_at,
+            timestamp_source="local_receipt",
+            outcome_side=Side.YES,
             sequence_number=sequence_number,
             microstructure_type=MicrostructureType.CLOB,
             raw=data,

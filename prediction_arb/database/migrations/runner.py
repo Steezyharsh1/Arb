@@ -163,12 +163,50 @@ def _m003_opportunity_unavailable_costs(engine: Engine) -> None:
             "ON opportunities (mode)"))
 
 
+_M004_SNAPSHOT_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("received_at", "DATETIME"),
+    ("timestamp_source", "VARCHAR(24)"),
+    ("outcome_side", "VARCHAR(8)"),
+    ("sequence_number", "INTEGER"),
+    ("microstructure_type", "VARCHAR(24)"),
+    ("contract_observed_at", "DATETIME"),
+    ("contract_json", "TEXT"),
+)
+
+
+def _m004_historical_evidence(engine: Engine) -> None:
+    """Bind future snapshots to receipt time and contemporaneous terms.
+
+    Existing rows stay NULL: quote time is not receipt time, and today's
+    market row is not a historical contract version. Read-only replay does
+    not run this migration and can still inventory old stores.
+    """
+    present = _existing_columns(engine, "orderbook_snapshots")
+    if not present:
+        Base.metadata.tables["orderbook_snapshots"].create(engine, checkfirst=True)
+        present = _existing_columns(engine, "orderbook_snapshots")
+    with engine.begin() as conn:
+        for name, ddl in _M004_SNAPSHOT_COLUMNS:
+            if name not in present:
+                conn.execute(text(
+                    f"ALTER TABLE orderbook_snapshots ADD COLUMN {name} {ddl}"))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_orderbook_snapshots_received_at "
+            "ON orderbook_snapshots (received_at)"))
+    if "evaluation_json" not in _existing_columns(engine, "opportunities"):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE opportunities ADD COLUMN evaluation_json TEXT"))
+
+
 MIGRATIONS: list[Migration] = [
     (1, "create initial schema", _m001_create_all),
     (2, "markets: full NormalizedContract fields + raw payload (D4)",
      _m002_market_contract_fields),
     (3, "opportunities: nullable cost columns + unavailable_costs (D17)",
      _m003_opportunity_unavailable_costs),
+    (4, "historical: snapshot timing/contract evidence + evaluation basis",
+     _m004_historical_evidence),
 ]
 
 

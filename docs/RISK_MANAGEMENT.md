@@ -11,8 +11,13 @@ the coordinator path and `tests/test_risk_enforcement.py`.
 
 The enforced execution path in this release is **paper only**. Live remains
 monitor-only and no production code builds a `FirewallContext`; no real order
-was enabled by this work. Historical mode evaluates/reports opportunities but
-does not execute them.
+was enabled by this work. Historical mode now has a separate **conditional
+research simulator**, not the paper coordinator or a real-order path. It
+models venue-local cash, total/per-trade capital caps, actual simulated fees and
+settlement reserves, and stops entries on unresolved exposure. It does **not**
+reproduce all 12 paper/live controls, recover exposure, credit payout cash, or
+engage the global kill switch. This table describes the paper coordinator only.
+Historical assumptions/results: `docs/HISTORICAL_EVALUATION.md` (§102).
 
 ## Runtime enforcement inventory (2026-10-10)
 
