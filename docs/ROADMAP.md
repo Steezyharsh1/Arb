@@ -5,10 +5,12 @@ repository, test suite/CLI, databases/logs, and venue/API sources. Updated
 2026-10-10 for the direct fee-source re-review and pair-readiness audit
 (`docs/FEE_READINESS.md`), the D18 settlement-timing evidence review
 (`docs/TRADING_LOGIC.md`, "Settlement timing and capital lockup"), D20 paper
-capital/risk enforcement (`docs/RISK_MANAGEMENT.md`), and the Arb.10 runtime
-configuration/module audit (`docs/AGENT_HANDOFF.md` §7d), and D27 adapter
+capital/risk enforcement (`docs/RISK_MANAGEMENT.md`), the Arb.10 runtime
+configuration/module audit (`docs/AGENT_HANDOFF.md` §7d), D27 adapter
 evidence/collection audit (claim-level status, public-only smoke, snapshot
-validation; see `docs/VENUE_RESEARCH.md` K9/K11/P7 and handoff §7e). Older
+validation; see `docs/VENUE_RESEARCH.md` K9/K11/P7 and handoff §7e), and Arb.12
+offline synthetic end-to-end validation of the matching → costed paper scan →
+simulated execution core path (see §3 Phase 6 and `docs/TESTING.md`). Older
 verification dates remain attached to unrevisited claims.
 
 This is the reference document for anyone (human or agent) continuing
@@ -36,7 +38,7 @@ Status tags used throughout:
 
 | Check | Result |
 |---|---|
-| `pytest` | `.venv/bin/pytest -o addopts=''`: **632 passed in 28.75 s**, Python 3.11.2, re-run 2026-10-10 on `arena/e7d80655-arb`; all tests are offline. Current D27 additions: collect admission/no-execution (8), public-only smoke evidence policy (14 Kalshi + 5 Polymarket), plus strengthened parsing, timestamps, rule codec and readiness regressions. `pytest --collect-only -q` confirms 632 tests. |
+| `pytest` | `.venv/bin/pytest -o addopts=''`: **643 collected, 643 passed in 28.04 s**, Python 3.11.2, re-run 2026-10-10 on `arena/2ac1509e-arb`; all tests are offline. Arb.12 adds 11 synthetic end-to-end/refusal tests; prior D27 additions are included. `pytest --collect-only -q` is represented by the full run's 643 collected items. |
 | Settlement-timing readiness | **Kalshi DOCUMENTED** (per market: `latest_expiration_time` + `settlement_timer_seconds`; not observed), **Polymarket US UNKNOWN**, **ForecastEx UNKNOWN** — so every enabled pair still blocks on lockup, independently of the fee gate (D18, 2026-10-10). Evidence table: `docs/TRADING_LOGIC.md` |
 | `python -m prediction_arb.main --status` | Re-run 2026-10-10, exit 0: kalshi=`MARKET_DATA_OBSERVED` (historical public data only), polymarket_us=`API_DOCUMENTED_UNTESTED`, forecast_ex=`API_DOCUMENTED_UNTESTED` (structured stub). The claim-level table separately shows both latest public probes `UNAVAILABLE` (TLS EOF), no full adapter verification, and all three enabled unordered pairs `INDEPENDENT`; provenance is not fee/book readiness. |
 | `python -m prediction_arb.main --readiness` | Re-run 2026-10-10, exit 0: four derived per-mode reports; `COLLECT: READY` (1 of 3 market-data-evidenced adapters), `HISTORICAL: NOT READY — 1 blocker(s)` (no recorded store), `PAPER: NOT READY — 5 blocker(s)` (only one market-data adapter, no independent pair, no matcher, incomplete fees, unknown settlement), `LIVE: NOT READY — 8 blocker(s)` (0 fully verified live-capable venues, no pair, no matcher, 0/3 complete fee schedules, settlement UNKNOWN for polymarket_us + forecast_ex, 0 recorded snapshots/opportunities, eligibility UNKNOWN ×3, no `.env.live`). Fee freshness passes 3/3 (0 days old); 12 risk values and staleness gates are configured, but risk row is configuration-only. `LIVE MODE: NOT RECOMMENDED YET`; report is advisory and side-effect-free. |
@@ -720,12 +722,16 @@ acceptance run.
 
 Exit: on real two-venue data the pipeline emits candidate pairs,
 certificates with statuses, and a measurable false-match rate reviewed
-by a human. The pipeline side is exercised end-to-end offline
-(`tests/test_candidate_generation.py::TestPipelineEmitsCandidates`:
-differently-phrased cross-venue pair → candidate → deterministic pass →
-APPROVED certificate → evaluated opportunity). **Still owner-gated:**
-(a) an LLM key in `.env.paper` (H7) so matching can APPROVE rather than
-REVIEW; (b) real two-venue data — the Polymarket US smoke run + Kalshi
+by a human. Offline coverage now spans two levels: the existing
+`tests/test_candidate_generation.py::TestPipelineEmitsCandidates` exercises
+candidate → deterministic pass → APPROVED certificate → evaluated
+opportunity; Arb.12's `tests/test_synthetic_opportunity_e2e.py` carries an
+explicit synthetic pair through the same production matching/certification,
+fresh-book scan and cost evaluator into risk-gated `PaperExecutionEngine`
+fills, and covers mismatch/SAME_VENUE and refusal/failure paths. Its test-only
+LLM is not an endpoint and proves no real match. **Still owner-gated:**
+(a) an LLM key in `.env.paper` (H7) so real ambiguous matches can be reviewed
+and approved; (b) real two-venue data — the Polymarket US smoke run + Kalshi
 key (H2) and a collect run, exactly the gates Phases 2/3 already list.
 Certificates persist per cycle in paper mode
 (`save_match_certificate`), which is what makes the false-match rate
@@ -760,6 +766,30 @@ Exit: a multi-week paper run whose fill assumptions are documented and
 defensible, with per-cycle metrics persisted. **Still needs the owner's
 multi-week run**; the code that would produce defensible fill assumptions
 now exists.
+
+**Arb.12 offline integration addition (2026-10-10; not a Phase 6 exit).**
+`tests/test_synthetic_opportunity_e2e.py` (11 tests) composes existing
+production seams: PAPER eligibility decision, pair proposal/matching and
+certificate, registry-based independence, normalized book validation and
+`OrderBookAggregator` freshness, `run_arbitrage_scan`/optimizer,
+`evaluate_two_leg`/walked levels/fee ledger/settlement lockup, risk reservation
+and exposure checks, partial-fill recovery, and `PaperExecutionEngine`. It
+proves one all-gates-pass simulated two-leg fill plus mismatch, same-venue,
+unknown-cost, thin/stale-book, risk/cash and partial/unresolved-failure
+refusals. Synthetic test LLM/fee/ForecastEx-timing evidence is never loaded
+outside the fixture; the production fee ledger and production ForecastEx
+UNKNOWN timing are separately shown to block with `net_profit=None`. No
+production refactor was needed because these components already compose.
+The synthetic categories remain UNKNOWN for Utah but are research-allowed in
+PAPER; this is not a legal eligibility claim.
+
+**Exact boundary:** the test does not call `PaperEngine._cycle`, discover
+through venue adapters, read REST/WS or account data, persist matches or
+opportunities, run a live LLM, compute production-complete fees, establish
+ForecastEx capital-release timing, exercise a real-account eligibility
+verdict, or model settlement/real fills. No real order-placement method or
+adapter is involved. These owner/data-gated and multi-week Phase 6 exits remain
+open.
 
 #### Phase 6 — why these two were fixed together
 

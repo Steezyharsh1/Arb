@@ -144,6 +144,32 @@ payout; profitable path yields TRADE; reproducibility (identical inputs
 pairs never evaluated; graph candidates; full matching pipeline with a
 mock LLM (approve) and without one (REVIEW only).
 
+**Arb.12 synthetic end-to-end opportunity** (`test_synthetic_opportunity_e2e.py`,
+11 tests; offline, test-only LLM/fee/timing/books): drives a pair through
+PAPER eligibility (UNKNOWN but research-allowed, not legal approval), real
+candidate retrieval/deterministic matching/schema validation/certificate and
+provenance checks, validated fresh books and `OrderBookAggregator`, scan /
+optimizer / `evaluate_two_leg`, book walker, venue-specific synthetic per-fill
+trade + settlement fees, lockup calculation, `ExecutionCoordinator` risk and
+exposure gates, recovery, and `PaperExecutionEngine`. One case reaches both
+simulated fills with explicit paper cash and risk limits; separate cases reject
+a payout mismatch, SAME_VENUE (including a forged approval), production
+incomplete costs/UNKNOWN settlement (`net_profit=None`), thin depth, stale
+books, risk-capital breach, insufficient venue-local cash, partial execution,
+and failed hedge + failed unwind (unresolved exposure/kill). No adapter,
+`place_order`, or live engine is created; every simulated fill is marked
+`simulated`. No production algorithm or test-only arbitrage implementation
+was added.
+
+**Not exercised by this integration test:** `PaperEngine._cycle` and its
+adapter-driven discovery/eligibility loop; public REST or WebSocket; DB/repo
+persistence/reporting; real LLM endpoint; production-complete fee schedules;
+real ForecastEx settlement release; resolved jurisdiction/account eligibility;
+real orders/fills or a multi-week paper run. The synthetic proof does not
+change venue, fee, settlement, legal, or live readiness. Existing tests cover
+many of these code surfaces independently, but the items listed here are not
+claimed as part of this end-to-end test.
+
 **Kalshi Phase 2** (`test_kalshi_phase2.py`, 2026-09-13 — all offline:
 mock HTTP transport + a scripted **local WebSocket server**):
 * host failover — 5xx rotation to the fallback base, 404/429 never
@@ -258,3 +284,12 @@ market-data-evidenced adapter), `HISTORICAL: NOT READY — 1 blocker(s)`,
 `PAPER: NOT READY — 5 blocker(s)`, and `LIVE: NOT READY — 8 blocker(s)`
 (0 live-capable venues). The report creates no runtime data. Network failures
 are attempt evidence only, not adapter failure or verification.
+
+**Arb.12 verification (2026-10-10):** baseline on `arena/2ac1509e-arb` before
+edits: **632 passed in 28.86 s**. Focused
+`.venv/bin/pytest -o addopts='' tests/test_synthetic_opportunity_e2e.py`:
+**11 passed in 0.28 s**. Full
+`.venv/bin/pytest -o addopts=''`: **643 collected, 643 passed in 28.04 s**
+(Python 3.11.2). All synthetic path inputs are local; no network, credential,
+database, adapter, or real order-placement method is involved. Exact exercise
+and non-claims are listed above and in `docs/AGENT_HANDOFF.md` §7c.
