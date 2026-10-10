@@ -6,12 +6,19 @@ conversations. It tells you what the project is, what is true *right now*,
 what is broken, what you may work on, and what you must not touch.
 
 - **Last updated:** 2026-10-10 (UTC) on the fixed Arena branch
-  `arena/e7d80655-arb` (base `e0f8e4a58ad2f5a50dc654088e45b208342df3c1`).
-  Audited adapter evidence, public-only smoke posture, collection admission,
+  `arena/2ac1509e-arb` (base `86bd003ee00e9962f1cae219446a170471986230`).
+  Arb.12 adds an 11-test offline synthetic path from paper-allowed contract
+  eligibility through the production matching/certificate, fresh-book scan,
+  walked fee/settlement evaluation, risk coordinator and simulated paper
+  fills/recovery. Synthetic LLM, fee and ForecastEx timing inputs are explicitly
+  test-only; no adapter, live placement method, or real opportunity is used.
+  Exact coverage and boundaries are in §6, §7c and §12.
+- **Previous update (D27, 2026-10-10, merge commit `86bd003`):**
+  audited adapter evidence, public-only smoke posture, collection admission,
   order-book validity, paper data gating and readiness; recorded both latest
   live attempts as `UNAVAILABLE` (TLS EOF), without calling either adapter
-  broken or verified. Current details are in §§5–9 and new §7e.
-- **Previous update (Arb.10, 2026-10-10, branch `arena/dbb1a2ee-arb`):**
+  broken or verified. Current details are in §§5–9 and §7e.
+- **Earlier update (Arb.10, 2026-10-10, branch `arena/dbb1a2ee-arb`):**
   audited all YAML configuration keys and the production call graph; removed
   ignored settings rather than presenting them as runtime protections; added
   the configuration/module audit in §7d and deferred prototypes to D26. No
@@ -88,9 +95,9 @@ Authoritative context: `README.md` (what works / what is stubbed),
 | Item | Value |
 |---|---|
 | Repo | `Steezyharsh1/Arb` (package name `prediction_arb`) |
-| Working branch (fixed for this Arena session) | `arena/e7d80655-arb` |
-| Baseline commit | `e0f8e4a58ad2f5a50dc654088e45b208342df3c1` — Arena session base |
-| Working tree at continuation | in-progress adapter-evidence audit changes were already present and uncommitted; baseline test count 601 is inherited from the previous turn and was not rerun until §6 below |
+| Working branch (fixed for this Arena session) | `arena/2ac1509e-arb` |
+| Baseline commit | `86bd003ee00e9962f1cae219446a170471986230` — Arena session base (D27 merge) |
+| Working tree at continuation | clean; no pre-existing changes. Baseline suite re-run before edits: 632 passed in 28.86 s; Arb.12 result is recorded in §6. |
 | Clone depth | **shallow (depth 1)**: `git log` shows a single commit. Run `git fetch --unshallow` if you need real history (e.g. to blame a regression) |
 | Merged PRs to date | #1 Phase 0, #2 Phase 1, #3 Phases 2+3, #4 Phase 2/3 gaps + Phase 4, #5 Phase 5, #6 D16 baseline recovery, #7 deterministic settlement fixtures, #8 D17 mandatory-cost fail-closed repair, #9 fee-readiness review, #10 D18 settlement timing, #11 D10/D19 readiness + fee freshness |
 | Arb.8 candidate-retrieval session | Branch `arena/732e107e-arb`, branched from `91d46df` (`main` HEAD). Baseline before its change: `.venv/bin/pytest -o addopts=""` **549 passed in 27.72 s**. After it: **582 passed in 27.75 s** (549 + 31 new in `tests/test_candidate_retrieval.py` + 2 new settlement/threshold regressions). Not pushed (session policy). |
@@ -192,10 +199,14 @@ compliance and risk state; a mode is `ready` only when no criterion is
 `BLOCKED`, and each unmet criterion carries the reason. `--readiness` prints
 that report and enables nothing (no files, no directories, no orders).
 
-**Fastest offline way to watch the whole path run:**
-`pytest tests/test_candidate_generation.py::TestPipelineEmitsCandidates -q`
-(differently-phrased cross-venue pair → candidate → deterministic pass →
-APPROVED certificate → evaluated opportunity, with a stub LLM).
+**Fastest offline core-path check (Arb.12):**
+`.venv/bin/pytest -o addopts='' tests/test_synthetic_opportunity_e2e.py::TestSyntheticOpportunityEndToEnd::test_approved_pair_walked_costs_and_paper_fills -q`
+(differently phrased paper-research pair → production candidate/matcher →
+APPROVED synthetic certificate → fresh walked books → cost ledger → risk
+coordinator → `PaperExecutionEngine` fills). The entire new refusal/partial/failure
+battery is `.venv/bin/pytest -o addopts='' tests/test_synthetic_opportunity_e2e.py`.
+The earlier `tests/test_candidate_generation.py::TestPipelineEmitsCandidates`
+remains the shorter matching-to-evaluation regression.
 
 ---
 
@@ -266,9 +277,11 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4 (re-read from
 | CLI smokes re-run after the change: `--status`, `--readiness`, `--mode historical --date 2020-01-01` | **Exit 0**, grep checks pass, 2026-10-10 on `arena/732e107e-arb`. The smokes created empty git-ignored `data/`, `logs/`, `reports/`; these were removed afterwards. |
 | `benchmarks/candidate_retrieval/fallback_window.py` | **Run 2026-10-10.** A 60-min cross-venue fallback is not adopted. Reference: 15/16 → 16/16 at 36 → 42 pairs. Synthetic: 3,262 → 5,112 pairs (+57 %), det-pass 720 → 796, eq∩det unchanged 256/256. Output `results/fallback_60min.json`. |
 | `python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'` | **Succeeded 2026-10-10**; Python 3.11.2, including pytest 9.1.1, PyYAML 6.0.3, Rich 15.0.0 and project runtime dependencies |
-| `.venv/bin/pytest -o addopts=""` | **632 collected, 632 passed in 28.01 s**, re-run 2026-10-10 on `arena/e7d80655-arb` after D27; Python 3.11.2, all offline. This supersedes the prior 601-test Arb.10 run. |
+| `.venv/bin/pytest -o addopts=""` | D27 baseline: **632 passed in 28.86 s**, re-run 2026-10-10 before Arb.12 edits on `arena/2ac1509e-arb`; Python 3.11.2, all offline. |
+| `.venv/bin/pytest -o addopts="" tests/test_synthetic_opportunity_e2e.py` | **11 passed in 0.28 s**, 2026-10-10; the candidate → certificate → fresh books → cost → risk → paper-execution core path plus mismatch, same-venue, unknown-cost, liquidity, staleness, capital, partial-fill and execution-failure refusals. All inputs synthetic and offline. |
+| `.venv/bin/pytest -o addopts=""` | **643 collected, 643 passed in 28.04 s**, 2026-10-10 after Arb.12 on `arena/2ac1509e-arb`; Python 3.11.2, all offline. |
 
-| `.venv/bin/pytest --collect-only -q` | **632 tests:** arbitrage_engine 10, candidate_generation 29, candidate_retrieval 31, collect_mode 8, config_audit 2, failure_modes 13, kalshi_phase2 23, kalshi_smoke_script 14, llm_client 20, matching_arb9 15, paper_realism 15, paper_streaming 5, paths 23, phase4_recording 27, polymarket_fees 25, polymarket_us 50, polymarket_us_smoke_script 5, readiness 140, risk_enforcement 16, safety 26, settlement_timing 44, spec_cases 13, unavailable_costs 35, units 43 |
+| `.venv/bin/pytest --collect-only -q` | **643 tests:** arbitrage_engine 10, candidate_generation 29, candidate_retrieval 31, collect_mode 8, config_audit 2, failure_modes 13, kalshi_phase2 23, kalshi_smoke_script 14, llm_client 20, matching_arb9 15, paper_realism 15, paper_streaming 5, paths 23, phase4_recording 27, polymarket_fees 25, polymarket_us 50, polymarket_us_smoke_script 5, readiness 140, risk_enforcement 16, safety 26, settlement_timing 44, spec_cases 13, **synthetic_opportunity_e2e 11**, unavailable_costs 35, units 43. |
 
 | Paper risk/exposure fault injection | **16/16 passed 2026-10-10** in `tests/test_risk_enforcement.py` (15 existing lifecycle tests + Arb.10 LIMIT-request regression). Verifies explicit capital for all enabled venues and missing-capital refusal; all 12 configured names; seven pre-leg-A capital/state breaches with zero submissions; exact state update then a blocked second trade; aggregate/per-incident prospective exposure and aged exposure; successful partial-fill retry; failed hedge + failed unwind → retained exposure + persistent kill; timeout breach → kill while recovery remains allowed; simulated unwind really removes the position; coordinator requests are priced LIMIT; concession cap; recovery loss feeds the daily gate. `FaultEngine` is simulation-only and holds no adapter. Caveats D21–D24 are not promoted to enforced |
 | D18 baseline reproduction and mutation checks | **Run 2026-10-10.** In a worktree at `caa57c8`, a past-dated Kalshi/ForecastEx pair with synthetic complete fees returned `TRADE`, `settlement_delay_cost=0.0000`, `net_profit=7.3200`; same script on this branch → `BLOCK`, `None`. Eight mutations (Kalshi back to expected+0, past clamp, Polymarket US 0-day, ForecastEx 0-day, ignoring `evaluation_time` in the evaluator, half-even rounding, compounded cost, dropping it in `run_arbitrage_scan`) fail 6 / 5 / 3 / 2 / 1 / 1 / 12 / 1 tests respectively (counts for the first seven taken before the 44th test was added); source restored and diff-checked afterwards |
@@ -423,6 +436,24 @@ ROADMAP register because their impact needs an owner/agent decision first:
   pairs will block or lose margin by design. Disputed/amended markets can
   still settle later than the bound (not modelled). Observed payload values
   (K9) have not been checked.
+- **Arb.12 synthetic E2E scope (2026-10-10).**
+  `tests/test_synthetic_opportunity_e2e.py` exercises `check_contract_eligibility`
+  in PAPER (the synthetic non-sports contracts are UNKNOWN but research-allowed,
+  not live-eligible), candidate generation + deterministic matching + a
+  schema-validated scripted LLM + certificate/provenance gates,
+  `order_book_problems` + `OrderBookAggregator` freshness, shared scan/optimizer,
+  order-book walks, complete TEST-ONLY venue-specific trade/settlement fees,
+  the test-only ForecastEx timing estimator plus production Kalshi timing,
+  `evaluate_two_leg`, `ExecutionCoordinator` risk/exposure/recovery and
+  `PaperExecutionEngine`. Eleven offline tests cover mismatch, SAME_VENUE,
+  incomplete production costs, thin/stale books, risk/cash refusal, partial
+  recovery and unresolved failure. No production adapter or live order method
+  is constructed/called. `PaperEngine._cycle`/discovery, network/data adapters,
+  DB persistence/reporting, real LLM/API, production-complete fees, real
+  ForecastEx settlement timing, confirmed Utah/account eligibility, and any
+  real fills or multi-week paper run remain untested. No missing seam required
+  a production refactor: the shared stages, freshness aggregator, coordinator
+  and simulator already compose via injectable inputs.
 
 ### 7d. Arb.10 configuration and runtime call-graph audit — VERIFIED 2026-10-10
 
@@ -521,6 +552,13 @@ the repaired status conflation and collection/book-admission gaps.
    fallback (+57 % synthetic candidates for no synthetic recall gain, recovers
    the one paraphrase). Also open: D25, the threshold-operator vocabulary, which
    belongs to the adapters. Full record: `docs/CANDIDATE_RETRIEVAL.md`.
+0f. **Arb.12 synthetic offline pipeline proof DONE 2026-10-10** — 11 tests
+   drive a pair through actual matching/certification, fresh-book validation,
+   walked/costed evaluation, paper risk and the simulator, with failure/refusal
+   cases. Exact scope and gaps: §7c and `docs/TESTING.md`. **This does not
+   change external evidence:** no LLM endpoint, real fees/books, confirmed
+   eligibility, ForecastEx settlement evidence, live adapter, or multi-week
+   paper run was tested.
 1. ~~**Restore a green baseline (D16).**~~ **DONE 2026-10-09** — 313 passed
    in 25.01 s with a fixed settlement clock and at three future wall-clock
    dates; stale fixtures fail mutation checks.
@@ -701,6 +739,26 @@ counts, doc updates, and the next action. Milestone-end reporting format:
 
 **Most recent meaningful changes** (newest first):
 
+000000. **2026-10-10 — Arb.12 offline synthetic opportunity validation
+   (branch `arena/2ac1509e-arb`, base `86bd003`).** Added
+   `tests/test_synthetic_opportunity_e2e.py` (11 tests): research-mode
+   eligibility → candidate retrieval → deterministic match + schema-validated
+   scripted LLM → APPROVED independent certificate → validated fresh books →
+   production walk/evaluation + explicit synthetic per-venue trade/settlement
+   fees + known test settlement timing → coordinator risk checks →
+   `PaperExecutionEngine`. The successful path calculates fees `$0.58`,
+   lockup cost `$0.0019`, capital `$4.58`, and net `$3.4181` for 8 synthetic
+   contracts, then fills both simulated legs. Refusal/regression cases cover
+   payout mismatch, SAME_VENUE even with forged approval, production
+   incomplete fees/UNKNOWN ForecastEx timing (net profit stays `None`), thin
+   and stale books, risk and venue-cash limits, partial recovery and unresolved
+   failure/kill. Synthetic LLM/fees/timing/books are not external evidence;
+   paper eligibility is UNKNOWN/research-only; no adapter or live placement
+   method is constructed/called. `PaperEngine._cycle`, discovery/persistence,
+   real accounts/fees/settlement/LLM, resolved legal eligibility, live paths,
+   and multi-week paper remain untested. No production refactor was needed.
+   Focused: **11 passed in 0.28 s**; full suite: **643 passed in 28.04 s**.
+   Docs: `docs/TESTING.md`, `docs/ROADMAP.md`, and this handoff.
 00000. **2026-10-10 — D27 adapter evidence and collection audit (branch
    `arena/e7d80655-arb`, base `e0f8e4a58ad2f5a50dc654088e45b208342df3c1`).**
    Separated documentation, connectivity, usable market data, full adapter
@@ -856,9 +914,11 @@ counts, doc updates, and the next action. Milestone-end reporting format:
 
 **Recommended next task (one):** D20's paper enforcement is complete; do not
 wire the disconnected live `EmergencyManager` or enable orders to address
-D21–D24. The agent-side fee/source audit, D18 settlement-timing review, and
-readiness derivation (D10/D19) are also complete. Request the redacted owner
-evidence listed in
+D21–D24. The agent-side fee/source audit, D18 settlement-timing review,
+readiness derivation (D10/D19), and Arb.12 offline synthetic core-path proof
+are complete. The latter does **not** make a production fee or settlement
+schedule calculable and does not count as venue evidence. Request the redacted
+owner evidence listed in
 `docs/FEE_READINESS.md` (plus the two read-only smoke-script outputs). This
 sandbox cannot produce account route, actual fee-report, settlement-statement,
 or venue API evidence. No production fee schedule should be promoted before
