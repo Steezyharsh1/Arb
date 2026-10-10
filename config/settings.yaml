@@ -13,19 +13,9 @@ arbitrage:
   maximum_execution_latency_ms: 500
   maximum_settlement_delay_days: 5
 
-risk:
-  max_trade_capital: 100
-  max_total_capital: 1000
-  max_capital_per_venue: 500
-  max_capital_per_event: 200
-  max_unhedged_exposure: 25
-  max_daily_loss: 50
-  max_open_positions: 20
-  max_concurrent_orders: 4
-  max_unhedged_seconds: 30
-  max_unhedged_contracts: 100
-  max_unhedged_dollars: 25
-  max_emergency_loss: 10
+# Hard execution-risk limits have one authoritative source:
+# config/risk_limits.yaml. Do not duplicate them here; the former copy used
+# the mismatched key `max_trade_capital` and was not the paper execution input.
 
 execution:
   max_book_age_ms: 1000

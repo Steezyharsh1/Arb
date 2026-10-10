@@ -761,7 +761,7 @@ def criterion_eligibility(jurisdiction: str, venues: Sequence[str],
 
 
 def criterion_risk_limits(risk_limits: Mapping[str, Any]) -> Criterion:
-    """Every limit the execution path enforces must be configured and > 0."""
+    """Check configuration completeness only, never infer runtime wiring."""
     key, label = "risk_limits", "Risk limits configured"
     cfg = dict(risk_limits or {})
     sections = {
@@ -801,9 +801,11 @@ def criterion_risk_limits(risk_limits: Mapping[str, Any]) -> Criterion:
         return blocked(key, label,
                        "hard risk limits (§70) must be explicit and positive: "
                        + "; ".join(problems), value)
-    return passed(key, label,
-                  f"every hard limit the execution path enforces is "
-                  f"configured and positive: {', '.join(configured)}", value)
+    return passed(
+        key, label,
+        "all hard-limit values are configured and positive (configuration "
+        "check only; runtime-enforcement evidence is documented in "
+        f"docs/RISK_MANAGEMENT.md): {', '.join(configured)}", value)
 
 
 def criterion_live_configuration(probe: LiveConfiguration) -> Criterion:

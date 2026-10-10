@@ -62,7 +62,11 @@ What each mode is held to, and why the bar differs:
 | COLLECT (3 criteria) | verified data adapters (it records only venues whose `APIStatus` is VERIFIED), kill switch disengaged | NOT_APPLICABLE — it records contracts, matches and order books and never calculates a fee |
 | HISTORICAL (6) | recorded-data volume (a missing store blocks; it is reported, never created), kill switch disengaged | RESEARCH — a stale schedule still prices the replay, and the run, its summary and its report are labelled `RESEARCH USE ONLY: fee schedule(s) older than …`; fee completeness, settlement timing and the matcher are WARN rather than BLOCKED, because replay measures logic instead of executing |
 | PAPER (9) | verified adapters, a provenance-INDEPENDENT pair, a configured matcher, complete fee schedules, evidenced settlement timing, book-staleness gates, kill switch disengaged; eligibility is WARN here (it only blocks live) | MANDATORY — paper results are the evidence live readiness is built on, so they may not be costed on a schedule nobody has re-verified |
-| LIVE (12) | everything PAPER is held to (with eligibility BLOCKING), plus ≥2 live-capable independent venues (adapter `APIStatus.VERIFIED` **and** verified order-type support), recorded paper/replay volume, resolved jurisdiction eligibility, every configured hard risk limit, and the existence of `.env.live` (existence only — §48 forbids reading live credentials outside live mode) | MANDATORY |
+| LIVE (12) | everything PAPER is held to (with eligibility BLOCKING), plus ≥2 live-capable independent venues (adapter `APIStatus.VERIFIED` **and** verified order-type support), recorded paper/replay volume, resolved jurisdiction eligibility, every hard risk value explicitly configured and positive, and the existence of `.env.live` (existence only — §48 forbids reading live credentials outside live mode) | MANDATORY |
+
+The readiness risk row is configuration validation, not runtime-wiring proof.
+Paper enforcement and the D21–D24 limitations are traced in
+`docs/RISK_MANAGEMENT.md`; live has no coordinator and remains monitor-only.
 
 Rejected candidates are explained where the operator is looking (§100):
 `monitoring/dashboard.py::print_block_reasons` prints the distinct

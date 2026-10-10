@@ -35,6 +35,20 @@ Utah category/event-text sports restrictions, deterministic matcher rejections,
 LLM schema validation, risk limits, settlement lockup, metadata, normalization,
 and aliases.
 
+**Paper capital and risk enforcement** (`test_risk_enforcement.py`, D20–D24,
+2026-10-10 — all offline): checked-in paper cash covers every enabled venue;
+missing startup/order capital is explicit; the configured 12-field inventory
+matches `RiskLimits`; every capital/trade/event/venue/daily-loss/position/order
+breach blocks before leg A with zero submissions; successful fills update state
+and block a later over-limit trade; aggregate/per-incident exposure is checked
+prospectively and by age/contracts/dollars. Fault-injected simulation covers a
+successful hedge retry, failed retries plus failed unwind, timeout breach,
+persistent kill activation, recovery continuing after kill, exposure clearing,
+concession-cap exhaustion, and observed recovery loss feeding the next daily
+loss check. A real `PaperExecutionEngine` regression proves a sell cannot
+create a short and removes the unwound position. 15 tests; no adapter or real
+order path.
+
 **Safety** (`test_safety.py`): paper engine holds no adapters; adapter
 refuses orders outside live; mode-mismatch rejection; confirmation
 phrase; firewall — every one of its checks individually blocks
