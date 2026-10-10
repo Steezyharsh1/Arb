@@ -93,6 +93,11 @@ def test_tls_failure_writes_exact_unavailable_layer_and_never_loads_credentials(
 
     assert code == 1
     assert payload["result"] == "UNAVAILABLE"
+    # A failed connect must not be recorded under a name that asserts an HTTP
+    # response was received (Arb.15: the old label contradicted its own result).
+    connect = payload["checks"][0]
+    assert connect["check"] == "connect: public gateway reachability"
+    assert connect["result"] == "UNAVAILABLE"
     assert payload["unavailable_is_not_adapter_failure"] is True
     assert payload["evidence_levels"]["connectivity"]["state"] == "UNAVAILABLE"
     assert payload["evidence_levels"]["usable_market_data"]["state"] == "NOT_OBSERVED"

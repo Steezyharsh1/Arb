@@ -5,51 +5,38 @@ permanent entry point for a fresh agent session with no memory of prior
 conversations. It tells you what the project is, what is true *right now*,
 what is broken, what you may work on, and what you must not touch.
 
-- **Last updated:** 2026-10-10 (UTC), Arb.13 / D28, on the fixed Arena branch
-  `arena/82abf69d-arb` (base `3d01ce9139dd303eee3dcc9b310d6572a197f861`).
-  Historical CLI/library now share an exact-time, causal evaluator and explicit
-  conditional depth/latency/cash simulator. Schema 4 preserves receipt/outcome/
-  immutable-term evidence without inventing legacy context. Report schema 2
-  separates observed inputs, calculated opportunity edge, assumed execution,
-  simulated paired positions and naked exposure; unsupported data earns no
-  simulated profit. No walk-derived fill probability, opportunity-summed equity
-  or credited settlement cash. **No genuine recorded dataset exists here.**
-  Full offline suite: **704 passed in 68.46 s**; 61 new deterministic cases,
-  eight caught mutations. See §6 / §7f and `docs/HISTORICAL_EVALUATION.md`.
-  No production venue/fee/timing/readiness claim was promoted or live path enabled.
-- **Previous update (Arb.12, base `86bd003`, merged as `3d01ce9`):**
-  11 offline TEST-ONLY paper-core integration cases; inherited 643-test result.
-- **Previous update (D27, 2026-10-10, merge commit `86bd003`):**
-  audited adapter evidence, public-only smoke posture, collection admission,
-  order-book validity, paper data gating and readiness; recorded both latest
-  live attempts as `UNAVAILABLE` (TLS EOF), without calling either adapter
-  broken or verified. Current details are in §§5–9 and §7e.
-- **Earlier update (Arb.10, 2026-10-10, branch `arena/dbb1a2ee-arb`):**
-  audited all YAML configuration keys and the production call graph; removed
-  ignored settings rather than presenting them as runtime protections; added
-  the configuration/module audit in §7d and deferred prototypes to D26. No
-  active risk behavior or live-order path was added.
-- **Previous update (Arb.9, 2026-10-10, branch `arena/a5c3486d-arb`):**
-  semantic-matching budget and deduplication — deterministic prioritization by
-  independence/shared-keys/settlement-proximity, cache keys sensitive to
-  contract versions + matcher/prompt/model versions, match_id includes
-  versions and is sorted, REVIEW deduplication prevents per-cycle bloat, and
-  budget-exhausted pairs remain eligible (not cached).
-- **Arb.8 candidate retrieval (2026-10-10, branch `arena/732e107e-arb`, base
-  `91d46df`):** cross-venue candidate generation (§96) is now pairwise,
-  bounded and non-transitive. On the 1,000-contract benchmark it proposes
-  **3,262 pairs instead of 333,296**, keeps **256/256** equivalent pairs the
-  matcher can pass, and cuts the largest component from **1,000 to 51**. Recall
-  on the 50-listing reference set is **15/16**, and the lost pair is a known
-  paraphrase miss (§7c, owner decision §9 of `docs/CANDIDATE_RETRIEVAL.md`).
-  Full design, numbers and lost matches: **`docs/CANDIDATE_RETRIEVAL.md`**.
-  New defect **D25** (operator/units vocabulary) is recorded, not fixed.
-- **Evidence discipline:** verification dates are per claim. Active-route fee
-  documents and venue settlement-timing documents were opened directly on
-  2026-10-10; no venue API, account, fill,
-  or settlement statement was available. Test and CLI results below are marked
-  with their actual command/date. Anything inherited and not re-run is
+- **Last updated:** 2026-10-10 (UTC), **Arb.15 consolidation**, branch
+  `arena/f248cbf8-arb`, base `main` at `43c683b` (PR #19, Arb.14). Documentation
+  and evidence consolidation only: no strategy family, venue or live path added.
+- **Verified state (Arb.15, re-run 2026-10-10; details §6):**
+  - Offline suite: **764 passed in 40.60 s** (`.venv/bin/pytest -o addopts=""`);
+    plain `pytest` (the CI form) 764 in 38.74 s. Same count at frozen clocks
+    2027-10-09 and 2031-01-02 (fee, freshness and evaluator clocks frozen together).
+  - `--status`, `--readiness`, the empty historical replay, `--pipeline-report`
+    (no store) and a one-cycle paper run exit 0 as documented.
+  - Venue evidence: Kalshi `MARKET_DATA_OBSERVED` from a historical 2026-08-30
+    capture only; Polymarket US `API_DOCUMENTED_UNTESTED` (no payload ever
+    returned); ForecastEx a stub. Both current public probes are `UNAVAILABLE`
+    (TLS EOF) from this sandbox, whose egress allowlist excludes the venue hosts.
+    This is not an adapter failure and must not be bypassed. **0 live-capable venues.**
+  - Fees and readiness: 0 of 3 provenance-independent pairs are cost-evaluable;
+    all trade and settlement schedules INCOMPLETE; Polymarket US and ForecastEx
+    settlement timing UNKNOWN. Live NOT READY.
+  - Matching: no LLM configured, so no certificate is APPROVED and no pair is
+    evaluated. **No genuine recorded two-venue dataset exists.**
+  - Remote CI on `main` at `43c683b`: success (run `38071625662`).
+- **Arb.15 corrections** (§6, §7a, §12): stale 704/643 counts and "next free D29"
+  in README, KICKOFF, TESTING, HISTORICAL_EVALUATION, ROADMAP and this file; the
+  §2 branch row; the "CI not run" wording; smoke-script labels that overstated a
+  connect check (D30); benchmark budget rows regenerated and marked not
+  like-for-like (D31, partly open); a partial clock-freeze harness artifact
+  documented; ROADMAP §2a added as the authoritative queue.
+- **Recommended next action (one):** see §12 and `docs/ROADMAP.md` §2a item 1.
+- **Evidence discipline:** verification dates are per claim. Test and CLI results
+  are marked with their command and date. Anything inherited and not re-run is
   labelled INHERITED; never promote it to VERIFIED without evidence.
+- **History:** session records (Arb.8 to Arb.14) are in §12 and the dated §6
+  sections. This header does not repeat them.
 - This document does **not** restate the other docs. Each subject links to the
   one authoritative document for it. If this file and another document
   disagree about *status*, re-verify and fix both in the same change.
@@ -101,14 +88,14 @@ Authoritative context: `README.md` (what works / what is stubbed),
 | Item | Value |
 |---|---|
 | Repo | `Steezyharsh1/Arb` (package name `prediction_arb`) |
-| Working branch (fixed for this Arena session) | `arena/dc4aad6b-arb` (Arb.14 session; earlier Arb.13 text names `arena/82abf69d-arb`, the handoff's prior session branch). Base `6a17f58` (`main`). |
-| Baseline commit | `3d01ce9139dd303eee3dcc9b310d6572a197f861` — Arena session base (Arb.12 merge) |
-| Working tree at Arb.13 start | clean; no pre-existing changes; baseline **643 passed in 35.05 s**. Arb.13 result and limitations are in §6. Changes are one focused commit on the fixed branch; no push or remote CI is claimed. |
-| Clone depth at session start | **shallow (depth 1)**: initial `git log` showed a single commit. Run `git fetch --unshallow` if you need real history (e.g. to blame a regression) |
-| Merged PRs to date | #1 Phase 0, #2 Phase 1, #3 Phases 2+3, #4 Phase 2/3 gaps + Phase 4, #5 Phase 5, #6 D16 baseline recovery, #7 deterministic settlement fixtures, #8 D17 mandatory-cost fail-closed repair, #9 fee-readiness review, #10 D18 settlement timing, #11 D10/D19 readiness + fee freshness |
+| Working branch (fixed for this Arena session) | `arena/f248cbf8-arb` (Arb.15). Base: `main` at `43c683b`. Branches named in earlier sessions are historical only. |
+| Baseline commit (Arb.15 session base) | `43c683b43c8cb04f72ee0fc84af62975acea0bc4`: `main` after PR #19 (Arb.14). The earlier Arb.12 baseline `3d01ce9` is historical. |
+| Working tree at Arb.15 start | Clean; `.venv` created by `pip install -e '.[dev]'`; no pre-existing changes. Results are in §6. The session commit's hash is not written into the file it contains; read it from `git log` on `arena/f248cbf8-arb`. |
+| Clone depth | **Shallow (depth 1)** at the Arb.15 start, as before. Run `git fetch --unshallow` only if history is needed (for example, to blame a regression). |
+| Merged PRs to date | #1 Phase 0, #2 Phase 1, #3 Phases 2+3, #4 Phase 2/3 gaps + Phase 4, #5 Phase 5, #6 D16 baseline recovery, #7 deterministic settlement fixtures, #8 D17 mandatory-cost fail-closed repair, #9 fee-readiness review, #10 D18 settlement timing, #11 D10/D19 readiness + fee freshness, #13 Arb.8 retrieval, #14 Arb.9 budget/dedup, #15 Arb.10 config audit, #16 D27 adapter evidence, #17 Arb.12 pipeline proof, #18 Arb.13 historical evaluator, #19 Arb.14 telemetry (PR #12 is not in the GitHub history used for this consolidation) |
 | Arb.8 candidate-retrieval session | Branch `arena/732e107e-arb`, branched from `91d46df` (`main` HEAD). Baseline before its change: `.venv/bin/pytest -o addopts=""` **549 passed in 27.72 s**. After it: **582 passed in 27.75 s** (549 + 31 new in `tests/test_candidate_retrieval.py` + 2 new settlement/threshold regressions). Not pushed (session policy). |
 | Arb.9 matching budget & dedup session | Branch `arena/a5c3486d-arb`, branched from `0b99106` (`main` HEAD). After: **597 passed in 29.23 s** (582 + 15 new in `tests/test_matching_arb9.py`). |
-| CI | `.github/workflows/ci.yml`: install → `pytest` → 5 CLI smokes (three status entry points, readiness, empty historical) → honest-empty-replay grep → readiness side-effect guard → tracked-artifact guard |
+| CI | `.github/workflows/ci.yml`: install, `pytest`, 5 CLI smokes (three status entry points, readiness, empty historical), honest-empty-replay grep, readiness side-effect guard, tracked-artifact guard. **Remote CI is green on `main` at `43c683b`** (run `38071625662`; Arb.13 and Arb.14 also green). Remote CI for the Arb.15 commit is recorded in §12 only if it has actually run. |
 
 ---
 
@@ -268,7 +255,43 @@ live-blocking): `docs/COMPLIANCE.md`, evidence rows R1–R9 in
 
 ## 6. Verified test results and environment limitations (2026-10-10)
 
-### Current Arb.14 verification — actually run, offline (2026-10-10)
+### Current Arb.15 verification — actually run, offline and read-only (2026-10-10)
+
+| Command | Result |
+|---|---|
+| `.venv/bin/pytest -o addopts=""` | **764 passed in 40.60 s** (first run) |
+| `.venv/bin/pytest` (CI form, `addopts = "-q"`) | **764 passed in 38.74 s**, exit 0 (first run) |
+| Final re-run after all edits: `pytest` and `pytest -o addopts=""` | **764 passed in 38.51 s** (CI form, exit 0) and **764 passed in 38.81 s** |
+| `PYTHONPATH=. FROZEN_NOW=2027-10-09T12:00:00 .venv/bin/pytest -o addopts="" -p tests.frozen_fee_clock` | **764 passed in 38.53 s** |
+| same with `FROZEN_NOW=2031-01-02T12:00:00` | **764 passed in 39.61 s** |
+| `python -m prediction_arb.main --status` | exit 0; kalshi `MARKET_DATA_OBSERVED`; polymarket_us and forecast_ex `API_DOCUMENTED_UNTESTED`; kill switch disengaged; 3 pairs INDEPENDENT |
+| `python -m prediction_arb.main --readiness` | exit 0; COLLECT READY (1 of 3); HISTORICAL NOT READY (1); PAPER NOT READY (5); LIVE NOT READY (8) |
+| `--mode historical --date 2020-01-01` | exit 0; honest empty replay (0 frames, 0 opportunities; net P&L n/a) |
+| `--pipeline-report` (before any paper run) | exit 0; `UNAVAILABLE: no paper store` |
+| `scripts/kalshi_smoke.py --limit 1` | exit 1; `UNAVAILABLE`; TLS EOF on both configured bases |
+| `scripts/polymarket_us_smoke.py --limit 1` | exit 1; `UNAVAILABLE`; TLS EOF |
+| `--mode paper --cycles 1` | exit 0 (about 8 s); both connect attempts failed; no active-venue markets; LLM not configured |
+| `benchmarks.candidate_retrieval.run --source reference` | identical to committed `results/reference.json` (timing fields only differ) |
+| `benchmarks.candidate_retrieval.run --source synthetic` (10 configs) | 10 committed synthetic result files regenerated; their budget-200 retrieval rows were stale (D31) |
+| `.venv/bin/pytest --collect-only -q` | 764 tests in 27 files (per-file counts in the table below) |
+
+**Corrections made in Arb.15** (each is evidence-backed; nothing was promoted):
+
+- Stale claims: 704 and 643 counts in README, `AGENT_KICKOFF`, `TESTING`, `HISTORICAL_EVALUATION` and `ROADMAP`; "next free D29" (D29 is taken, D32 is next); the §2 branch row, which named a different session branch; "CI not run" wording replaced by the remote run IDs above.
+- README: `--pipeline-report` added to Quick start; the §103 telemetry bullet now carries the D29 caveat; the defect range is D1–D31.
+- Smoke labels (D30): the connect checks were labelled as HTTP probes although an `UNAVAILABLE` result comes before any HTTP response. Labels are now `connect: public status endpoint reachability` (Kalshi) and `connect: public gateway reachability` (Polymarket US). Two regression assertions were added to the smoke test files. These are label corrections only; no adapter behavior changed.
+- Benchmarks (D31): `docs/CANDIDATE_RETRIEVAL.md` §1, §2 and §5 now carry the regenerated values. The "legacy" budget row uses the pre-Arb.8 group order, so the before/after budget comparison is **not like-for-like**. The like-for-like legacy comparison stays open.
+- Clock sweep: a partial freeze of only the fee calculator and freshness modules gives 763 passed and 1 failed at both dates. Cause: `arbitrage/two_leg.py` read the real clock and the test helper read the frozen one. This is a harness artifact. `tests/frozen_fee_clock.py` (not collected) patches all three `utcnow` references, and the sweep then passes. Product code uses one `core.clock.utcnow`.
+- ROADMAP: §2a added as the authoritative queue; D8 spec heading count corrected to 81; D30 and D31 registered.
+
+**Evidence limits recorded in Arb.15.** The public probes reproduced `UNAVAILABLE`
+(TLS EOF before any response) at about 17:29 UTC (`docs/VENUE_RESEARCH.md` K9 and
+P7 notes). The sandbox egress allowlist is limited to GitHub, PyPI and npm hosts.
+The cause is probably that restriction; this is an inference, not a verified fact.
+Not run in Arb.15: mutation checks (the Arb.13/Arb.14 results are inherited),
+a live venue payload, any fee or settlement statement, and a multi-cycle paper run.
+
+### Arb.14 verification (dated record; counts superseded by the Arb.15 table above)
 
 - Full suite: **764 passed** (`.venv/bin/pytest -o addopts=""`, 44.28 s). Before
   Arb.14 the suite had 704 tests; 60 are new in `tests/test_pipeline_telemetry.py`.
@@ -291,7 +314,7 @@ live-blocking): `docs/COMPLIANCE.md`, evidence rows R1–R9 in
   this session is offline. The paper report is therefore unexercised against live
   feeds.
 
-### Current Arb.13 verification — actually run, offline
+### Arb.13 verification (dated record)
 
 | Command / check | Result |
 |---|---|
@@ -301,7 +324,7 @@ live-blocking): `docs/COMPLIANCE.md`, evidence rows R1–R9 in
 | Eight targeted mutation checks | **Each caught (1 failed)**, source restored; legacy grade assertion strengthened and future library-input borrowing blocked (normalization-aware as-of term/full-book identity). Details in `docs/HISTORICAL_EVALUATION.md` |
 | `--status`, `--readiness`, `--mode historical --date 2020-01-01` | **Exit 0**. Actual historical startup constructs/connects/calibrates no venue adapter. Empty JSON has null simulated/realized P&L, no equity key, and minimum collection requirements |
 | Readiness before/after runtime-tree inventory | **Unchanged**, no recorded store created. COLLECT READY, HISTORICAL 1 blocker, PAPER 5, LIVE 8; advisory only |
-| Genuine historical / execution evidence | **ABSENT**. No two-venue dataset, actual fill/account/settlement evidence or new venue probe; remote CI not run |
+| Genuine historical / execution evidence | **ABSENT**. No two-venue dataset, actual fill/account/settlement evidence or new venue probe. (Remote CI was not run at Arb.13; `main` is now green, §2.) |
 
 `compileall` and `git diff --check` also pass. Final review caught an additional
 library-only future-input borrowing path; it is regression/mutation-tested and
@@ -337,7 +360,7 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4 (re-read from
 | `.venv/bin/pytest -o addopts="" tests/test_synthetic_opportunity_e2e.py` | **11 passed in 0.28 s**, 2026-10-10; the candidate → certificate → fresh books → cost → risk → paper-execution core path plus mismatch, same-venue, unknown-cost, liquidity, staleness, capital, partial-fill and execution-failure refusals. All inputs synthetic and offline. |
 | `.venv/bin/pytest -o addopts=""` | **643 collected, 643 passed in 28.04 s**, 2026-10-10 after Arb.12 on `arena/2ac1509e-arb`; Python 3.11.2, all offline. |
 
-| `.venv/bin/pytest --collect-only -q` | **643 tests:** arbitrage_engine 10, candidate_generation 29, candidate_retrieval 31, collect_mode 8, config_audit 2, failure_modes 13, kalshi_phase2 23, kalshi_smoke_script 14, llm_client 20, matching_arb9 15, paper_realism 15, paper_streaming 5, paths 23, phase4_recording 27, polymarket_fees 25, polymarket_us 50, polymarket_us_smoke_script 5, readiness 140, risk_enforcement 16, safety 26, settlement_timing 44, spec_cases 13, **synthetic_opportunity_e2e 11**, unavailable_costs 35, units 43. |
+| `.venv/bin/pytest --collect-only -q` | **764 tests in 27 files** (Arb.15, 2026-10-10): arbitrage_engine 10, candidate_generation 29, candidate_retrieval 31, collect_mode 8, config_audit 2, failure_modes 13, historical_evaluation 61, kalshi_phase2 23, kalshi_smoke_script 14, llm_client 20, matching_arb9 15, paper_realism 15, paper_streaming 5, paths 23, phase4_recording 27, pipeline_telemetry 60, polymarket_fees 25, polymarket_us 50, polymarket_us_smoke_script 5, readiness 140, risk_enforcement 16, safety 26, settlement_timing 44, spec_cases 13, synthetic_opportunity_e2e 11, unavailable_costs 35, units 43. |
 
 | Paper risk/exposure fault injection | **16/16 passed 2026-10-10** in `tests/test_risk_enforcement.py` (15 existing lifecycle tests + Arb.10 LIMIT-request regression). Verifies explicit capital for all enabled venues and missing-capital refusal; all 12 configured names; seven pre-leg-A capital/state breaches with zero submissions; exact state update then a blocked second trade; aggregate/per-incident prospective exposure and aged exposure; successful partial-fill retry; failed hedge + failed unwind → retained exposure + persistent kill; timeout breach → kill while recovery remains allowed; simulated unwind really removes the position; coordinator requests are priced LIMIT; concession cap; recovery loss feeds the daily gate. `FaultEngine` is simulation-only and holds no adapter. Caveats D21–D24 are not promoted to enforced |
 | D18 baseline reproduction and mutation checks | **Run 2026-10-10.** In a worktree at `caa57c8`, a past-dated Kalshi/ForecastEx pair with synthetic complete fees returned `TRADE`, `settlement_delay_cost=0.0000`, `net_profit=7.3200`; same script on this branch → `BLOCK`, `None`. Eight mutations (Kalshi back to expected+0, past clamp, Polymarket US 0-day, ForecastEx 0-day, ignoring `evaluation_time` in the evaluator, half-even rounding, compounded cost, dropping it in `run_arbitrage_scan`) fail 6 / 5 / 3 / 2 / 1 / 1 / 12 / 1 tests respectively (counts for the first seven taken before the 44th test was added); source restored and diff-checked afterwards |
@@ -354,7 +377,7 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4 (re-read from
 
 | Frozen-wall-clock sweep (2026-10-14 / 2027-10-09 / 2031-01-02) | **INHERITED from the D10/D19 session: 534 passed at each of the three dates** (and at the real clock). The 15 D20 tests were run at the real 2026-10-10 clock, not in that inherited sweep. The fee clock was frozen by patching only `prediction_arb.fees.calculator.utcnow` and `prediction_arb.fees.freshness.utcnow` via a throwaway pytest plugin; this is what exposed the fixture date bomb fixed below |
 | Readiness mutation checks | **Run 2026-10-10, all eight caught, source restored and diff-checked afterwards.** `freshness_enforced` always False → 9 failures; PAPER policy downgraded to RESEARCH → 9; `ModeReadiness.ready` hardcoded `False` → 7; `order_types_verified` ignored → 3; readiness probe creating the recorded store → 2; historical engine dropping the research label → 1; fee-freshness criterion always passing → 5; a stale RESEARCH schedule silently tolerated → 1 |
-| GitHub Actions CI | **Not run for the Arb.10 working tree** (not pushed at verification time). The complete 601-test local suite and `--status`/`--readiness` smokes passed. Do not describe inherited CI runs as verification of this audit |
+| GitHub Actions CI | **Not run at the time of the Arb.10 record** (working tree not pushed then; remote CI for `main` is green now, see §2). Historical: The complete 601-test local suite and `--status`/`--readiness` smokes passed. Do not describe inherited CI runs as verification of this audit |
 
 **Environment limitations a fresh agent must assume:**
 
@@ -386,6 +409,9 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4 (re-read from
 
 | ID | Defect | Reproduction / evidence | State |
 |---|---|---|---|
+| **D29** | **Paper opportunity identity and execution are not deduplicated per pair (found by Arb.14 telemetry, 2026-10-10).** | Paper `opportunity_id` is a random `uuid4` per evaluation, and there is no pair-level position dedupe, so the same economic pair can be executed again across cycles. Visible in the `pipeline_counters` and `execution_attempts` data (`--pipeline-report`). Paper P&L is activity, not performance, until closed. | **OPEN — not fixed.** ROADMAP §2a item 7; the owner must choose the cooldown or one-position-per-pair rule. |
+| **D30** | **Smoke-script connect checks were labelled as if they were HTTP probes (Arb.15).** | An `UNAVAILABLE` result (TLS EOF before any response) was printed under a misleading label. Labels changed to `connect: public status endpoint reachability` and `connect: public gateway reachability`; two regression assertions added. | **RESOLVED 2026-10-10 (Arb.15).** |
+| **D31** | **Candidate-retrieval budget rows were stale and are not like-for-like (Arb.15).** | Committed synthetic artifacts regenerated; the budget-200 retrieval rows are now correct. The legacy row uses the pre-Arb.8 group order, so the comparison mixes ordering with retrieval. | **PARTLY RESOLVED.** Open: like-for-like legacy comparison (ROADMAP §2a item 8). |
 | **D28** | **Historical scans/equity falsely implied fills; minute buckets leaked later quotes** | Baseline `3d01ce9`: 12:00:10 / 12:00:55 became a 12:00:00 decision; all TRADE observations earned MODELLED equity without depth/cash execution; schema 3/latest terms could not support simultaneous executability; CLI connected venues unnecessarily | **RESOLVED IN CODE 2026-10-10 (Arb.13)**: exact receipt/as-of replay, schema 4 evidence, historical fee timestamps, shared conditional IOC/depth/cash/fee-reserve model, theory/simulation/exposure report separation. **Real-data/calibration exit still owner-gated**, no genuine dataset. 61 regressions / 704 full tests, eight caught mutations; §7f and `docs/HISTORICAL_EVALUATION.md` |
 | **D18** | **Settlement-delay inputs had no meaning or evidence; passed and long-dated settlement could be costed as (near-)immediate** (inherited report: Polymarket US missing from `_EXPECTED_SETTLEMENT_DELAY_DAYS` — confirmed 2026-10-10) | The table held unsourced `kalshi: 0`, `forecast_ex: 0`, added to `settlement_time` (Kalshi's *expected* expiration, not a bound). A passed time clamped to zero lockup: past-dated pair with synthetic complete fees → `TRADE`, delay cost `0.0000`, net `7.32` (worktree at `caa57c8`). Historical/backtest measured lockup from the wall clock. Days via `float` | **FIXED 2026-10-10** (production + tests): `PRODUCTION_SETTLEMENT_TIMING` evidence registry (meaning, basis, delay, status, sources, review date, gaps; UNKNOWN cannot carry an estimator). Kalshi DOCUMENTED per market (`latest_expiration_time + settlement_timer_seconds` from the payload; round-trips the store); Polymarket US present as explicit UNKNOWN; ForecastEx 0-day withdrawn → UNKNOWN. Passed release ⇒ UNKNOWN; `evaluation_time` threaded, replay uses the frame time; lockup reason always reported; Decimal days; cost rounds up. 44 tests, 8 mutation checks. Evidence table: `docs/TRADING_LOGIC.md` |
 | **D17** | **A BLOCKed opportunity could expose a positive "verified" net profit** (inherited review, reproduced 2026-10-10). `evaluate_two_leg` caught `FeeDataError` and substituted `fees = Decimal("0")`, and substituted `delay_cost = Decimal("0")` for an unknown settlement lockup, so the profit test ran on fabricated free costs | Offline synthetic scan with a fee calculator missing one venue returned `status=BLOCK`, `total_fees=0`, `net_profit=+9.9630`, `return_on_capital=0.1107`; the dashboard printed `Net $9.96` beside `Fees $0.00`; `Repository.save_opportunity` stored `net_profit='9.9630'`, `fees='0'`. Only the *first* fee failure was reported, because one `FeeDataError` aborted the whole fee sum | **FIXED 2026-10-10** (production + tests): each mandatory cost is now a `core.types.CostComponent` in a `CostLedger` with no total while any component is missing; `net_profit`, `net_profit_per_contract`, `return_on_capital`, `total_fees`, `settlement_delay_cost` and `capital_required` become `None` (UNVERIFIED); components are evaluated independently so every failure is reported; `gross_edge`/`known_costs` stay available as pre-cost research figures; cost-of-capital is unavailable when fees are. Downstream: `optimizer.score()` refuses unpriced opportunities and `rank()` sorts them last, `Opportunity.is_executable` gates paper execution, metrics withhold a fee-drag ratio over a partially costed set, dashboard/CLI print `n/a`, `OpportunityRow` stores NULL + `unavailable_costs` (`SCHEMA_VERSION` 2 → 3, migration 003), paper/live reports count `opportunities_without_verified_net_profit`. 35 new tests, mutation-verified (20 fail on the fee mutation, 2 on the delay mutation). Fee engine untouched |
@@ -605,93 +631,30 @@ statuses remain unchanged.
 
 ---
 
-## 8. Current critical path (ordered by dependency, then impact)
+## 8. Current critical path
 
-0. ~~**Stop a BLOCKed opportunity from advertising a positive net profit
-   (D17).**~~ **DONE 2026-10-10** — unavailable mandatory costs are typed as
-   unavailable, net profit is `None`/`n/a`, and the calculation/reporting
-   layers are regression-tested. The inherited baseline was **348 passed in
-   26.29 s**; the fee-readiness change adds four focused regressions (current
-   full count: **352 passed in 28.29 s**, see §12).
-0b. ~~**Make settlement timing evidence-backed (D18).**~~ **DONE 2026-10-10**
-   — Kalshi DOCUMENTED per-market bound; Polymarket US and ForecastEx
-   explicit UNKNOWN (still blocking); passed/long-dated timing no longer
-   costed as immediate; **396 passed in 25.99 s**.
-0c. ~~**Derive readiness from verified state and enforce mandatory fee
-   freshness (D10, D19).**~~ **DONE 2026-10-10** — one freshness policy per
-   mode, every readiness criterion computed with an explicit reason, block
-   reasons surfaced to the operator, live still NOT READY on real state;
-   **534 passed** at the real clock and at three frozen future dates.
-0d. ~~**Connect paper capital, risk, exposure, partial-fill recovery and kill
-   activation (D20).**~~ **DONE FOR PAPER 2026-10-10** — all enabled venues
-   have explicit venue-local cash; all 12 configured limits have tested runtime
-   behavior or an explicit partial defect; checks occur at order-lifecycle
-   decision points. **Still open:** complete daily realized P&L (D21), a broad
-   emergency-loss preflight cap (D22), any liquidity-ratio/latency gate
-   (D23; its inert config keys were removed, but the feature remains absent),
-   live coordinator/emergency behavior (D24), and validated capital/hedging
-   helpers (D26). Do not resolve these by implying they are active.
-0e. ~~**Reduce candidate-generation workload without a silent cap (Arb.8).**~~
-   **DONE 2026-10-10 on `arena/732e107e-arb`** — pairwise, non-transitive,
-   settlement-windowed retrieval with local density bounds. 333,296 → 3,262
-   candidates on the 1,000-contract benchmark, eq∩det recall 256/256, largest
-   component 1,000 → 51. One **owner decision** is open (not adopted):
-   accept the reference paraphrase miss (15/16), or adopt the 60-minute settlement
-   fallback (+57 % synthetic candidates for no synthetic recall gain, recovers
-   the one paraphrase). Also open: D25, the threshold-operator vocabulary, which
-   belongs to the adapters. Full record: `docs/CANDIDATE_RETRIEVAL.md`.
-0f. **Arb.12 synthetic offline pipeline proof DONE 2026-10-10** — 11 tests
-   drive a pair through actual matching/certification, fresh-book validation,
-   walked/costed evaluation, paper risk and the simulator, with failure/refusal
-   cases. Exact scope and gaps: §7c and `docs/TESTING.md`. **This does not
-   change external evidence:** no LLM endpoint, real fees/books, confirmed
-   eligibility, ForecastEx settlement evidence, live adapter, or multi-week
-   paper run was tested.
-1. ~~**Restore a green baseline (D16).**~~ **DONE 2026-10-09** — 313 passed
-   in 25.01 s with a fixed settlement clock and at three future wall-clock
-   dates; stale fixtures fail mutation checks.
-2. **Fee evidence and readiness (new audit, 2026-10-10).** All three enabled
-   unordered pairs are independent, but 0/3 are end-to-end cost-evaluable.
-   The production schedules for Kalshi, Polymarket US, and ForecastEx have
-   incomplete trade and settlement components. Owner actions, direct sources,
-   and exact missing account/market data are in `docs/FEE_READINESS.md`; do not
-   promote a documented reference rate. Agent implementation/tests can follow
-   once the required evidence is provided.
-3. **Fresh public payload evidence** — the 2026-10-10 bounded public smoke
-   attempts for Kalshi and Polymarket US were `UNAVAILABLE` before HTTP
-   response (K9/P7). If an authorized network later yields valid open,
-   two-sided books and per-market rules, review the exact payload and consider
-   manual `MARKET_DATA_OBSERVED` admission. A connection alone is insufficient;
-   public smoke never establishes full adapter verification. No credential is
-   needed for these probes. *Owner-side only if a reachable environment exists.*
-4. **Owner supplies authorized fee/account evidence** — complete the Kalshi
-   endpoint/rounding and settlement steps, Polymarket fee-family/fill and
-   settlement reports, and ForecastEx/IBKR account route and settlement
-   evidence in `docs/FEE_READINESS.md`. No credentials or unredacted statements
-   in chat or Git. *Owner/venue/broker; agent integrates after receipt.*
-   The same settled-position records should show resolution time and the
-   time the payout reached cash, which is the evidence Polymarket US and
-   ForecastEx settlement timing needs (`docs/TRADING_LOGIC.md`, D18).
-5. **Owner runs a 24 h `--mode collect`** — supplies real recorded data for
-   Phase 4. Public REST collection requires no key; a key is only optionally
-   needed for the separately documented authenticated read-only bulk/WS
-   surfaces. Do not request or provide credentials for the public smoke.
-6. **Owner adds an LLM key (H7)** — without it no certificate is APPROVED,
-   so real data cannot reach the arbitrage evaluator. *Owner.*
-7. **Phase 5/6 exits on real two-venue data** — approved/reviewed candidate
-   pairs, false-match review, and the multi-week paper realism run. *Agent,
-   blocked on 3–6.*
-8. **Phase 8 live readiness** — D10 (derived verdicts) and D19 (mandatory fee
-   freshness) are done and the report names the real blockers. Full adapter
-   verification currently supports 0 live-capable venues; remaining gates
-   include at least two fully verified independent venues, complete fee
-   schedules, evidenced settlement timing, recorded volume, resolved
-   legal/account eligibility, `.env.live`, and explicit owner go-ahead. Not
-   before Phases 2–7 evidence exists; live orders remain prohibited in this
-   session.
+The ordered, authoritative queue is **`docs/ROADMAP.md` §2a** (Arb.15). It names
+the three highest-impact blockers and their dependencies, and separates
+autonomous work from operator-credential, external-evidence, network and
+human-decision work. Do not keep a second queue here.
 
-Phase-by-phase detail, exit criteria and completion records: `docs/ROADMAP.md`
-§2 and §3.
+**Completed (evidence in §6, §7 and §12; defect records in ROADMAP §4):**
+
+- D16 green baseline (2026-10-09).
+- D17: unavailable mandatory costs are typed as unavailable, and net profit is `None`.
+- D18: settlement timing. Kalshi DOCUMENTED; Polymarket US and ForecastEx UNKNOWN (still blocking).
+- D10 and D19: readiness is derived from verified state, and mandatory fee freshness is enforced.
+- D20: paper capital, risk, exposure, partial-fill recovery and kill activation, paper only. D21, D22, D23, D24 and D26 stay open or deferred (§7a, §7d).
+- Arb.8 candidate retrieval (§96): 333,296 → 3,262 candidates on the 1,000-contract benchmark. The owner decision on the 60-minute settlement fallback is still open (`docs/CANDIDATE_RETRIEVAL.md` §9).
+- Arb.9 budget and deduplication; Arb.10 configuration audit (§7d); D27 adapter evidence (§7e); Arb.12 offline synthetic pipeline proof; Arb.13 causal historical evaluator (D28, §7f); Arb.14 pipeline telemetry (§103).
+- Arb.15 consolidation: D30 resolved, D31 partly resolved, the queue written (ROADMAP §2a).
+
+**Blocked on external evidence or owner action** (detail in ROADMAP §2a and §9):
+second-venue public payload (blocker B1); fee and settlement evidence (B2); LLM
+key (B3); a paired 24-hour collection; Phase 8 live readiness (0 live-capable
+venues; not before Phases 2–7 evidence exists; live orders prohibited in this session).
+
+Phase-by-phase detail and exit criteria: `docs/ROADMAP.md` §2 and §3.
 
 ---
 
@@ -779,6 +742,7 @@ python -m prediction_arb.main --status
 python -m prediction_arb.main --readiness
 python -m prediction_arb.main --mode historical --date 2020-01-01   # must stay honestly empty
 python -m prediction_arb.main --mode paper --cycles 1               # reaches public adapters; not an offline-only test. Latest smoke probes were UNAVAILABLE; never interpret a network failure as adapter failure
+python -m prediction_arb.main --pipeline-report  # read-only; UNAVAILABLE without a paper store
 python scripts/kalshi_smoke.py --limit 1; python scripts/polymarket_us_smoke.py --limit 1  # bounded public-only; latest 2026-10-10 was UNAVAILABLE
 ```
 
@@ -798,8 +762,8 @@ status + source + date. If you did not verify it, say so.
 **D. Update `docs/ROADMAP.md` when — and only when — it is demonstrably stale**
 
 The ROADMAP is the register of record for phases and defects. Correct a status
-you *proved* wrong, add a defect you *reproduced* (next free ID; **D28 is
-taken**, so the next free one is **D29**),
+you *proved* wrong, add a defect you *reproduced* (next free ID; **D31 is
+taken** (Arb.15), so the next free one is **D32**),
 record a completion with its evidence. Do not redesign it, do not add
 aspirational plans, do not mark anything DONE whose exit criterion is
 owner-gated — say "code complete, exit owner-gated" instead. Also update
@@ -827,6 +791,29 @@ counts, doc updates, and the next action. Milestone-end reporting format:
 ## 12. Most recent meaningful changes, and the recommended next task
 
 **Most recent meaningful changes** (newest first):
+
+00000000. **2026-10-10 — Arb.15 consolidation (branch `arena/f248cbf8-arb`, base
+   `main` `43c683b`).** Documentation and evidence consolidation with small
+   corrections; no strategy family, venue or live path added. Re-ran the full
+   suite (764 passed in 40.60 s; plain `pytest` 764 in 38.74 s) and the
+   frozen-clock sweep (764 at 2027-10-09 and 2031-01-02), plus `--status`,
+   `--readiness`, the empty historical replay, `--pipeline-report`, both public
+   smokes (UNAVAILABLE, TLS EOF) and a one-cycle paper run. Corrections: stale
+   counts and IDs across README, KICKOFF, TESTING, HISTORICAL_EVALUATION, ROADMAP
+   and this file; smoke labels (D30, resolved); benchmark budget rows regenerated
+   and recorded as not like-for-like (D31, partly open); ROADMAP §2a written as
+   the authoritative queue, with the three blockers and their dependencies.
+   Clock-freeze harness `tests/frozen_fee_clock.py` (not collected) patches all
+   three `utcnow` sites. **Remote CI** for `main` `43c683b` is green (run
+   `38071625662`). This file does not claim remote CI for the Arb.15 branch
+   commit; check `gh run list --branch arena/f248cbf8-arb` for its result.
+
+   **Recent meaningful commits on `main`** (newest first, from the GitHub API):
+   `43c683b` Merge PR #19 (Arb.14 telemetry); `6a17f58` PR #18 (Arb.13 historical
+   evaluator, D28); `3d01ce9` PR #17 (Arb.12 synthetic pipeline proof);
+   `86bd003` PR #16 (D27 adapter evidence and collection gate); `e0f8e4a` PR #15
+   (Arb.10 configuration audit); `219c8ba` PR #14 (Arb.9 budget and dedup);
+   `0b99106` PR #13 (Arb.8 candidate retrieval, §96).
 
 00000000. **2026-10-10 — Arb.14 pipeline observability (branch
    `arena/dc4aad6b-arb`, base `6a17f58`).** Answers "why are opportunities not
@@ -1033,25 +1020,20 @@ counts, doc updates, and the next action. Milestone-end reporting format:
    + D14, full-contract recording, read-only replay, backtest metrics, and
    paper realism work.
 
-**Recommended next task (one): owner evidence / collection plan for the selected
-Kalshi ↔ Polymarket US pair.** The causal evaluator is implemented, not a genuine
-performance backtest. On a reachable authorized machine, obtain bounded public
-read-only smoke evidence and the existing redacted fee/settled-position inputs
-listed in `docs/FEE_READINESS.md`. Keep INCOMPLETE/UNKNOWN until reconciled.
-Then plan paired, common-clock, receipt/source/outcome/as-of-term capture with
-coverage through both arrivals, explicit empty/halt/gap/session events and
-appropriate cadence (`docs/HISTORICAL_EVALUATION.md` §6). The current sequential
-10-second collector and old unstamped rows cannot provide tick-accurate history;
-no retroactive stamping, fabricated fills or live order for validation.
+**Recommended next task (one): owner-run bounded public Polymarket US smoke from an
+authorized network** (`docs/ROADMAP.md` §2a item 1). Public GET only; no key,
+account or order:
 
 ```bash
-python scripts/polymarket_us_smoke.py --limit 1  # public reads, no key/account/order
-python scripts/kalshi_smoke.py --limit 1        # same bounded posture
+python scripts/polymarket_us_smoke.py --limit 1
 ```
 
-Use the beginner-friendly owner-request format in `docs/AGENT_KICKOFF.md`, one
-task per message. Store only redacted evidence locally in ignored
-`reports/evidence/`; never send credentials. ForecastEx remains a separate stub,
-not a usable alternate pair. After adequate data arrives, replay and review the
-observed/calculated/assumed/simulated report, including losses, skips, unavailable
-execution and naked exposure; never treat conditional results as real guarantees.
+Exit: a redacted evidence record in ignored `reports/evidence/` containing a
+usable two-sided payload, or a fresh `UNAVAILABLE` with its time. This sandbox
+cannot run it (egress allowlist) and must not bypass that limit. Why first: the
+cross-venue pipeline has never seen a second venue's book, and fee-family
+mapping, the Polymarket side of D25, collection admission and paired capture all
+depend on that payload. After it, the agent reviews the payload (ROADMAP §2a
+item 2). Do not run a long collection, enable WebSocket or live paths, or treat a
+single payload as VERIFIED. Use the owner-request format in `docs/AGENT_KICKOFF.md`,
+one task per message. ForecastEx remains a stub and is not an alternate pair.

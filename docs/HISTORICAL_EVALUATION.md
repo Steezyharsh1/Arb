@@ -183,8 +183,10 @@ these records is a reported limitation, not permission to synthesize history.
 
 ## 7. Verification (offline, not venue evidence)
 
-- Baseline: `.venv/bin/pytest -o addopts=''` — **643 passed in 35.05 s**.
-- After change: same command — **704 passed in 68.46 s**.
+The counts below are the Arb.13 session record. Current counts: **764 passed in 40.60 s** on 2026-10-10 (Arb.15), see `docs/TESTING.md`.
+
+- Baseline: `.venv/bin/pytest -o addopts=''` — **643 passed in 35.05 s** (Arb.13 record).
+- After change: same command — **704 passed in 68.46 s** (Arb.13 record).
 - New deterministic battery: `.venv/bin/pytest -o addopts='' tests/test_historical_evaluation.py`
   — **61 passed in 28.24 s**. Empty/missing/invalid datasets, out-of-order/late/future
   quotes, skew/staleness, as-of terms, old-schema read-only/migration preservation,

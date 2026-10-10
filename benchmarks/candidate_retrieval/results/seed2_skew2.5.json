@@ -39,11 +39,11 @@
       "lost_vs_current": [],
       "lost_vs_current_count": 0,
       "recall_vs_current": 1.0,
-      "runtime_s_median": 0.1896,
+      "runtime_s_median": 0.1529,
       "runtime_s_runs": [
-        0.1829,
-        0.2756,
-        0.1896
+        0.1529,
+        0.2026,
+        0.1423
       ],
       "peak_python_heap_mb": 44.62,
       "end_to_end": {
@@ -101,24 +101,24 @@
       "lost_vs_current": [],
       "lost_vs_current_count": 0,
       "recall_vs_current": 1.0,
-      "runtime_s_median": 0.0393,
+      "runtime_s_median": 0.0373,
       "runtime_s_runs": [
-        0.0393,
-        0.0392,
-        0.0967
+        0.0373,
+        0.0373,
+        0.0775
       ],
-      "peak_python_heap_mb": 2.25,
+      "peak_python_heap_mb": 2.24,
       "end_to_end": {
         "budget_200": {
           "llm_budget": 200,
           "llm_calls": 200,
           "pairs_considered": 2820,
           "pairs_deterministic_pass": 924,
-          "approved": 132,
-          "approved_equivalent": 132,
+          "approved": 162,
+          "approved_equivalent": 162,
           "approved_non_equivalent": 0,
           "equivalent_pairs_total": 299,
-          "approved_recall_vs_all_equivalent": 0.4415
+          "approved_recall_vs_all_equivalent": 0.5418
         },
         "unbudgeted": {
           "llm_budget": null,

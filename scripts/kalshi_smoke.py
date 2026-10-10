@@ -224,14 +224,14 @@ async def run(args: argparse.Namespace) -> int:
         try:
             await adapter.connect()
             connectivity = "OBSERVED"
-            record("connect: a configured public status endpoint responded",
+            record("connect: public status endpoint reachability",
                    True, adapter.active_rest_base)
             evidence["active_rest_base"] = adapter.active_rest_base
         except Exception as exc:
             state = classify_exception(exc)
             connectivity = ("UNAVAILABLE" if state == "UNAVAILABLE"
                            else "NOT_OBSERVED")
-            record("connect: a configured public status endpoint responded",
+            record("connect: public status endpoint reachability",
                    False, f"{type(exc).__name__}: {exc}",
                    failure_state=state)
             _set_evidence_levels(evidence, connectivity, usable_market_data)

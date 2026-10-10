@@ -5,6 +5,47 @@ pytest                        # full suite (configured in pyproject.toml)
 python -m pytest tests/       # equivalent
 ```
 
+## Current verification — Arb.15 (2026-10-10, branch `arena/f248cbf8-arb`, base `43c683b`)
+
+Commands actually run in this session (Python 3.11.2; offline unless marked):
+
+| Command | Result |
+|---|---|
+| `.venv/bin/pytest -o addopts=""` | **764 passed in 40.60 s** (first run of the session) |
+| `.venv/bin/pytest` (the CI form, `addopts = "-q"`) | **764 passed in 38.74 s** |
+| Final re-run after all edits: `pytest` and `pytest -o addopts=""` | **764 passed in 38.51 s** (CI form, exit 0) and **764 passed in 38.81 s** |
+| `PYTHONPATH=. FROZEN_NOW=2027-10-09T12:00:00 .venv/bin/pytest -o addopts="" -p tests.frozen_fee_clock` | **764 passed in 38.53 s** |
+| same, `FROZEN_NOW=2031-01-02T12:00:00` | **764 passed in 39.61 s** |
+| `.venv/bin/python -m prediction_arb.main --status` | exit 0; kalshi `MARKET_DATA_OBSERVED`; polymarket_us and forecast_ex `API_DOCUMENTED_UNTESTED`; kill switch off |
+| `.venv/bin/python -m prediction_arb.main --readiness` | exit 0; COLLECT READY; HISTORICAL 1 blocker; PAPER 5; LIVE 8; advisory footer printed |
+| `--mode historical --date 2020-01-01` | exit 0; "No recorded historical order-book data … will NOT fabricate data"; writes its report under the ignored `reports/` |
+| `--pipeline-report` (no paper store) | exit 0; `UNAVAILABLE: no paper store` |
+| `--mode paper --cycles 1` | exit 0; both venues' connect failed (TLS EOF); no active-venue markets |
+| `scripts/kalshi_smoke.py --limit 1` | exit 1; `UNAVAILABLE` (TLS EOF on both configured bases) |
+| `scripts/polymarket_us_smoke.py --limit 1` | exit 1; `UNAVAILABLE` (TLS EOF at `gateway.polymarket.us`) |
+| `benchmarks.candidate_retrieval.run --source reference` | identical to the committed `results/reference.json` (0 non-timing diffs) |
+| `benchmarks.candidate_retrieval.run --source synthetic` (9 seed/skew runs) | non-budget metrics identical; retrieval budget-200 rows were stale and the 9 result files were regenerated (ROADMAP D31) |
+| `git ls-files` artifact and `.env.*` guard (CI step) | no violations |
+
+What this does **not** establish: no venue payload beyond the `UNAVAILABLE`
+probes, no recorded two-venue dataset, no fill or settlement evidence, no
+mutation re-run (the Arb.13/Arb.14 mutation results are inherited records), and
+no remote CI for the Arb.15 commit. The Arb.15 changes are two smoke-label
+assertions (D30), the sweep plugin, the regenerated benchmark artifacts and
+documentation.
+
+**Clock-sweep caveat (Arb.15).** Freezing only the fee modules
+(`fees.calculator`, `fees.freshness`) leaves `arbitrage/two_leg.py` on the real
+clock. The evaluator then judges age at the real date while the test helper
+computes "45 days ago" at the frozen date. That yields a schedule dated in the
+future, a negative age, and one failure: `test_an_explicit_override_still_wins_both_ways`.
+Product code is unaffected, since production uses one `core.clock.utcnow` at
+every site. `tests/frozen_fee_clock.py` patches all three references together,
+which is the sweep that passes. Any new test that computes an age must read the
+clock the evaluator reads.
+
+---
+
 ## Coverage map
 
 **Spec §75 mandatory cases** (`tests/test_spec_cases.py`):
@@ -270,7 +311,14 @@ caught (source restored before validation). No genuine dataset, live fill or
 settlement was tested. Precise semantics/limits: **`docs/HISTORICAL_EVALUATION.md`**.
 Phase 4's real-data exit is still unmet.
 
-## Integration-testing record
+## Earlier verification records (dated, not current)
+
+The sections below are session records. Their counts (643, 704, 632, …) were
+correct when written and are superseded by the Arb.15 table above.
+
+## Integration-testing record (dated)
+
+Entries below are dated records. Current results are in the Arb.15 table above.
 
 On 2026-08-30, a prior run exercised `--mode collect --cycles 1` against the
 Kalshi compatibility host (500 markets and 40 non-empty books), paper mode,

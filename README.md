@@ -80,6 +80,10 @@ python -m prediction_arb.main --mode historical --start 2026-08-01 --end 2026-08
 # venue/provenance status + independence matrix
 python -m prediction_arb.main --status
 
+# daily paper pipeline telemetry (read-only; prints UNAVAILABLE rather than 0
+# when no paper store exists). Add --date YYYY-MM-DD or --opportunity ID.
+python -m prediction_arb.main --pipeline-report
+
 # readiness, derived per mode from observed state (advisory: enables
 # nothing, creates nothing, calls no venue). Every criterion prints
 # PASS / WARN / BLOCKED with the value it observed and the reason.
@@ -136,6 +140,13 @@ monitor-only by construction.
   simulated execution. Incomplete fees
   now block rather than becoming estimates, so direct Kalshi opportunities
   remain blocked until contextual metadata is integrated.
+- Pipeline telemetry (SPEC §103, Arb.14): `--pipeline-report` reads persisted
+  counters and per-attempt rows (candidates, rejects, match status, costed
+  net vs gross, book age and skew, simulated submissions/partials/exposure,
+  429s and reconnects). Unobserved values print `UNAVAILABLE`, never 0. Known
+  defect **D29**: paper opportunity ids are random and there is no pair-level
+  position dedupe, so one economic pair can be simulated repeatedly. Read paper
+  P&L as activity, not performance, until D29 is closed.
 - Collect mode records only usable two-sided snapshots for adapters with
   `MARKET_DATA_OBSERVED` or `VERIFIED` evidence. It never invokes execution.
   Normalized contracts retain observed settlement/cutoff, provenance,
@@ -169,10 +180,11 @@ monitor-only by construction.
   silently dropped.
 - Mode isolation, kill switch, crash-recovery intents, and all ten mandatory
   spec cases are covered by the test suite (`.venv/bin/pytest -o addopts=''` —
-  **704 passed in 68.46 s** on Python 3.11.2, all offline, 2026-10-10).
-  The earlier 534-test suite also passed with the fee clock frozen at
-  2026-10-14 / 2027-10-09 / 2031-01-02; that future-clock sweep was not
-  repeated for the 704-test suite.
+  **764 passed in 40.60 s** on Python 3.11.2, all offline, re-run 2026-10-10
+  for Arb.15). With the fee, freshness and evaluator clocks frozen together
+  at 2027-10-09 and 2031-01-02 (`tests/frozen_fee_clock.py`), the suite also
+  passes 764/764. Freezing only part of that clock produces one false failure;
+  see `docs/TESTING.md`.
 - Readiness is **derived, not asserted** (D10, SPEC §99). `--readiness`
   reports one block per mode (COLLECT, HISTORICAL, PAPER, LIVE) and every
   criterion is computed from observed state — adapter verification *and*
@@ -266,7 +278,7 @@ never committed; `.env.*` files hold credentials and are never committed either
 **Start here:** `docs/AGENT_HANDOFF.md` — the permanent entry point for a fresh
 engineer or agent session (current baseline commit, verified test results,
 environment limits, defects, critical path, what not to start). Then
-`docs/ROADMAP.md` (phase map, verified current state, defect register D1–D28,
+`docs/ROADMAP.md` (phase map, verified current state, defect register D1–D31,
 human-action checklist) and `docs/SPEC.md` (the reconstructed specification —
 every `§N` cited in the code resolves there).
 

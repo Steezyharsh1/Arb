@@ -27,8 +27,8 @@ producing real, costed arbitrage candidates in paper mode."
    Kalshi host refresh, matching/LLM wiring, paper risk and Arb.12 synthetic core
    tests are implemented. Arb.13 adds exact-time as-of evaluation, conditional
    depth/latency/cash simulation and honest theory/simulation/exposure reporting.
-   Full offline suite: **704 passed in 68.46 s**, 2026-10-10. There is **no genuine
-   two-venue dataset**, tick-accurate feed ledger or realized performance proof.
+   Full offline suite: **764 passed in 40.60 s**, re-run 2026-10-10 (Arb.15; Arb.13 was 704).
+   There is **no genuine two-venue dataset**, tick-accurate feed ledger or realized performance proof.
 3. **Keep the reconstructed spec current.** Every cited section resolves in
    `docs/SPEC.md`; §102 describes causal historical requirements. §33/§68 remain
    `[I]` and need owner confirmation. Append new numbers, never renumber.

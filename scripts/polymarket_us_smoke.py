@@ -174,13 +174,13 @@ async def run(args: argparse.Namespace) -> int:
         try:
             await adapter.connect()
             connectivity = "OBSERVED"
-            record("connect: public gateway returned an HTTP response", True,
+            record("connect: public gateway reachability", True,
                    PUBLIC_BASE)
         except Exception as exc:
             state = classify_exception(exc)
             connectivity = ("UNAVAILABLE" if state == "UNAVAILABLE"
                            else "NOT_OBSERVED")
-            record("connect: public gateway returned an HTTP response", False,
+            record("connect: public gateway reachability", False,
                    f"{type(exc).__name__}: {exc}", failure_state=state)
             _set_evidence_levels(evidence, connectivity, usable_market_data)
             _write(evidence, args, failures, unavailable)

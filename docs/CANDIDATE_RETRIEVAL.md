@@ -23,7 +23,7 @@ Raw run output is committed under `benchmarks/candidate_retrieval/results/`.
 | Equivalent ∩ deterministic-pass recall (synthetic, 256 pairs) | 1.0 before → **1.0** after. |
 | Equivalent ∩ deterministic-pass recall (reference, 16 pairs) | 1.0 before → **0.9375** after (15/16). The one loss is a genuine paraphrase with no shared key. See §7. |
 | Largest component (synthetic 1,000) | 1,000 → **51** (80 at skew 2.5). |
-| Runtime, candidate generation only (median of 3) | 0.186 s → **0.040 s** (synthetic 1,000). |
+| Runtime, candidate generation only (median of 3) | 0.154 s → **0.038 s** (synthetic 1,000; Arb.15 re-run. Arb.8 recorded 0.186 s → 0.040 s). |
 | Peak Python heap, candidate generation | 44.62 MB → **2.28 MB**. |
 | No perfect recall claimed | Recall is measured on one synthetic generator (4 seeds × 2 calendar skews) and on 50 hand-labelled reference listings. It is not a guarantee on venue data. See §8. |
 
@@ -49,9 +49,9 @@ Measured on the synthetic 1,000 benchmark (seed 20261010, skew 1.3):
 | Labelled equivalent pairs | 301 |
 | Equivalent ∩ deterministic-pass (what the pipeline can approve) | 256 |
 | Equivalent but deterministic-reject (unreachable by any retrieval) | 45 |
-| Runtime, median of 3 (candidate generation) | 0.186 s |
+| Runtime, median of 3 (candidate generation) | 0.154 s (Arb.15 re-run; 0.186 s at Arb.8) |
 | Peak Python heap | 44.62 MB |
-| Budget 200 (production `llm.max_comparisons_per_cycle`): calls / approved / equivalent recall | 200 / 69 / 0.229 |
+| Budget 200 (production `llm.max_comparisons_per_cycle`): calls / approved / equivalent recall | 200 / 69 / 0.229 (pre-Arb.8 group-order loop, `legacy_run_matching`; reproduced exactly 2026-10-10) |
 | No budget: calls / approved / equivalent recall | 986 / 256 / 0.851 |
 
 Recall in the last two rows is over all 301 labelled equivalents, so it is
@@ -139,6 +139,23 @@ Reproduce:
 
 ## 5. Results (after, at the shipped `MAX_LOCAL_DENSITY = 20`)
 
+> **Arb.15 correction (2026-10-10).** Every committed result under `results/`
+> was re-run on the current code (`--source synthetic`/`reference`, same seeds
+> and skews). All non-budget metrics (candidate counts, components, recall,
+> density, reference set) reproduced exactly. The **retrieval budget-200 rows
+> were stale**: they had been recorded before the Arb.9 priority ordering
+> existed, so each synthetic file was regenerated (timing included) and the
+> figures below are updated. The reference result was unchanged. Across the
+> nine synthetic runs (4 seeds × 2 skews, plus the 1,000-contract headline and
+> stress), the single-cycle budget-200 equivalent recall is **0.54–0.63** with
+> the Arb.9 order, against **0.15–0.36** for the pre-Arb.8 group-order baseline.
+> Unbudgeted recall is 0.851 (ceiling set by the deterministic matcher).
+> These are single-cycle, oracle-matcher numbers. In the running process the
+> in-memory comparison cache returns cached pairs before any budget is spent,
+> and budget-exhausted pairs are not cached, so later cycles can spend the
+> budget on pairs not yet compared. That multi-cycle coverage is **not
+> measured** here.
+
 ### 5.1 Synthetic 1,000, seed 20261010, skew 1.3 (`results/synthetic_1000_seed20261010.json`)
 
 | Metric | Before (`legacy`) | After (retrieval) |
@@ -148,17 +165,20 @@ Reproduce:
 | Deterministic-pass proposed | 986 / 986 | 720 / 986 (0.730) |
 | Equivalent proposed | 301 / 301 | 256 / 301 (0.851, the 45 lost are all det-reject) |
 | **Equivalent ∩ det-pass proposed** | 256 / 256 | **256 / 256 (1.0)** |
-| Runtime median (3 runs) | 0.186 s | 0.040 s |
+| Runtime median (3 runs) | 0.154 s | 0.038 s |
 | Peak Python heap | 44.62 MB | 2.28 MB |
-| Budget 200: LLM calls / approved / equivalent recall | 200 / 69 / 0.229 | 200 / **122** / **0.405** |
+| Budget 200: LLM calls / approved / equivalent recall | 200 / 69 / 0.229 | 200 / **189** / **0.628** |
 | No budget: LLM calls / approved / equivalent recall | 986 / 256 / 0.851 | 720 / 256 / 0.851 |
 
 The budget row is the production ordering through `run_matching`, so it
 reflects what the paper engine would spend on this data. The 200-call cap
-approves more equivalent pairs after than before (122 vs 69). The 200 calls
+approves more equivalent pairs after than before (189 vs 69). The 200 calls
 cover 28 % of the deterministic-pass set after (200/720) against 20 % before
-(200/986). The benchmark does not separate that effect from the ordering. The
-gain is measured on synthetic data only.
+(200/986). **The before and after budget rows are not like-for-like:** the
+"before" row runs the pre-Arb.8 group-order loop, while the "after" row runs the
+Arb.9 priority order (`modes/shared.py::run_matching`). The difference therefore
+mixes retrieval with ordering, and the benchmark does not separate them. The
+gain is measured on synthetic data only, with an oracle matcher and one cycle.
 
 ### 5.2 Stress, skew 2.5 (`results/stress_1000_seed20261010_skew2.5.json`)
 
@@ -171,8 +191,8 @@ case that most stresses the density rule.
 | Largest component | 1,000 | 80 |
 | Deterministic-pass proposed | 1,675 / 1,675 | 873 / 1,675 (0.521) |
 | Equivalent ∩ det-pass proposed | 256 / 256 | **256 / 256 (1.0)** |
-| Runtime median / peak heap | 0.172 s / 44.62 MB | 0.038 s / 2.28 MB |
-| Budget 200: approved / equivalent recall | 51 / 0.169 | 128 / 0.425 |
+| Runtime median / peak heap | 0.159 s / 44.61 MB | 0.038 s / 2.28 MB |
+| Budget 200: approved / equivalent recall | 51 / 0.169 | 177 / 0.588 |
 
 ### 5.3 Reference, 50 hand-labelled listings (`results/reference.json`)
 

@@ -12,9 +12,12 @@ validation; see `docs/VENUE_RESEARCH.md` K9/K11/P7 and handoff §7e), and Arb.12
 offline synthetic end-to-end validation of the matching → costed paper scan →
 simulated execution core path, Arb.13 / D28 causal historical evaluation
 (§3 Phase 4, `docs/HISTORICAL_EVALUATION.md`), and Arb.14 pipeline observability
-(`main.py --pipeline-report`; spec §103; D29 finding). Verification is offline:
-**764 passed in 44.28 s**, 60 new telemetry cases, ten caught mutations. No genuine dataset, new venue probe,
-real fill/settlement or remote CI. Older dates remain attached to inherited claims.
+(`main.py --pipeline-report`; spec §103; D29 finding), and the Arb.15 consolidation
+(2026-10-10, branch `arena/f248cbf8-arb`): **764 passed in 40.60 s** offline, all
+CLI checks re-run, benchmark artifacts re-derived, smoke labels corrected (D30/D31).
+No genuine two-venue dataset, new venue payload, real fill or settlement evidence
+exists. Older dates remain attached to inherited claims. §2a is the authoritative
+prioritized task queue; `docs/AGENT_HANDOFF.md` §12 names the single next action.
 
 This is the reference document for anyone (human or agent) continuing
 the project. It describes **phases**, the **verified current state**,
@@ -41,7 +44,7 @@ Status tags used throughout:
 
 | Check | Result |
 |---|---|
-| `pytest` | `.venv/bin/pytest -o addopts=''`: **764 passed in 44.28 s**, 2026-10-10 on `arena/dc4aad6b-arb` (Arb.14; 704 before it, 60 new telemetry tests). Arb.13 baseline **643 passed in 35.05 s**; historical battery **61 passed in 28.24 s**. All offline; eight leaking/optimistic mutations caught and restored. |
+| `pytest` | **Arb.15 re-run 2026-10-10 on `arena/f248cbf8-arb`: 764 passed in 40.60 s** (`-o addopts=""`), and plain `pytest` (CI form) 764 passed in 38.74 s. Same count at the real clock and with fee/freshness/evaluator clocks frozen at 2027-10-09 and 2031-01-02 (`tests/frozen_fee_clock.py`). Inherited: Arb.14 764 in 44.28 s (mutations recorded then, not repeated); Arb.13 643 → 704; historical battery 61. All offline. |
 | Settlement-timing readiness | **Kalshi DOCUMENTED** (per market: `latest_expiration_time` + `settlement_timer_seconds`; not observed), **Polymarket US UNKNOWN**, **ForecastEx UNKNOWN** — so every enabled pair still blocks on lockup, independently of the fee gate (D18, 2026-10-10). Evidence table: `docs/TRADING_LOGIC.md` |
 | `python -m prediction_arb.main --status` | Re-run 2026-10-10, exit 0: kalshi=`MARKET_DATA_OBSERVED` (historical public data only), polymarket_us=`API_DOCUMENTED_UNTESTED`, forecast_ex=`API_DOCUMENTED_UNTESTED` (structured stub). The claim-level table separately shows both latest public probes `UNAVAILABLE` (TLS EOF), no full adapter verification, and all three enabled unordered pairs `INDEPENDENT`; provenance is not fee/book readiness. |
 | `python -m prediction_arb.main --readiness` | Re-run 2026-10-10, exit 0: four derived per-mode reports; `COLLECT: READY` (1 of 3 market-data-evidenced adapters), `HISTORICAL: NOT READY — 1 blocker(s)` (no recorded store), `PAPER: NOT READY — 5 blocker(s)` (only one market-data adapter, no independent pair, no matcher, incomplete fees, unknown settlement), `LIVE: NOT READY — 8 blocker(s)` (0 fully verified live-capable venues, no pair, no matcher, 0/3 complete fee schedules, settlement UNKNOWN for polymarket_us + forecast_ex, 0 recorded snapshots/opportunities, eligibility UNKNOWN ×3, no `.env.live`). Fee freshness passes 3/3 (0 days old); 12 risk values and staleness gates are configured, but risk row is configuration-only. `LIVE MODE: NOT RECOMMENDED YET`; report is advisory and side-effect-free. |
@@ -51,8 +54,11 @@ Status tags used throughout:
 | `data/historical/…sqlite3` | **Empty** (0 rows in every table) |
 | `reports/historical/…json` | `{"frames": 0, "opportunities": 0}` |
 | `logs/collect/collect_20260831.jsonl` | Not present in a fresh clone. Previously 32 error rows: 18× DNS failure, 14× Kalshi HTTP 500 (2026-08-31 → 2026-09-04) |
-| CI | **Green for the D17 work on PR #8** (2026-10-10) — `pull_request` runs `38012787059` and `38012962141` both `success` (47s each: install, full suite, four CLI smokes, honest-empty replay, artifact guard); the newest run on the PR head supersedes those listed. Predecessors: `796abec` (merge of PR #7) green as run `38009643994`; the original D16 repair green as run `37999166331` on `f74c728` (2026-10-09, 49s). *2026-10-10: the workflow gained a fifth smoke (`--readiness`, grepping for the derived policy line, the live verdict and the advisory footer) plus a guard that the report leaves the runtime tree unchanged. The first version of that guard asserted `data/` was absent, which the test suite itself contradicts — `tests/test_paths.py` and `tests/test_phase4_recording.py` leave an empty `data/paper/` behind — so push run `38021724449` failed on the guard, not on the product. It now snapshots `data/ logs/ reports/` before and after the run and fails on any delta* |
+| CI | **Remote CI on `main` at `43c683b` (PR #19 merge): `success`, run `38071625662` (2026-10-10 17:24 UTC).** Arb.14 PR #19 runs `38071479907` (pull_request) and `38071472159` (push) also `success`; Arb.13 PR #18 runs `38070370138`/`38069939652` `success`. Inherited older runs (PR #8, D16, the 38021724449 guard failure) are history. The Arb.15 branch has not been pushed in this session, so its remote CI is not claimed. Workflow: plain `pytest`, five CLI smokes, honest-empty replay, readiness side-effect guard, tracked-artifact guard. |
 | Outbound network from this sandbox | Latest bounded public-only probes on 2026-10-10: Kalshi (06:13:37.919175 UTC) returned `UNAVAILABLE` before HTTP response with `ConnectError: TLS/SSL connection has been closed (EOF) (_ssl.c:992)` on both `external-api.kalshi.com` and `api.elections.kalshi.com`; Polymarket US (06:13:41.226497 UTC) returned the same TLS EOF at `gateway.polymarket.us`. No credentials/orders; no current market payload observed. These attempts do not establish an outage or adapter defect. Details: K9/P7 in `docs/VENUE_RESEARCH.md`. |
+
+> *The dated paragraphs below are the historical record of each session. Where
+> one conflicts with the table above or §2a, the table and §2a are current.*
 
 **Updated 2026-10-10 — D20 paper risk:** the inherited capital/risk report was
 confirmed. Polymarket US was enabled without paper cash, unhedged breach checks
@@ -159,6 +165,100 @@ eight mutation checks each fail the new tests.
 | 8 | Live readiness & first live path | NOT STARTED (HUMAN) | IBKR paper + Kalshi demo drills, then a capped live trade |
 | 9 | v2 strategy surface (multi-leg, logical, routing) | NOT STARTED | Behind existing stubs, only after Phase 6 evidence |
 | 10 | Operations (scheduler, alerting, retention) | NOT STARTED | Unattended collection + alerting |
+
+## 2a. Prioritized task queue (authoritative — Arb.15, 2026-10-10)
+
+This section is the single ordered list of remaining work. Phase text in §3 and
+the handoff must agree with it; the handoff's §12 names only its first item.
+
+**Verified state (2026-10-10, Arb.15).** 764 offline tests pass. `--status`,
+`--readiness`, the empty historical replay, `--pipeline-report` with no store and
+a one-cycle paper run exit 0 as documented. Both venue public probes are
+`UNAVAILABLE` from this sandbox, which allows egress only to GitHub, PyPI and npm
+hosts (venue hosts are not on that list). Kalshi has historical public
+observation only; Polymarket US has never returned a payload; ForecastEx is a
+stub. 0 of 3 provenance-independent pairs is cost-evaluable. No genuine recorded
+two-venue dataset exists.
+
+**Three highest-impact blockers.**
+
+| # | Blocker | Why it dominates | Depends on |
+|---|---|---|---|
+| B1 | **No current second-venue market data.** | Polymarket US has never returned a usable payload (P7). Without one there are no cross-venue books, no fee-family mapping, no D25 check on the Polymarket side, and no admissible collection. | An authorized, non-sandbox network run of `scripts/polymarket_us_smoke.py --limit 1`. Owner-run. |
+| B2 | **No cost-complete pair (0/3).** | Trade and settlement components are `INCOMPLETE` on all three venues. Polymarket US and ForecastEx settlement timing are `UNKNOWN`. No pair can show a net profit. | B1 (fee-family mapping needs real payloads); account fee and settled-position exports (`docs/FEE_READINESS.md` steps 1–7); a Polymarket US settlement-timing source. |
+| B3 | **No APPROVED certificate path.** | Without an LLM key no certificate is APPROVED, so `search_event()` never sees a pair. Even with a key, the 200-call budget limits single-cycle synthetic equivalent recall to 0.54–0.63 (vs 0.85 unbudgeted), and D25 creates false rejects on threshold operators. | Owner LLM key (H7). The Polymarket side of D25 needs B1. |
+
+**Work classes.**
+
+- *Agent-autonomous (no external evidence needed):* documentation consistency;
+  offline tests; collector cadence and paired-capture design (no data); D29
+  dedupe once the owner chooses the policy; benchmark measurements (D31 open
+  part); the Kalshi side of D25 once its documented vocabulary is confirmed.
+- *Operator credentials (never in chat or Git):* H7 LLM key in `.env.paper`.
+  Optional H2 Kalshi key is not needed for public probes.
+- *Authoritative external evidence:* Polymarket US payload (B1); Kalshi
+  per-series/event fee context and account fill/fee reconciliation; settled
+  statements; ForecastEx Rule 603 text and IBKR route statement; Polymarket
+  settlement-timing source; Utah/account eligibility (R9).
+- *Network access (authorized machine only):* smoke probes, collection runs,
+  payload capture. Not possible from this sandbox, and must not be bypassed.
+- *Human decisions:* data-retention policy (H5); D29 cooldown or
+  one-position-per-pair policy; the 60-minute settlement fallback (CANDIDATE_RETRIEVAL
+  §9); confirmation of spec §33 and §68 (`[I]`); live go/no-go (H6, out of scope);
+  interpretation of R9 eligibility.
+
+**Ordered queue.**
+
+1. **[OWNER · network] Bounded public Polymarket US smoke** from an authorized
+   network: `python scripts/polymarket_us_smoke.py --limit 1` (no credentials,
+   no orders). *Exit:* a redacted evidence record with a usable two-sided payload,
+   or a fresh `UNAVAILABLE`. Unblocks B1. **Single next action.**
+2. **[AGENT, after 1] Review the payload.** If usable, record it as
+   `MARKET_DATA_OBSERVED` (manual review, `docs/VENUE_RESEARCH.md`), add a parser
+   fixture from the observed shape, and read its operator/units vocabulary.
+   *Exit:* collect admits Polymarket US on real-shape fixtures. Never `VERIFIED`
+   from a single probe.
+3. **[AGENT, autonomous, before any long run] Collector cadence and paired
+   capture** per `docs/HISTORICAL_EVALUATION.md` §6: receipt stamps, common
+   clock, explicit empty/halt/gap/session events. *Exit:* offline tests only.
+   The current sequential 10-second collector cannot provide tick-accurate history.
+4. **[OWNER · network] Paired 24-hour collection** for Kalshi and Polymarket US
+   after items 2–3. *Exit:* a recorded store with per-venue coverage through both
+   arrivals. Keep raw stores out of Git (H5).
+5. **[OWNER] LLM key (H7).** *Exit:* paper prints `LLM matching enabled`; then
+   measure per-cycle budget coverage on real candidates (item 9).
+6. **[OWNER → AGENT] Fee and settlement evidence** (`docs/FEE_READINESS.md`
+   steps 1–7), starting with Kalshi series/event fee context and Polymarket
+   fee/settled-position exports. *Exit:* reconciled inputs; no promotion before
+   reconciliation.
+7. **[AGENT, autonomous; owner chooses policy] D29 pair-level dedupe.** A stable
+   pair key and a cooldown or one-position-per-pair rule, with offline tests.
+   *Exit:* repeated cycles on one pair produce one simulated position. Until
+   then paper P&L is activity, not performance.
+8. **[AGENT, autonomous] Multi-cycle and like-for-like budget measurement** (D31
+   open part): run the harness over several cycles and with the priority order
+   applied to the legacy path. Measurement only, unless it reveals a defect.
+9. **[AGENT, after 2 and 5] D25 vocabulary normalization** in the adapters, with
+   tests. Never weaken the deterministic matcher.
+10. **[DEFERRED] D21, D22, D24, D26; Phase 8 live; Phase 9 strategy surface;
+    Phase 10 operations.** Not in scope for this milestone.
+
+**Recommended next milestone: two-venue observed public evidence (items 1–4).**
+Not fee verification, candidate recall or paper execution, because:
+
+- *Data is the root blocker.* The cross-venue pipeline has never seen a second
+  venue's book. Every offline gain so far is measured on synthetic or 50-listing
+  reference data.
+- *Fee verification needs owner exports* and is meaningless for a pair without
+  books, since fee-family mapping depends on payloads.
+- *Candidate recall is saturated on available evidence.* The reference set
+  keeps 15/16 and synthetic equivalent∩deterministic-pass keeps 256/256. The
+  remaining loss is the budget, which matters only once real candidates exist.
+- *Paper execution yields simulated activity only*, and D29 means its P&L is not
+  performance evidence.
+
+**Blocked by this sandbox, not by code:** item 1 and everything that depends on
+it. The agent can prepare items 2, 3, 7 and 8 without network access.
 
 ---
 
@@ -428,7 +528,10 @@ WebSocket server). Evidence rows P1-P8 in `docs/VENUE_RESEARCH.md`.
   deltas, so there is no incremental state to corrupt and no `seq` to
   check. Adding one would fabricate a guarantee the protocol does not
   offer.
-- **Orders are not implemented.** `place_order` raises. Phase 3 requires
+- **Orders are not enabled.** `KalshiAdapter.place_order` builds a request body
+  but raises `PermissionError` unless constructed with `allow_order_placement=True`,
+  which `main.py` passes only in live mode. No production caller reaches it: live
+  `run()` is monitor-only and no live coordinator is constructed (D24). Phase 3 requires
   books before orders, and the venue's fee schedule is still
   `INCOMPLETE` in `config/fees.yaml` — the cumulative aggressive-order
   cap plus banker's rounding need per-order fill state the
@@ -582,7 +685,7 @@ under-recorded contracts never acquire invented payout/tick/minimum/version.
   `fills`/`modelled_equity` sections and sizing-derived fill probability are
   removed. Sampled edge sums are not equity, P&L, returns or bounds.
 
-**Validation:** full **704 passed in 68.46 s**, new deterministic suite **61
+**Validation (Arb.13 record; current count 764, §1):** full **704 passed in 68.46 s**, new deterministic suite **61
 passed in 28.24 s**; eight mutations each caught, source restored. Covers empty,
 old-schema read-only, timestamp disorder/look-ahead, stale/skew/contract/outcome,
 partial/full/unavailable fills, cash/depth reuse, historical fees, settlement
@@ -819,7 +922,7 @@ collection), and log rotation.
 | D5 | ~~Kalshi on legacy host, intermittent failures, no failover~~ **FIXED IN CODE 2026-09-13**: recommended `external-api` hosts configured, legacy hosts kept as fallbacks, 5xx/transport failover + connect-time probing, bulk books, WS streaming, tier-aware budget clamping (26 tests). *Operational verification (24h run on the owner's machine) still pending — see Phase 2 section* | Was: `config/venues.yaml` → `api.elections.kalshi.com`; collect log: 18 DNS failures + 14 HTTP 500s | 2 |
 | D6 | ~~Cross-venue candidate generation cannot produce candidates~~ **FIXED IN CODE 2026-09-14; RETRIEVAL REVISED 2026-10-10 (Arb.8)**: the settlement-bucket union-find described below chained the 1,000-contract benchmark into one component. Arb.8 replaced it with pairwise, bounded, non-transitive retrieval (cross-venue, settlement within ±6h, shared `thr`/`num`/`tok` key, local density cap 20). Benchmark: 333,296 → 3,262 candidates, eq∩det recall 256/256 on synthetic and 15/16 on the reference set (one known paraphrase miss). Design and lost matches: `docs/CANDIDATE_RETRIEVAL.md`. Original 2026-09-14 record follows: **FIXED IN CODE 2026-09-14**: `group_by_event` now unions contracts over five deterministic blocking-key families (settlement 24h buckets ±1, category, threshold+operator+units, canonical numeric tokens, plural-folded content words) instead of exact canonical title + settlement date; recall-oriented by design, and the deterministic matcher stays the only authority (§18/§96). 24 tests in `tests/test_candidate_generation.py`, mutation-verified. *Exit evidence on real two-venue data remains owner-gated (Phases 2/3)* | Was: `normalized_event_key` = exact canonical title + settlement date → cross-venue pairs never candidates. Now: `tests/test_candidate_generation.py` (e.g. `test_differently_phrased_same_event_group_together`, `test_pipeline_finds_cross_venue_opportunity`) | 5 |
 | D7 | ~~Venue research stale~~ **FIXED 2026-09-13**: evidence ledger now covers direct DCMs, aliases, multi-route frontends, fees, Utah/CFTC context, and ranked candidates; old “only one independent pair” premise removed | `docs/VENUE_RESEARCH.md`; provenance/fee/compliance registries; focused tests | 1 |
-| D8 | ~~Spec document missing~~ **FIXED 2026-09-13; maintained 2026-10-10:** `docs/SPEC.md` records reconstructed requirements with `[I]` flags on the two thin ones (§33, §68), an appendix of unresolved historical gaps, and the requested claim-level evidence requirement §101. | Current spec has 79 section entries; 451 citation sites were counted on 2026-10-10, excluding the spec, roadmap, and kickoff docs. `grep -c "^### §" docs/SPEC.md` → 79 | 0 |
+| D8 | ~~Spec document missing~~ **FIXED 2026-09-13; maintained 2026-10-10:** `docs/SPEC.md` records reconstructed requirements with `[I]` flags on the two thin ones (§33, §68), an appendix of unresolved historical gaps, and the requested claim-level evidence requirement §101. | Current spec has **81** section entries (Arb.15 re-count 2026-10-10: `grep -c "^### §" docs/SPEC.md` → 81; the earlier 79 was stale). Every one of the 75 distinct `§N` numbers cited from Python source resolves to a spec heading. Earlier count of 451 citation sites (excluding spec, roadmap, kickoff docs) was taken on 2026-10-10 and not re-counted. | 0 |
 | D9 | ~~No LLM configured ⇒ no APPROVED certificates ⇒ nothing is ever evaluated~~ **FIXED IN CODE 2026-09-14**: `main.py` builds the matcher from the mode env file via `matching/llm_client.py` (§97 — OpenAI-compatible `/chat/completions`; `LLM_API_BASE`/`LLM_API_KEY`/`LLM_MODEL`/`LLM_TIMEOUT_SECONDS` in `.env.paper`). Transport only: schema validation (§88), outage/malformed ⇒ no-match, in-memory caching (§87) and model/prompt versioning unchanged; no config is still the conservative default (REVIEW, never auto-APPROVED); partial config refuses startup; fail-closed per-cycle comparison budget (`llm.max_comparisons_per_cycle`, default 200; excess pairs stay REVIEW and are not cached; `run_matching` resets the window). 20 tests in `tests/test_llm_client.py`, mutation-verified. *Operational verification on a real endpoint is owner-gated (H7)* | Was: `main.py`: `LLMMatcher(client=None)` hardcoded; `optimizer.search_event` skips pairs without approval. Now: wired + `tests/test_llm_client.py` (config paths, transport errors, budget; live wiring checks of the three startup paths — none/partial/full — run 2026-09-14) | 5 |
 | D10 | ~~Live mode is monitor-only; readiness check hardcodes the venue count~~ **READINESS SIDE FIXED 2026-10-10** (live stays monitor-only by construction, §60, which is not a defect): `cmd_readiness` derives criteria from observed state, a mode is ready iff no applicable criterion is BLOCKED, and the read-only probe reports a missing store without creating it. The full-verification + verified-order-type threshold for live remains intact. At the pre-D27 snapshot there was 1 live-capable venue; **D27's current evidence audit downgrades that to 0**, because Kalshi is `MARKET_DATA_OBSERVED`, not full `VERIFIED`. Current readiness remains NOT READY: no independent live pair, 0/3 complete fee schedules, UNKNOWN settlement on 2 venues, 0 recorded rows, eligibility UNKNOWN ×3, no `.env.live` | Was: `--readiness` printed "NOT YET: Two live-capable independent venues = 1" from a literal `False`, so the check could never pass even with two verified venues, and running it created the paper data directory. Now: `tests/test_readiness.py` (140) — a synthetic all-pass input yields `live.ready is True`; the fake adapter reports APIStatus.VERIFIED *and* verified order types. 16 single-gate mutations (one per gate) each flip exactly the expected criteria; hardcoding `ModeReadiness.ready = False` fails 7 tests; the readiness probe creating the store fails 2; `cmd_readiness` on a `tmp_path` copy of the real config asserts no `data/` afterwards | 8 |
 | D11 | ~~No book-freshness enforcement in paper; `OrderBookAggregator` is dead code~~ **FIXED 2026-09-13**: the paper engine now holds an `OrderBookAggregator` and both the scan and the simulated execution engine read through it. The gate is the stricter of `execution.max_book_age_ms` and `arbitrage.maximum_book_age_ms`; excluded books are counted and printed rather than silently dropped. Streamed books get the same sequence guard and staleness accounting as polled ones | Was: aggregator referenced only in tests; `maximum_book_age_ms` enforced solely by the live firewall, so a paper book could age forever and still be traded against. Now: `tests/test_paper_realism.py::TestPaperFreshnessEndToEnd`, verified by mutation — reverting `fresh_snapshot()` → `snapshot()` fails `test_stale_polled_book_never_reaches_the_scan` | 6 |
@@ -841,6 +944,8 @@ collection), and log rotation.
 | D27 | **RESOLVED 2026-10-10 — adapter evidence was overclaimed and collection admitted invalid/unverified books.** Kalshi was unconditionally `VERIFIED`; a historical public observation was not separated from current endpoint connectivity/full adapter coverage. Collection's blocklist could admit other unverified states and saved non-empty books without validating crossed/non-finite levels. Smoke scripts mixed credentialed/authenticated surfaces with public checks and treated some network failures as hard failures. | Added claim-level documentation/connectivity/usable-data/full-verification/latest-smoke evidence; Kalshi is `MARKET_DATA_OBSERVED` from the 2026-08-30 public capture only, Polymarket US stays `API_DOCUMENTED_UNTESTED`, ForecastEx remains a stub. Smoke probes are bounded public GET-only/no credentials/no orders; latest 2026-10-10 attempts are explicitly `UNAVAILABLE` with exact TLS EOF details (K9/P7), not adapter failures. Collection now admits only MARKET_DATA_OBSERVED/VERIFIED and records usable books without an execution path; paper REST and streaming gates are distinct. Unknown Polymarket tick/minimum rules remain unknown. Offline regressions cover collection, parsers, timestamps, books, status and Kalshi sequence-gap/REST recovery; full current endpoint verification remains unavailable and is not claimed. | 2–3 |
 | D28 | **RESOLVED IN CODE 2026-10-10 (Arb.13) — historical metrics implied execution and minute replay leaked future data.** Both paths only scanned; repeated TRADE profits became MODELLED equity and walks became fill statistics. Later independent quotes entered rounded earlier decisions, mutable terms/wall-clock fees lacked as-of support, and historical startup connected venues. | Exact receipt/as-of replay, nullable schema-4 capture/context with no legacy backfill, dated costs/IDs/evidence, common conditional latency/IOC/depth/cash/fee-reserve model, schema-2 theory/simulation/exposure separation. 61 deterministic cases, full 704 passing, eight caught mutations; empty CLI retains null P&L, no venue adapters. **Genuine-data/calibration exit still owner-gated**; docs/HISTORICAL_EVALUATION.md defines requirements/limits. | 4 |
 | D29 | **OPEN (found by Arb.14 telemetry, 2026-10-10) — paper simulation re-executes the same economic contract pair across cycles with no position dedupe.** Paper `opportunity_id` is a `uuid4` per evaluation (`arbitrage/two_leg.py`), so one pair appears under many ids and there is no per-pair check against existing simulated positions (only the global open-position cap). The report exposes this as `distinct_contract_pairs` and per-cycle observation counts; it does not fix it. | Phase 6 realism: pair/position dedupe or cooldown and a stable pair key, decided with the owner. Simulated P&L must not be read as performance until this is closed. Not changed in Arb.14. | 6 |
+| D30 | **RESOLVED 2026-10-10 (Arb.15) — public smoke evidence named a failed connect as if it had succeeded.** `scripts/kalshi_smoke.py` and `scripts/polymarket_us_smoke.py` recorded the connect check as "a configured public status endpoint responded" / "public gateway returned an HTTP response" even when the outcome was `UNAVAILABLE` after TLS EOF, so both the console line and the evidence JSON contradicted their own result. | Reproduced by running both scripts (17:29 UTC) and reading the `reports/evidence/` record. Fixed by neutral pass/fail labels ("… reachability"); the offline tests now assert the label and `UNAVAILABLE`. No status was changed: the probes remain `UNAVAILABLE`. `tests/test_kalshi_smoke_script.py`, `tests/test_polymarket_us_smoke_script.py`. | 2–3 |
+| D31 | **PARTLY RESOLVED 2026-10-10 (Arb.15) — committed candidate-retrieval benchmark budget rows were stale.** Re-running the committed harness on the current code reproduced every non-budget figure exactly. The retrieval budget-200 rows (122 / 0.405 headline; 128 / 0.425 stress) predated the Arb.9 priority ordering and now read 189 / 0.628 and 177 / 0.588. All nine synthetic result files were regenerated and `docs/CANDIDATE_RETRIEVAL.md` §5 corrected. **Still OPEN:** the before/after budget rows are not like-for-like (the legacy row runs the pre-Arb.8 group order), and multi-cycle budget coverage is not measured. | `benchmarks/candidate_retrieval/results/*.json`; `docs/CANDIDATE_RETRIEVAL.md` §5 note. Reproduce with `python -m benchmarks.candidate_retrieval.run --source synthetic --contracts 1000 --seed 20261010 --skew 1.3`. | 5 |
 
 ---
 

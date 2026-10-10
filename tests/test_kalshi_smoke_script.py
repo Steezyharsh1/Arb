@@ -183,6 +183,9 @@ class TestSafetyPosture:
         payload = json.loads(out.read_text())
         assert code == 1
         assert payload["result"] == "UNAVAILABLE"
+        connect = payload["checks"][0]
+        assert connect["check"] == "connect: public status endpoint reachability"
+        assert connect["result"] == "UNAVAILABLE"
         assert payload["evidence_levels"]["connectivity"]["state"] == "UNAVAILABLE"
         assert payload["evidence_levels"]["usable_market_data"]["state"] == "NOT_OBSERVED"
         assert payload["evidence_levels"]["full_adapter_verification"]["state"] == "NOT_VERIFIED"
