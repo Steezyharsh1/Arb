@@ -1,8 +1,10 @@
 # ROADMAP & PHASE MAP
 
-Compiled 2026-09-13 (America/Denver) from a full read of the repository,
-a live run of the test suite and CLI, inspection of both SQLite
-databases and the JSONL logs, and a re-check of venue/API sources.
+Originally compiled 2026-09-13 (America/Denver) from a full read of the
+repository, test suite/CLI, databases/logs, and venue/API sources. Updated
+2026-10-10 for the direct fee-source re-review and pair-readiness audit
+(`docs/FEE_READINESS.md`); older verification dates remain attached to
+unrevisited claims.
 
 This is the reference document for anyone (human or agent) continuing
 the project. It describes **phases**, the **verified current state**,
@@ -25,14 +27,15 @@ Status tags used throughout:
 
 ---
 
-## 1. Current state snapshot (verified locally 2026-09-13; re-verified 2026-10-09 where the row says so)
+## 1. Current state snapshot (re-verified 2026-10-10 where noted; broad baseline 2026-09-13)
 
 | Check | Result |
 |---|---|
-| `pytest` | **348 passed in 26.29s** — re-verified 2026-10-10 on Python 3.11.2 after the D17 repair (313 at the 2026-10-09 baseline + 35 new mandatory-cost tests). Current `pytest --collect-only -q` breakdown: arbitrage_engine 9, candidate_generation 27, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 24, polymarket_us 41, safety 26, spec_cases 13, unavailable_costs 35, units 40. All offline: mock HTTP transports and a scripted local WebSocket server. The D16 fixture work still holds: fixed settlement test clock, default settlement +3 days, candidate-pipeline fixture +1 day with a positive delay-cost assertion |
-| `python -m prediction_arb.main --status` | Works (re-verified 2026-10-09, exit 0): kalshi=VERIFIED, polymarket_us=API_DOCUMENTED_UNTESTED, forecast_ex=API_DOCUMENTED_UNTESTED; independence matrix correct (kalshi↔polymarket_us = INDEPENDENT) |
-| `python -m prediction_arb.main --readiness` | Re-verified 2026-10-09: 0 snapshots recorded in a fresh clone; **0 opportunities ever analyzed**; live NOT RECOMMENDED. (The 13,801-snapshot figure below was from the previous engineer's working copy — the DB is git-ignored, so a fresh clone starts empty.) |
+| `pytest` | **352 passed in 28.29s** — full suite re-run 2026-10-10 on Python 3.11.2 after the fee-readiness regressions (348-test D17 baseline + 4 focused tests). Current collection: arbitrage_engine 9, candidate_generation 27, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 25, polymarket_us 41, safety 26, spec_cases 13, unavailable_costs 35, units 43. All offline: mock HTTP transports and a scripted local WebSocket server. D16 fixture work still holds: fixed settlement test clock, default settlement +3 days, candidate-pipeline fixture +1 day with a positive delay-cost assertion |
+| `python -m prediction_arb.main --status` | Re-run 2026-10-10, exit 0: kalshi=VERIFIED, polymarket_us=API_DOCUMENTED_UNTESTED, forecast_ex=API_DOCUMENTED_UNTESTED. Matrix reports all 3 enabled unordered pairs `INDEPENDENT`; this is not fee or book readiness. |
+| `python -m prediction_arb.main --readiness` | Re-run 2026-10-10, exit 0: 0 recorded snapshots, 0 opportunities analyzed, one live-capable venue; **LIVE MODE: NOT RECOMMENDED YET**. (The 13,801-snapshot figure below was from the previous engineer's working copy — the DB is git-ignored, so a fresh clone starts empty.) |
 | Live-capable venues | **1** (Kalshi). Polymarket US is implemented and INDEPENDENT, but stays API_DOCUMENTED_UNTESTED until the owner captures observed-payload evidence (P7) |
+| Fee/pair readiness | **0 of 3** enabled provenance-independent pairs are end-to-end cost-evaluable. Kalshi, Polymarket US, and ForecastEx trade/settlement gates are `INCOMPLETE`; paper data admits Kalshi only. Direct fee audit and pair matrix: `docs/FEE_READINESS.md` (2026-10-10) |
 | `data/paper/…sqlite3` | Not present in a fresh clone (git-ignored). Previously 21,892 markets / 13,801 book snapshots spanning 2026-08-30 → 2026-09-05, tagged `mode=collect` |
 | `data/historical/…sqlite3` | **Empty** (0 rows in every table) |
 | `reports/historical/…json` | `{"frames": 0, "opportunities": 0}` |
@@ -40,16 +43,15 @@ Status tags used throughout:
 | CI | **Green for the D17 work on PR #8** (2026-10-10) — `pull_request` runs `38012787059` and `38012962141` both `success` (47s each: install, full suite, four CLI smokes, honest-empty replay, artifact guard); the newest run on the PR head supersedes those listed. Predecessors: `796abec` (merge of PR #7) green as run `38009643994`; the original D16 repair green as run `37999166331` on `f74c728` (2026-10-09, 49s) |
 | Outbound network from this sandbox | Venues unreachable — re-confirmed 2026-10-09 by running both smoke scripts (`scripts/kalshi_smoke.py`, `scripts/polymarket_us_smoke.py`), each exiting `1` with `TLS/SSL connection has been closed (EOF)` on `external-api.kalshi.com`, `api.elections.kalshi.com` and `gateway.polymarket.us`. Rows K9 and P7 therefore still stand; venue calls must be verified on the owner's machine. **Documentation hosts ARE reachable through the research tooling**, which is how rows P8–P12 and R9 were re-verified |
 
-**Bottom line:** the safety architecture and Phase 1 fail-closed research
-registries are tested. The opportunity pipeline still has never seen real
-two-venue data (neither venue is reachable from the agent sandbox), but the
-in-code blockers are now closed: D6 candidate generation produces
-cross-venue candidates from differently-phrased titles, D9 wires a real
-LLM matcher from the env file (no LLM ⇒ REVIEW, never auto-approve), and
-D15 keeps same-venue pairs out of APPROVED. What remains for the first
-real opportunity is owner-gated: venue reachability evidence (smoke
-scripts), the Kalshi key (H2) for collected data, and an LLM key (H7)
-for approval semantics.
+**Bottom line:** the D17 zero-substitution defect is fixed, but **the fee
+readiness gate is reopened** after the current Polymarket US schedule and
+Kalshi/ForecastEx settlement scopes were re-reviewed on 2026-10-10. Three
+enabled pairs are provenance-independent; none is end-to-end cost-evaluable.
+The paper pipeline still has only one verified API (Kalshi), and matching
+needs an owner-supplied LLM key for an `APPROVED` certificate. D6 candidate
+generation and D15 provenance gating are implemented, but no first real
+opportunity can be costed until external book/account evidence and the fee
+context in `docs/FEE_READINESS.md` are resolved.
 
 **Updated 2026-10-09:** the inherited D16 failure was a stale test fixture,
 not a production settlement defect. The follow-up freezes the settlement
@@ -70,7 +72,21 @@ preserved as a clearly separate research figure, and every reporting surface
 (dashboard, CLI summaries, database, daily reports) shows `n/a` / NULL
 instead of a figure. **348 tests pass in 26.29s** (313 baseline + 35 new in
 `tests/test_unavailable_costs.py`), and the repair is mutation-verified. No
-change to the fail-closed fee engine.
+change to the fail-closed fee engine for D17.
+
+**Updated 2026-10-10 — fee-readiness review:** direct official fee sources
+were re-read for Kalshi, Polymarket US, and ForecastEx/IBKR. The prior
+Polymarket US `0.06` formula is superseded by the schedule effective
+2026-10-07; Table Tennis and combo variants were not represented by the old
+single-family schedule. Kalshi's zero settlement fee is limited to simple
+yes/no determinations. ForecastEx's `$0.01` exchange component remains
+published, but no universal route commission or zero settlement charge was
+established. All active production trade/settlement statuses are now
+`INCOMPLETE`; no estimates are exposed. Three configured unordered pairs
+are provenance-independent, but zero are end-to-end cost-evaluable with the
+current API gates. Four focused regressions were added, and the full offline
+suite now passes **352 tests in 28.29 s** (Python 3.11.2). See
+`docs/FEE_READINESS.md` and updated `config/fees.yaml`.
 
 ---
 
@@ -81,7 +97,7 @@ change to the fail-closed fee engine.
 | 0 | Repo hygiene, packaging, runnability, spec reconstruction | **DONE 2026-09-13** | Fresh clone → `pip install -e ".[dev]"` → full suite passes → CLI runs, no manual hacks |
 | 1 | Venue & API research refresh (2026) | **DONE 2026-09-13 — OWNER CHECKPOINT** | Owner selects Polymarket US, Gemini, or IBKR route before adapter work |
 | 2 | Kalshi adapter refresh + streaming | PARTIAL — code complete + verification script delivered 2026-09-13 (D5, D14 fixed); **owner run pending** | 24h collect run with ≥99% cycle success; WebSocket streaming in paper |
-| 3 | **Second independent venue adapter** | PARTIAL — adapter + exact fee model complete 2026-09-13 (gate 3 CLOSED); **gates 1, 2, 4 are owner-gated** | Real books from the owner-selected venue proven INDEPENDENT of Kalshi, in paper mode |
+| 3 | **Second independent venue adapter** | PARTIAL — Polymarket US adapter is implemented, but fee gate was **REOPENED 2026-10-10** after the 2026-10-07 schedule change; market-family/settlement context remains blocked; observed payload and eligibility are owner-gated | Real books from the owner-selected venue proven INDEPENDENT of Kalshi, with complete all-in cost in paper mode |
 | 4 | Data lineage, replay, backtest metrics | CODE COMPLETE 2026-09-13 (D3, D4 fixed); **exit needs owner's real collected data** | `--mode historical --date …` replays recorded data and reports metrics |
 | 5 | Matching that can actually match | CODE COMPLETE 2026-09-14 (D6 blocking §96, D9 LLM wiring §97, D15 provenance gate); **exit needs owner's real two-venue data + LLM key (H7)** | APPROVED certificates produced from real cross-venue data |
 | 6 | Paper validation & realism | PARTIAL — D11, D12 fixed 2026-09-13; **owner's multi-week run pending** | Multi-week paper run with realistic fill/staleness modelling |
@@ -178,9 +194,10 @@ Completion record:
   routing is UNKNOWN.
 - `config/fees.yaml` schema v2 records calculation completeness, required
   context, source, documentation status, and live-test status. Incomplete fees
-  raise `FEE_DATA_INCOMPLETE`; only represented ForecastEx direct/IBKR routes
-  are complete. Kalshi is deliberately blocked pending per-series/event and
-  fill/rounding context.
+  raise `FEE_DATA_INCOMPLETE`; the 2026-10-10 audit leaves all three enabled
+  venues' trade and settlement components `INCOMPLETE`. The earlier ForecastEx
+  all-in/zero-settlement completion claim was too broad; see
+  `docs/FEE_READINESS.md` for route and rulebook gaps.
 - ForecastEx semantics were corrected: opposite bids pair at **$1.00** and a
   separate **$0.01 fee applies to each executed side**.
 - Utah sports/proposition contracts are now RESTRICTED for every venue/route,
@@ -400,19 +417,16 @@ has real two-venue data for the first time.
    dashboard or legal review can close it.* **OWNER.**
 2. **Observed-payload evidence** via the smoke script below (gate 2).
    **OWNER** — this sandbox cannot reach the venue (P7).
-3. ~~**Exact fee context**~~ **CLOSED 2026-09-13.** The cumulative
-   aggressive-order cap and banker's rounding are now modelled exactly
-   (P11): `rounding: half_even`, `order_fee_cap: cumulative_exact_rounded`,
-   `trade_calculation_status: COMPLETE`, verified by reproducing all 198
-   values of the venue's own published 100-lot fee table, plus the FAQ's
-   two banker's-rounding examples and a multi-fill cap case. Volume rebates
-   are recorded but deliberately never applied (weekly payout on prior-month
-   volume, not a per-trade discount). Fees are charged **per fill** from the
-   walked levels, which is what the cap is defined over (D13, fixed).
-   **Settlement fees remain `INCOMPLETE — BLOCK`** (P12: no settlement fee
-   is published anywhere reviewed, and documented-by-absence is not
-   verification), so Polymarket US opportunities still fail closed until
-   that is settled by the rulebook or an owner account statement.
+3. **Fee readiness reopened 2026-10-10 — INCOMPLETE / BLOCK.** The current
+   2026-10-07 schedule supersedes the prior `0.06` rate and includes a higher
+   Table Tennis rate plus a separate combo curve. The arithmetic regression
+   now uses a test-only synthetic standard schedule and does not qualify the
+   production calculator. Market-family selection, combo support, account/fill
+   reconciliation, and customer settlement treatment are unresolved. Weekly
+   volume rebates remain prior-month account evidence, paid weekly, not per-
+   trade discounts. See `docs/FEE_READINESS.md` for official sources, exact
+   gaps, and required owner evidence. Keep both production statuses
+   `INCOMPLETE`; do not expose estimates.
 4. **≥1 real Kalshi cross-listing** persisted as APPROVED or REVIEW,
    never forced. This is blocked behind **D6** (candidate generation)
    and **D9** (no LLM client), which is why Phase 5 should follow
@@ -450,18 +464,24 @@ Whichever route is selected must follow the same staged exit gates:
 Route-specific cautions:
 
 - **Polymarket US:** keep QCX/US identities and endpoints separate from the
-  international platform; represent aggressive-order cumulative fee caps.
+  international platform. The 2026-10-07 schedule has standard, Table Tennis,
+  and combo fee families; selection, order/fill state, and settlement remain
+  blocked (`docs/FEE_READINESS.md`). Do not promote the standard formula to a
+  production estimate.
+- **Kalshi:** resolve series/event overrides and account/order rounding state;
+  keep zero settlement limited to the documented simple yes/no scope.
+- **ForecastEx / IBKR:** authenticate a local Client Portal/IB Gateway session;
+  qualify each route. Opposite bids pair at `1.00` and the exchange separately
+  charges `$0.01` per executed side, but all-in commissions and settlement
+  remain account/rulebook gated. Never call a user's localhost gateway directly
+  from browser code; use an app/backend proxy.
 - **Gemini:** resolve listing-date fee cohorts and Titan/QC/Olympus aliases.
-- **IBKR:** authenticate a local Client Portal/IB Gateway session; qualify every
-  contract as `IBKR_KALSHI`, `IBKR_FORECAST_EX`, or `IBKR_CME`. For ForecastEx,
-  synthesize the opposite ask at `1.00 − bid` and charge the separate $0.01 per
-  executed side. Never call a user's localhost gateway directly from browser
-  code; use an app/backend proxy.
 
 Exit: paper mode fetches real books from the selected route; API status reflects
 actual testing; the route is demonstrably INDEPENDENT of Kalshi for the exact
-contract; fee and eligibility gates are complete; and at least one real overlap
-is persisted as APPROVED or REVIEW (never forced to APPROVED).
+contract; every mandatory trade/settlement cost and eligibility gate is
+supported by current evidence; and at least one real overlap is persisted as
+APPROVED or REVIEW (never forced to APPROVED).
 
 ---
 

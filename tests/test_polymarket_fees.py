@@ -1,7 +1,7 @@
-"""Exact Polymarket US fee model (Phase 3 gate 3) + per-fill fee accuracy.
+"""Polymarket US published fee arithmetic plus fail-closed production status.
 
-Every expectation in this file comes from the venue's own published fee
-documentation, re-read 2026-09-13 (evidence rows P8 and P11 in
+Every expectation in this file comes from the venue's own fee documentation,
+re-read 2026-10-10 (see ``docs/FEE_READINESS.md`` and
 ``docs/VENUE_RESEARCH.md``):
 
 * https://docs.polymarket.us/fees
@@ -9,12 +9,11 @@ documentation, re-read 2026-09-13 (evidence rows P8 and P11 in
 * https://docs.polymarket.us/fees#fee-schedule-by-price
 * https://docs.polymarket.us/fees#faq
 
-None of it is live-tested: the schedule keeps ``live_test_status:
-UNAVAILABLE`` and settlement fees stay execution-blocking. What these tests
-prove is that the engine's arithmetic is now identical to the venue's
-published arithmetic — including the 100-lot table, which is only
-reproducible with banker's rounding (several rows round *down* from an exact
-half, which ordinary rounding would send up).
+None of it is live-tested. The production schedule is deliberately
+``INCOMPLETE`` for both trade and settlement: this file uses a **test-only
+synthetic schedule** to check the standard-formula arithmetic, and separately
+asserts that the production calculator fails closed. Passing these unit tests
+does not make the production schedule execution-ready.
 """
 from __future__ import annotations
 
@@ -32,21 +31,22 @@ from prediction_arb.orderbooks.orderbook import walk_buy
 
 VENUE = "polymarket_us"
 
-# Transcribed verbatim from the venue's "Fee Schedule by Price" table
-# (https://docs.polymarket.us/fees#fee-schedule-by-price, read 2026-09-13).
-# Row i (0-based) is the price $(i+1)/100 on a 100-contract order. 99 rows:
-# the documented tradable price range is $0.01-$0.99.
+# Transcribed from the current standard "Fee Schedule by Price" table
+# (https://docs.polymarket.us/fees#standard-fee-schedule-by-price, read
+# 2026-10-10). Row i (0-based) is price $(i+1)/100 on a 100-contract
+# order; 99 rows cover the documented $0.01-$0.99 range. These are reference
+# values tested with a synthetic calculator, never a production fee quote.
 PUBLISHED_TAKER_100_LOT = (
-    "0.06 0.12 0.17 0.23 0.28 0.34 0.39 0.44 0.49 0.54 "
-    "0.59 0.63 0.68 0.72 0.76 0.81 0.85 0.89 0.92 0.96 "
-    "1.00 1.03 1.06 1.09 1.12 1.15 1.18 1.21 1.24 1.26 "
-    "1.28 1.31 1.33 1.35 1.36 1.38 1.40 1.41 1.43 1.44 "
-    "1.45 1.46 1.47 1.48 1.48 1.49 1.49 1.50 1.50 1.50 "
-    "1.50 1.50 1.49 1.49 1.48 1.48 1.47 1.46 1.45 1.44 "
-    "1.43 1.41 1.40 1.38 1.36 1.35 1.33 1.31 1.28 1.26 "
-    "1.24 1.21 1.18 1.15 1.12 1.09 1.06 1.03 1.00 0.96 "
-    "0.92 0.89 0.85 0.81 0.76 0.72 0.68 0.63 0.59 0.54 "
-    "0.49 0.44 0.39 0.34 0.28 0.23 0.17 0.12 0.06"
+    "0.07 0.14 0.20 0.27 0.33 0.39 0.45 0.51 0.57 0.63 "
+    "0.68 0.73 0.79 0.84 0.89 0.93 0.98 1.03 1.07 1.11 "
+    "1.15 1.19 1.23 1.27 1.30 1.34 1.37 1.40 1.43 1.46 "
+    "1.49 1.51 1.54 1.56 1.58 1.60 1.62 1.64 1.65 1.67 "
+    "1.68 1.69 1.70 1.71 1.72 1.73 1.73 1.73 1.74 1.74 "
+    "1.74 1.73 1.73 1.73 1.72 1.71 1.70 1.69 1.68 1.67 "
+    "1.65 1.64 1.62 1.60 1.58 1.56 1.54 1.51 1.49 1.46 "
+    "1.43 1.40 1.37 1.34 1.30 1.27 1.23 1.19 1.15 1.11 "
+    "1.07 1.03 0.98 0.93 0.89 0.84 0.79 0.73 0.68 0.63 "
+    "0.57 0.51 0.45 0.39 0.33 0.27 0.20 0.14 0.07"
 )
 PUBLISHED_MAKER_100_LOT = (
     "0.01 0.02 0.04 0.05 0.06 0.07 0.08 0.09 0.10 0.11 "
@@ -61,7 +61,6 @@ PUBLISHED_MAKER_100_LOT = (
     "0.10 0.09 0.08 0.07 0.06 0.05 0.04 0.02 0.01"
 )
 
-
 def _published(row: str) -> list[Decimal]:
     values = [Decimal(v) for v in row.split()]
     # Guards the transcription itself: a slip here would silently compare
@@ -71,11 +70,42 @@ def _published(row: str) -> list[Decimal]:
 
 
 @pytest.fixture
-def polymarket_calc(fee_calc):
-    """The production ledger's Polymarket US schedule."""
-    schedule = fee_calc.schedules.get(VENUE)
-    assert schedule is not None, "polymarket_us missing from config/fees.yaml"
-    return fee_calc
+def polymarket_calc():
+    """Test-only complete calculator for published standard arithmetic.
+
+    Production config deliberately remains INCOMPLETE; tests of the published
+    formula must not accidentally promote the runtime schedule.
+    """
+    from prediction_arb.fees.calculator import FeeCalculator
+
+    return FeeCalculator.from_config({"schedules": [{
+        "venue": VENUE,
+        "version": "test-only-polymarket-standard-reference-2026-10-07",
+        "effective_date": "2026-10-07",
+        "verified_at": "2026-10-10",
+        "verification_status": "VERIFIED",
+        "documentation_tested": True,
+        "live_test_status": "UNAVAILABLE",
+        "source": "https://docs.polymarket.us/fees; test-only reference schedule",
+        "rounding": ROUNDING_HALF_EVEN,
+        "order_fee_cap": "cumulative_exact_rounded",
+        "trade_calculation_status": "COMPLETE",
+        "settlement_calculation_status": "INCOMPLETE",
+        "rebate_policy": (
+            "Prior-calendar-month taker amount-at-risk, weekly payout; "
+            "not applied per order."),
+        "volume_rebate_tiers": [
+            {"threshold": "250000", "rebate": "0.10"},
+            {"threshold": "1000000", "rebate": "0.25"},
+            {"threshold": "10000000", "rebate": "0.50"},
+        ],
+        "fees": [
+            {"fee_type": "standard_taker_reference",
+             "multiplier": "0.0695", "applies_to": "taker"},
+            {"fee_type": "maker_rebate_reference",
+             "multiplier": "-0.0125", "applies_to": "maker"},
+        ],
+    }]})
 
 
 @pytest.fixture
@@ -104,7 +134,7 @@ def polymarket_style_calc():
             "trade_calculation_status": "COMPLETE",
             "settlement_calculation_status": "COMPLETE",
             "fees": [
-                {"fee_type": "quadratic", "multiplier": "0.06",
+                {"fee_type": "quadratic", "multiplier": "0.0695",
                  "applies_to": "taker"},
                 {"fee_type": "settlement", "fixed_amount": "0",
                  "applies_to": "settlement"},
@@ -133,8 +163,8 @@ class TestPublishedFeeTable:
         # Documented: "Fees are symmetric around p = 0.50".
         assert taker == taker[::-1]
         assert maker == maker[::-1]
-        # Documented maximum at p = $0.50 on a 100-lot: $1.50 / $0.31.
-        assert taker[49] == Decimal("1.50")
+        # Documented maximum at p = $0.50 on a 100-lot: $1.74 / $0.31.
+        assert taker[49] == Decimal("1.74")
         assert maker[49] == Decimal("0.31")
 
     def test_taker_column_matches_all_99_published_rows(self, polymarket_calc):
@@ -161,11 +191,11 @@ class TestPublishedFeeTable:
         """The five worked examples in the fee FAQ, to the cent."""
         cases = [
             # (price, quantity, taker charge, maker credit)
-            (Decimal("0.10"), Decimal("1000"), Decimal("5.40"), Decimal("1.12")),
-            (Decimal("0.65"), Decimal("1000"), Decimal("13.65"), Decimal("2.84")),
-            (Decimal("0.30"), Decimal("1000"), Decimal("12.60"), Decimal("2.62")),
-            (Decimal("0.90"), Decimal("1000"), Decimal("5.40"), Decimal("1.12")),
-            (Decimal("0.50"), Decimal("1000"), Decimal("15.00"), Decimal("3.12")),
+            (Decimal("0.10"), Decimal("1000"), Decimal("6.26"), Decimal("1.12")),
+            (Decimal("0.65"), Decimal("1000"), Decimal("15.81"), Decimal("2.84")),
+            (Decimal("0.30"), Decimal("1000"), Decimal("14.60"), Decimal("2.62")),
+            (Decimal("0.90"), Decimal("1000"), Decimal("6.26"), Decimal("1.12")),
+            (Decimal("0.50"), Decimal("1000"), Decimal("17.38"), Decimal("3.12")),
         ]
         for price, qty, taker, maker in cases:
             assert polymarket_calc.trade_fee(
@@ -191,32 +221,83 @@ class TestBankersRounding:
         assert round_cents(Decimal("-0.3125"), ROUNDING_HALF_EVEN) == \
             Decimal("-0.31")
 
-    def test_published_rows_that_require_half_even(self, polymarket_calc):
-        """Rows ordinary rounding would get wrong — the table proves the rule.
+    def test_published_examples_that_require_half_even(self, polymarket_calc):
+        """Current worked examples include exact half-cent standard fees."""
+        cases = [
+            # (price, quantity, exact fee, banker's-rounded fee)
+            ("0.10", "1000", "6.255", "6.26"),
+            ("0.30", "1000", "14.595", "14.60"),
+            ("0.50", "1000", "17.375", "17.38"),
+        ]
+        for price, quantity, exact, rounded in cases:
+            p, c = Decimal(price), Decimal(quantity)
+            raw = Decimal("0.0695") * c * p * (Decimal("1") - p)
+            assert raw == Decimal(exact)
+            assert polymarket_calc.trade_fee(VENUE, p, c) == Decimal(rounded)
 
-        These prices make Θ × C × p × (1-p) land exactly on a half cent, and
-        the venue publishes the *even* neighbour: 1.365 -> $1.36 (not
-        $1.37), 1.485 -> $1.48 (not $1.49), 0.765 -> $0.76 (not $0.77).
-        """
-        for cents, published in ((15, "0.76"), (35, "1.36"), (45, "1.48"),
-                                 (55, "1.48"), (65, "1.36"), (85, "0.76")):
-            price = Decimal(cents) / Decimal(100)
-            assert polymarket_calc.trade_fee(
-                VENUE, price, Decimal("100")) == Decimal(published)
+        # The maker's midpoint 1000-lot is the opposite tie direction:
+        # 3.125 rounds to 3.12, so the returned credit is -$3.12.
+        assert polymarket_calc.trade_fee(
+            VENUE, Decimal("0.50"), Decimal("1000"),
+            is_taker=False) == Decimal("-3.12")
 
-    def test_schedule_declares_the_documented_rules(self, polymarket_calc):
-        schedule = polymarket_calc.schedules[VENUE]
+    def test_documented_table_tennis_and_combo_reference_arithmetic(self):
+        """Check direct-page variants without exposing them as production fees."""
+        # Table Tennis changes only the taker coefficient; its midpoint
+        # 1000-lot fee is $25.00 and maker rebate remains $3.125 -> $3.12.
+        tt_exact = Decimal("0.10") * Decimal("1000") * Decimal("0.50") * Decimal("0.50")
+        maker_exact = Decimal("-0.0125") * Decimal("1000") * Decimal("0.50") * Decimal("0.50")
+        assert round_cents(tt_exact, ROUNDING_HALF_EVEN) == Decimal("25.00")
+        assert round_cents(maker_exact, ROUNDING_HALF_EVEN) == Decimal("-3.12")
+
+        # Combo formula applies to the combo as a whole (not each component
+        # leg) and has no maker rebate. These tests are reference arithmetic,
+        # not a calculator path; production combos remain unsupported/blocked.
+        def combo_fee(price: Decimal, quantity: Decimal) -> Decimal:
+            one_minus = Decimal("1") - price
+            return quantity * price * (
+                Decimal("0.0695") * one_minus
+                + Decimal("0.06") * one_minus ** 4)
+
+        low = combo_fee(Decimal("0.10"), Decimal("1000"))
+        mid = combo_fee(Decimal("0.50"), Decimal("1000"))
+        assert low == Decimal("10.19160000000000000000000000")
+        assert round_cents(low, ROUNDING_HALF_EVEN) == Decimal("10.19")
+        assert mid == Decimal("19.25000000000000000000000000")
+        assert round_cents(mid, ROUNDING_HALF_EVEN) == Decimal("19.25")
+
+    def test_production_schedule_declares_reference_but_stays_blocked(self,
+                                                                      fee_calc):
+        from pathlib import Path
+        import yaml
+
+        schedule = fee_calc.schedules[VENUE]
+        raw = yaml.safe_load((Path(__file__).resolve().parents[1]
+                              / "config" / "fees.yaml").read_text())
+        entry = next(item for item in raw["schedules"]
+                     if item["venue"] == VENUE)
+        reference = entry["published_reference"]
+        assert reference["standard_taker_theta"] == "0.0695"
+        assert reference["table_tennis_taker_theta"] == "0.10"
+        assert reference["maker_rebate_theta"] == "-0.0125"
+        assert reference["combo_taker_formula"] == (
+            "C × p × [0.0695 × (1-p) + 0.06 × (1-p)^4]")
+        assert reference["combo_maker_rebate"] == "none"
+        assert schedule.verified_at.isoformat() == "2026-10-10"
+        assert schedule.effective_date.isoformat() == "2026-10-07"
         assert schedule.rounding == ROUNDING_HALF_EVEN
         assert schedule.order_fee_cap == "cumulative_exact_rounded"
-        assert schedule.trade_calculation_status == "COMPLETE"
-        # Settlement stays blocking: no settlement fee is published anywhere
-        # reviewed, and documented-by-absence is not verification.
+        assert schedule.trade_calculation_status == "INCOMPLETE"
         assert schedule.settlement_calculation_status == "INCOMPLETE"
         assert schedule.live_test_status == "UNAVAILABLE"
-
-    def test_settlement_fee_still_fails_closed(self, polymarket_calc):
+        assert [rule.multiplier for rule in schedule.rules] == [
+            Decimal("0.0695"), Decimal("-0.0125")]
         with pytest.raises(FeeDataError, match="FEE_DATA_INCOMPLETE"):
-            polymarket_calc.settlement_fee(VENUE, Decimal("100"))
+            fee_calc.trade_fee(VENUE, Decimal("0.50"), Decimal("100"))
+
+    def test_settlement_fee_still_fails_closed(self, fee_calc):
+        with pytest.raises(FeeDataError, match="FEE_DATA_INCOMPLETE"):
+            fee_calc.settlement_fee(VENUE, Decimal("100"))
 
 
 class TestOrderLevelCap:
@@ -224,7 +305,7 @@ class TestOrderLevelCap:
 
     def test_cap_reduces_total_to_rounded_cumulative_exact(
             self, polymarket_calc):
-        # Two 1-contract fills at $0.50: exact fee is 0.06*1*0.25 = 0.015
+        # Two 1-contract fills at $0.50: exact fee is 0.0695*1*0.25 = 0.017375
         # each, which banker's-rounds UP to $0.02 apiece ($0.04), while the
         # cumulative exact fee is $0.03. The cap therefore trims the second
         # fill — and only ever reduces a charge.
@@ -247,7 +328,7 @@ class TestOrderLevelCap:
         ])
         assert all(
             charged <= round_cents(
-                Decimal("0.06") * sl.quantity * sl.price
+                Decimal("0.0695") * sl.quantity * sl.price
                 * (Decimal("1") - sl.price), ROUNDING_HALF_EVEN)
             for charged, sl in zip(uncapped.charged_per_fill, [
                 FillSlice(Decimal("0.50"), Decimal("1"))] * 3))
@@ -260,7 +341,7 @@ class TestOrderLevelCap:
             FillSlice(price=Decimal("0.50"), quantity=Decimal("1000"))])
         assert single.adjustment == Decimal("0")
         assert single.was_capped is False
-        assert single.total == Decimal("15.00")
+        assert single.total == Decimal("17.38")
 
     def test_maker_rebates_are_never_capped(self, polymarket_calc):
         """Documented: "Maker rebates are computed per fill, independently."
@@ -284,7 +365,7 @@ class TestOrderLevelCap:
         running_exact = Decimal("0")
         running_charged = Decimal("0")
         for charged, sl in zip(b.charged_per_fill, slices):
-            running_exact += Decimal("0.06") * sl.quantity * sl.price * (
+            running_exact += Decimal("0.0695") * sl.quantity * sl.price * (
                 Decimal("1") - sl.price)
             running_charged += charged
             assert running_charged <= round_cents(
@@ -315,7 +396,7 @@ class TestRebatesNeverApplied:
                 contract_type="$1 event contract",
                 access_route="direct Polymarket US API",
                 prior_month_taker_volume=Decimal("25000000")))
-        assert with_context == plain == Decimal("15.00")
+        assert with_context == plain == Decimal("17.38")
 
 
 class TestFailClosed:
@@ -375,18 +456,21 @@ class TestPerFillAccuracy:
 
     def test_walked_levels_differ_from_a_weighted_average_price(
             self, polymarket_calc):
-        # 0.10 x 100 then 0.90 x 100: exact per-fill fees are $0.54 each,
-        # while one fee priced at the $0.50 average is $3.00. Same money
-        # spent, very different fee — the average is not what the venue
-        # bills.
+        # 0.10 x 100 then 0.90 x 100: each standard reference fee rounds to
+        # $0.63, then the cumulative exact-fee cap trims the order total to
+        # $1.25. One fee priced at the $0.50 average would be $3.48; the
+        # average is not what the venue bills.
         per_fill = polymarket_calc.trade_fee_fills(VENUE, [
             FillSlice(price=Decimal("0.10"), quantity=Decimal("100")),
             FillSlice(price=Decimal("0.90"), quantity=Decimal("100")),
         ])
         average = polymarket_calc.trade_fee(
             VENUE, Decimal("0.50"), Decimal("200"))
-        assert per_fill.total == Decimal("1.08")
-        assert average == Decimal("3.00")
+        assert per_fill.rounded_sum == Decimal("1.26")
+        assert per_fill.cap == Decimal("1.25")
+        assert per_fill.charged_per_fill == (Decimal("0.63"), Decimal("0.62"))
+        assert per_fill.total == Decimal("1.25")
+        assert average == Decimal("3.48")
         assert per_fill.total != average
 
     def test_two_leg_evaluation_charges_the_walked_levels(

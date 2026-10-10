@@ -8,7 +8,8 @@ UNKNOWN.
 
 ## PHASE 1 RESEARCH RESULT (read this first)
 
-Evidence was refreshed through **2026-09-13**. The old “only Kalshi ↔
+The venue/provenance research baseline is **2026-09-13**; active-route fee
+sources were directly re-reviewed **2026-10-10**. The old “only Kalshi ↔
 ForecastEx” conclusion is obsolete: Polymarket US, Gemini Titan, CDNA, CME,
 Railbird/DKeX, Ludlow/Novig, and Rothera have distinct DCM/matching identities.
 Consumer apps still require contract-qualified routing:
@@ -34,9 +35,14 @@ all; Railbird/DKeX, Ludlow/Novig, Rothera, and CDNA have none, and
 reaching them would require scraping, which is prohibited (§13).
 
 Utah sports contracts are **RESTRICTED** across venues; Utah non-sports
-eligibility is **UNKNOWN**. Context-incomplete fees fail closed. Full claim-level
-statuses, sources, dates, matrix, and recommendation:
-`docs/VENUE_RESEARCH.md`.
+eligibility is **UNKNOWN**. Context-incomplete fees fail closed. Of the three
+enabled venue pairs, all are provenance-independent but **none is currently
+end-to-end cost-evaluable**: Kalshi, Polymarket US, and ForecastEx each have
+at least one mandatory fee/settlement component marked `INCOMPLETE`; only
+Kalshi currently passes the paper API-status gate. See
+`docs/FEE_READINESS.md` for the auditable pair matrix, direct evidence,
+calculation states, and exact operator actions; broader claim-level venue
+research is in `docs/VENUE_RESEARCH.md`.
 
 ## Quick start
 
@@ -94,9 +100,12 @@ live mode is monitor-only by construction.
   account's rate-limit tier with budget clamping below the published limits.
   All of it degrades to public polling when no key is configured.
 - The Kalshi parser handles documented fixed-point bid books and synthesizes
-  complementary asks. Official hosts, formats, sequencing, limits, and fees
-  were documentation-verified on 2026-09-13; a fresh sandbox network smoke
-  test was **UNAVAILABLE**, not reported as live-tested.
+  complementary asks. Official hosts, formats, sequencing, and limits were
+  documentation-verified on 2026-09-13; fee sources were re-reviewed on
+  2026-10-10. The Kalshi trade and settlement schedules remain
+  `INCOMPLETE — BLOCK` until per-series/event, account/fill, and settlement
+  context is represented. A fresh sandbox network smoke test was
+  **UNAVAILABLE**, not reported as live-tested.
 - Cross-venue **candidate generation now works**: contracts are grouped by
   deterministic blocking (settlement-window buckets, category, threshold +
   operator + units, numeric tokens and content words of the titles) instead
@@ -146,22 +155,24 @@ live mode is monitor-only by construction.
   Books that fail the freshness gate are counted and reported, never
   silently dropped.
 - Mode isolation, kill switch, crash-recovery intents, and all ten mandatory
-  spec cases are covered by the test suite (`pytest` — 348 passing, all
-  offline).
+  spec cases are covered by the test suite (`pytest` — **352 passing** on
+  Python 3.11.2, all offline; last run 2026-10-10).
 - An opportunity whose mandatory costs cannot be computed has **no** net
   profit — `None`/`n/a`, never a fabricated zero fee and never a positive
   figure next to a BLOCK verdict (D17). Gross edge and the costs that could
   be computed stay reported as clearly separate research figures, and a
   positive gross edge can never be mistaken for an executable opportunity
   (`tests/test_unavailable_costs.py`).
-- Fees are charged **per fill** from the levels a walk actually consumed,
-  with each venue's documented rounding, and Polymarket US's exact
-  `Θ × C × p × (1-p)` model — banker's rounding per fill plus the
-  cumulative aggressive-order cap that can only reduce a charge. The
-  implementation reproduces all 198 values of the venue's own published
-  100-lot fee table (`tests/test_polymarket_fees.py`). Volume rebates are
-  recorded as evidence and never applied, because they are a weekly payout
-  on prior-month volume rather than a per-trade discount.
+- The fee calculator can process an explicitly supplied per-fill price and
+  quantity list, including Polymarket US banker's rounding and the published
+  aggressive-order cap. Offline tests reproduce the current standard 99-row
+  100-lot fee table and check Table Tennis/combo reference arithmetic using
+  **test-only synthetic data**. They do not make the production schedule
+  complete: current Polymarket US fee-family selection and settlement, Kalshi
+  series/event and account state, and ForecastEx route/settlement evidence
+  remain unresolved. Production fees stay `INCOMPLETE`; no fee estimate is
+  exposed. Volume rebates are recorded but never applied as per-trade
+  discounts. See `docs/FEE_READINESS.md`.
 
 ## What is stubbed (honest NotImplementedError, clean interfaces)
 - ForecastEx/IBKR, Webull, and Moomoo adapters. Phase 1 researched additional

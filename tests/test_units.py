@@ -81,10 +81,69 @@ class TestFees:
         assert mid == Decimal("1.75")
         assert edge < mid
 
-    def test_forecastex_per_contract(self, fee_calc):
-        fee = fee_calc.trade_fee("forecast_ex", Decimal("0.50"),
-                                 Decimal("100"))
-        assert fee == Decimal("1.00")
+    def test_forecastex_production_route_remains_blocked(self, fee_calc,
+                                                           complete_fee_calc):
+        # The published exchange component is $0.01 per executed contract
+        # per side. The test-only schedule checks that fixed-fee arithmetic;
+        # the production route stays blocked until account/FCM and settlement
+        # evidence is supplied.
+        with pytest.raises(FeeDataError, match="FEE_DATA_INCOMPLETE"):
+            fee_calc.trade_fee("forecast_ex", Decimal("0.50"),
+                               Decimal("100"))
+        assert complete_fee_calc.trade_fee(
+            "forecast_ex", Decimal("0.50"), Decimal("100")) == Decimal("1.00")
+        with pytest.raises(FeeDataError, match="FEE_DATA_INCOMPLETE"):
+            fee_calc.settlement_fee("forecast_ex", Decimal("100"))
+
+    def test_active_production_fee_components_all_fail_closed(self, fee_calc):
+        for venue in ("kalshi", "polymarket_us", "forecast_ex"):
+            schedule = fee_calc.schedules[venue]
+            assert schedule.trade_calculation_status == "INCOMPLETE"
+            assert schedule.settlement_calculation_status == "INCOMPLETE"
+            with pytest.raises(FeeDataError, match="FEE_DATA_INCOMPLETE"):
+                fee_calc.trade_fee(venue, Decimal("0.50"), Decimal("100"))
+            with pytest.raises(FeeDataError, match="FEE_DATA_INCOMPLETE"):
+                fee_calc.settlement_fee(venue, Decimal("100"))
+
+    def test_active_fee_reference_records_match_reviewed_sources(self, fee_calc):
+        kalshi = fee_calc.schedules["kalshi"]
+        # The current fee page has no global effective date; a source-review
+        # date must not be misrepresented as one.
+        assert kalshi.effective_date is None
+        with pytest.raises(FeeDataError, match="no verified effective date"):
+            fee_calc.schedule_for("kalshi")
+        assert kalshi.verified_at.isoformat() == "2026-10-10"
+        assert {rule.multiplier for rule in kalshi.rules} == {
+            Decimal("0.07"), Decimal("0.0175")}
+        assert "api-reference/events/get-event" in kalshi.source
+        assert "api-reference/events/get-event-fee-changes" in kalshi.source
+        assert not any(rule.applies_to == "settlement" for rule in kalshi.rules)
+
+        polymarket = fee_calc.schedules["polymarket_us"]
+        assert polymarket.effective_date.isoformat() == "2026-10-07"
+        assert {rule.multiplier for rule in polymarket.rules} == {
+            Decimal("0.0695"), Decimal("-0.0125")}
+        assert "api-reference/combos/overview" in polymarket.source
+        assert "api-reference/funding/get-account-balance-ledger" in polymarket.source
+        assert [(tier.threshold, tier.rebate_fraction)
+                for tier in polymarket.volume_rebate_tiers] == [
+                    (Decimal("250000"), Decimal("0.10")),
+                    (Decimal("1000000"), Decimal("0.25")),
+                    (Decimal("10000000"), Decimal("0.50")),
+                ]
+        assert "paid weekly" in polymarket.rebate_policy
+        assert "accelerated placement" in polymarket.rebate_policy
+
+        forecast_ex = fee_calc.schedules["forecast_ex"]
+        assert forecast_ex.effective_date.isoformat() == "2026-03-31"
+        assert forecast_ex.verified_at.isoformat() == "2026-10-10"
+        assert "forecastex.com/faq" in forecast_ex.source
+        assert ("interactivebrokers.com/en/pricing/commissions-events.php"
+                in forecast_ex.source)
+        assert {rule.fixed_amount for rule in forecast_ex.rules} == {
+            Decimal("0.01")}
+        assert not any(rule.applies_to == "settlement"
+                       for rule in forecast_ex.rules)
 
     def test_missing_schedule_raises(self, fee_calc):
         with pytest.raises(FeeDataError):
@@ -93,9 +152,12 @@ class TestFees:
             fee_calc.trade_fee("unknown_venue", Decimal("0.50"), Decimal("10"))
 
     def test_production_schedules_record_verification_dimensions(self, fee_calc):
-        for schedule in fee_calc.schedules.values():
+        reviewed = {"kalshi", "forecast_ex", "polymarket_us",
+                    "ibkr_forecastex"}
+        for venue, schedule in fee_calc.schedules.items():
             assert schedule.source
-            assert schedule.verified_at.isoformat() == "2026-09-13"
+            expected_date = "2026-10-10" if venue in reviewed else "2026-09-13"
+            assert schedule.verified_at.isoformat() == expected_date
             assert schedule.verification_status in {
                 "VERIFIED", "UNVERIFIED", "UNKNOWN"
             }
@@ -126,6 +188,45 @@ class TestIndependence:
         assert is_independent("webull", "moomoo") == Independence.SAME_VENUE
         assert is_independent("kalshi", "kalshi") == Independence.SAME_VENUE
         assert is_independent("kalshi", "nope") == Independence.UNKNOWN
+
+    def test_three_enabled_independent_pairs_but_only_one_verified_feed(self):
+        from itertools import combinations
+        from pathlib import Path
+        import yaml
+
+        from prediction_arb.adapters.forecast_ex import ForecastExAdapter
+        from prediction_arb.adapters.kalshi import KalshiAdapter
+        from prediction_arb.adapters.polymarket_us import PolymarketUSAdapter
+        from prediction_arb.core.types import APIStatus
+        from prediction_arb.modes.paper.data_provider import PaperDataProvider
+        from prediction_arb.provenance.independence import is_independent
+
+        root = Path(__file__).resolve().parents[1]
+        venues_cfg = yaml.safe_load((root / "config" / "venues.yaml").read_text())
+        enabled = {name for name, config in venues_cfg["venues"].items()
+                   if config.get("enabled")}
+        assert enabled == {"kalshi", "polymarket_us", "forecast_ex"}
+        pairs = list(combinations(sorted(enabled), 2))
+        assert len(pairs) == 3
+        assert all(is_independent(a, b) == Independence.INDEPENDENT
+                   for a, b in pairs)
+
+        adapters = {
+            "kalshi": KalshiAdapter(
+                "https://external-api.kalshi.com/trade-api/v2"),
+            "polymarket_us": PolymarketUSAdapter(),
+            "forecast_ex": ForecastExAdapter(),
+        }
+        assert {venue: adapter.get_api_status()
+                for venue, adapter in adapters.items()} == {
+                    "kalshi": APIStatus.VERIFIED,
+                    "polymarket_us": APIStatus.API_DOCUMENTED_UNTESTED,
+                    "forecast_ex": APIStatus.API_DOCUMENTED_UNTESTED,
+                }
+        # This is the actual paper-data gate: it admits Kalshi alone, so it
+        # cannot furnish books from any independent pair.
+        provider = PaperDataProvider(adapters)
+        assert set(provider.adapters) == {"kalshi"}
 
     def test_route_qualified_frontends(self):
         from prediction_arb.provenance.independence import is_independent

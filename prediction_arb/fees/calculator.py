@@ -117,7 +117,7 @@ class FeeRule:
 class FeeSchedule:
     venue: str
     version: str
-    effective_date: date
+    effective_date: Optional[date]
     expiration_date: Optional[date]
     verified_at: date
     source: str
@@ -200,7 +200,10 @@ class FeeCalculator:
             schedule = FeeSchedule(
                 venue=entry["venue"],
                 version=str(entry["version"]),
-                effective_date=date.fromisoformat(str(entry["effective_date"])),
+                effective_date=(
+                    date.fromisoformat(str(entry["effective_date"]))
+                    if entry.get("effective_date") else None
+                ),
                 expiration_date=(
                     date.fromisoformat(str(entry["expiration_date"]))
                     if entry.get("expiration_date") else None
@@ -254,6 +257,10 @@ class FeeCalculator:
                 f"FEE_DATA_INCOMPLETE: no fee schedule on file for venue "
                 f"{venue!r}. Refusing to compute fees (never assume zero).")
         today = utcnow().date()
+        if schedule.effective_date is None:
+            raise FeeDataError(
+                f"FEE_DATA_INCOMPLETE: {venue} fee schedule has no verified "
+                "effective date. Refusing to compute fees.")
         if today < schedule.effective_date:
             raise FeeDataError(
                 f"FEE_DATA_INCOMPLETE: {venue} fee schedule is not effective "
