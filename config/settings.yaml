@@ -42,7 +42,27 @@ cost_of_capital:
   annual_rate: 0.05
 
 fees:
-  max_schedule_age_days: 30   # refuse live trading on stale fee data
+  # Mandatory fee-freshness limit (§98, prediction_arb/fees/freshness.py).
+  # A schedule whose `verified_at` is older than this is REFUSED by every
+  # execution-facing mode — live and paper — exactly like a missing one, so
+  # its opportunities BLOCK with the age in the reason instead of being
+  # costed on evidence nobody has re-read. Historical replay still costs a
+  # stale schedule (replaying recorded history with the schedule that was
+  # current then is more useful than refusing to measure it) and labels the
+  # run RESEARCH USE ONLY; collect mode never calculates fees at all.
+  max_schedule_age_days: 30
+
+# Advisory readiness report (`--readiness`, §58/§99). Every criterion that
+# report prints is derived from verified system state — adapter status,
+# provenance independence, the recorded store, the fee ledger, settlement
+# timing evidence, compliance and risk configuration. These numbers are the
+# evidence thresholds that state is compared against; changing them changes
+# what the report requires, and never enables live trading by itself.
+readiness:
+  minimum_recorded_snapshots: 1000       # recorded order-book snapshots
+  minimum_analyzed_opportunities: 50     # opportunities the pipeline analyzed
+  minimum_live_capable_venues: 2         # VERIFIED API + verified order types
+  minimum_data_venues: 2                 # VERIFIED API (paper needs a pair)
 
 # LLM semantic matcher (§19, §97). Credentials come only from the mode env
 # file: LLM_API_BASE / LLM_API_KEY / LLM_MODEL (docs/API_SETUP.md). With no

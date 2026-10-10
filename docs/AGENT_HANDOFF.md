@@ -5,9 +5,11 @@ permanent entry point for a fresh agent session with no memory of prior
 conversations. It tells you what the project is, what is true *right now*,
 what is broken, what you may work on, and what you must not touch.
 
-- **Last updated:** 2026-10-10 (UTC) by the D18 settlement-timing review on
-  branch `arena/206e5211-arb`; it carries forward the fee-readiness review and
-  the D17 mandatory-cost repair.
+- **Last updated:** 2026-10-10 (UTC) by the readiness-derivation work on branch
+  `arena/c1d8507b-arb` — mandatory fee freshness is now enforced per mode and
+  every readiness verdict is computed from observed state (**D10 and D19
+  resolved**). It carries forward the D18 settlement-timing review, the
+  fee-readiness review and the D17 mandatory-cost repair.
 - **Evidence discipline:** verification dates are per claim. Active-route fee
   documents and venue settlement-timing documents were opened directly on
   2026-10-10; no venue API, account, fill,
@@ -36,7 +38,13 @@ three enabled venue pairs are provenance-independent, but **0/3 are
 end-to-end cost-evaluable**; all active trade and settlement schedules are
 `INCOMPLETE`. Do not turn the documented rates into estimates. Settlement
 timing (capital lockup) is evidenced only for Kalshi (DOCUMENTED per-market
-bound); Polymarket US and ForecastEx are `UNKNOWN` and block (D18).
+bound); Polymarket US and ForecastEx are `UNKNOWN` and block (D18). Fee-schedule
+freshness **is** an enforced gate now (D19, §98): live and paper refuse a
+schedule older than `fees.max_schedule_age_days` (30), one with no
+`verified_at`, or an unverified one, while historical replay still costs it and
+is labelled `RESEARCH USE ONLY`. `--readiness` derives every verdict from
+observed state (§99): live is NOT READY because of the criteria it prints, not
+because a literal says so — and enabling live is still out of scope.
 
 Authoritative context: `README.md` (what works / what is stubbed),
 `docs/ROADMAP.md` (phase map + defect register),
@@ -51,12 +59,12 @@ Authoritative context: `README.md` (what works / what is stubbed),
 | Item | Value |
 |---|---|
 | Repo | `Steezyharsh1/Arb` (package name `prediction_arb`) |
-| Working branch (fixed for this Arena session) | `arena/206e5211-arb` |
-| Baseline commit | `caa57c8ee19c61c33f1e31418719e0ef843e9e8e` — merge commit for PR #9 (fee-readiness review); this D18 settlement-timing review branched from it |
-| Working tree at session start | clean (`git status --porcelain` empty) — VERIFIED 2026-10-10 before this review's edits; baseline `pytest` **352 passed in 26.19 s** |
+| Working branch (fixed for this Arena session) | `arena/c1d8507b-arb` |
+| Baseline commit | `e75abef44a97109bfabfd1651bc194313487acff` — merge commit for PR #10 (D18 settlement timing); this readiness-derivation session branched from it |
+| Working tree at session start | clean (`git status --porcelain` empty) — VERIFIED 2026-10-10 before this session's edits; baseline `pytest` **396 passed** |
 | Clone depth | **shallow (depth 1)**: `git log` shows a single commit. Run `git fetch --unshallow` if you need real history (e.g. to blame a regression) |
-| Merged PRs to date | #1 Phase 0, #2 Phase 1, #3 Phases 2+3, #4 Phase 2/3 gaps + Phase 4, #5 Phase 5, #6 D16 baseline recovery, #7 deterministic settlement fixtures, #8 D17 mandatory-cost fail-closed repair, #9 fee-readiness review |
-| CI | `.github/workflows/ci.yml`: install → `pytest` → 4 CLI smokes → honest-empty-replay grep → tracked-artifact guard |
+| Merged PRs to date | #1 Phase 0, #2 Phase 1, #3 Phases 2+3, #4 Phase 2/3 gaps + Phase 4, #5 Phase 5, #6 D16 baseline recovery, #7 deterministic settlement fixtures, #8 D17 mandatory-cost fail-closed repair, #9 fee-readiness review, #10 D18 settlement timing |
+| CI | `.github/workflows/ci.yml`: install → `pytest` → 5 CLI smokes (status, readiness, collect, paper, historical) → honest-empty-replay grep → readiness side-effect guard → tracked-artifact guard |
 
 ---
 
@@ -124,6 +132,22 @@ adapter reference); live → `execution/live.py` + `execution/firewall.py`
 `FirewallContext` because live mode is monitor-only — only `tests/test_safety.py`
 exercises the firewall (VERIFIED by grep 2026-10-09).
 
+**Fee freshness and readiness (added 2026-10-10, §98–§100).**
+`prediction_arb/fees/freshness.py` turns a schedule's `verified_at` into a
+per-mode gate: `policy_for_mode()` gives LIVE and PAPER **MANDATORY**,
+HISTORICAL **RESEARCH**, COLLECT **NOT_APPLICABLE**; `freshness_enforced(mode,
+override)` fails closed for an unknown mode and lets an explicit override win
+in both directions; under MANDATORY a stale, undated or unverified schedule
+makes `FeeCalculator.schedule_for(..., strict_freshness=True)` raise
+`FeeDataError("FEE_DATA_INCOMPLETE: … Re-verify before live execution")`, and
+under RESEARCH the same schedule still prices the replay but the run is
+labelled `RESEARCH USE ONLY: fee schedule(s) older than …`.
+`prediction_arb/monitoring/readiness.py::evaluate_all()` derives every
+criterion from observed adapter, provenance, recorded-data, fee, settlement,
+compliance and risk state; a mode is `ready` only when no criterion is
+`BLOCKED`, and each unmet criterion carries the reason. `--readiness` prints
+that report and enables nothing (no files, no directories, no orders).
+
 **Fastest offline way to watch the whole path run:**
 `pytest tests/test_candidate_generation.py::TestPipelineEmitsCandidates -q`
 (differently-phrased cross-venue pair → candidate → deterministic pass →
@@ -176,7 +200,7 @@ live-blocking): `docs/COMPLIANCE.md`, evidence rows R1–R9 in
 | `paper` (default) | `--mode paper` | Full pipeline, simulated execution, real data | Needs venue reachability; with no LLM configured nothing is ever APPROVED, so no opportunity is evaluated |
 | `historical` | `--mode historical --date YYYY-MM-DD` | Read-only replay of the recorded store (SQLite `mode=ro`) into its own DB + metrics | Refuses to invent data; a missing store is reported, never created |
 | `live` | `--mode live` | **Monitor-only by construction** — requires the typed confirmation phrase, then reports that fewer than two live-capable independent venues exist and does not scan to execute | No flag bypasses the phrase; kill switch blocks live entirely |
-| utility | `--status`, `--readiness`, `--kill`, `--unkill` | Venue/provenance table, advisory readiness, persistent kill switch | `--readiness` currently hardcodes the two-venue check to `False` (defect D10) |
+| utility | `--status`, `--readiness`, `--kill`, `--unkill` | Venue/provenance table, per-mode derived readiness report (COLLECT / HISTORICAL / PAPER / LIVE, each criterion PASS / WARN / BLOCKED with its reason), persistent kill switch | Advisory only: the report enables nothing. Live stays NOT READY because the *derived* criteria fail (1 live-capable venue, 0/3 complete fee schedules, UNKNOWN settlement, no `.env.live`), not because a literal `False` is printed — D10 resolved |
 
 ---
 
@@ -192,16 +216,17 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4 (re-read from
 | Check (exact command) | Result / recency |
 |---|---|
 | `python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'` | **Succeeded 2026-10-10**; Python 3.11.2, including pytest 9.1.1, PyYAML 6.0.3, Rich 15.0.0 and project runtime dependencies |
-| `.venv/bin/pytest -o addopts=""` | **396 collected, 396 passed in 25.99 s**, re-run after the D18 changes on 2026-10-10 (baseline at `caa57c8` before edits: **352 passed in 26.19 s**). All offline. Note: the project's `addopts = "-q"` plus `-q` on the command line suppresses the summary line; use `-o addopts=""` to see the count |
-| `.venv/bin/pytest --collect-only -q` | **396 tests:** arbitrage_engine 9, candidate_generation 27, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 25, polymarket_us 41, safety 26, settlement_timing 44, spec_cases 13, unavailable_costs 35, units 43 |
+| `.venv/bin/pytest -o addopts=""` | **534 collected, 534 passed in ~26 s**, re-run after the readiness changes on 2026-10-10 (baseline at `e75abef` before edits: **396 passed**; `tests/test_readiness.py` adds 138). All offline. Note: the project's `addopts = "-q"` plus `-q` on the command line suppresses the summary line; use `-o addopts=""` to see the count |
+| `.venv/bin/pytest --collect-only -q` | **534 tests:** arbitrage_engine 9, candidate_generation 27, failure_modes 13, kalshi_phase2 22, kalshi_smoke_script 12, llm_client 20, paper_realism 14, paper_streaming 4, paths 23, phase4_recording 25, polymarket_fees 25, polymarket_us 41, readiness 138, safety 26, settlement_timing 44, spec_cases 13, unavailable_costs 35, units 43 |
 | D18 baseline reproduction and mutation checks | **Run 2026-10-10.** In a worktree at `caa57c8`, a past-dated Kalshi/ForecastEx pair with synthetic complete fees returned `TRADE`, `settlement_delay_cost=0.0000`, `net_profit=7.3200`; same script on this branch → `BLOCK`, `None`. Eight mutations (Kalshi back to expected+0, past clamp, Polymarket US 0-day, ForecastEx 0-day, ignoring `evaluation_time` in the evaluator, half-even rounding, compounded cost, dropping it in `run_arbitrage_scan`) fail 6 / 5 / 3 / 2 / 1 / 1 / 12 / 1 tests respectively (counts for the first seven taken before the 44th test was added); source restored and diff-checked afterwards |
 | Focused YAML load + `FeeCalculator.from_config` | **Succeeded 2026-10-10**. Kalshi, Polymarket US, ForecastEx, and IBKR/ForecastEx parse; all active trade and settlement statuses are `INCOMPLETE`; references are respectively `0.07/0.0175`, `0.0695/-0.0125`, and `$0.01` per executed side. Kalshi's source gives no global effective date, so its reference snapshot date is kept separate and calculations block |
 | `.venv/bin/python -m prediction_arb.main --status` | **Exit 0, re-run 2026-10-10 after D18.** kalshi=VERIFIED; polymarket_us=API_DOCUMENTED_UNTESTED; forecast_ex=API_DOCUMENTED_UNTESTED. Matrix reports Kalshi↔Polymarket US, Kalshi↔ForecastEx, and Polymarket US↔ForecastEx all INDEPENDENT; kill switch disengaged |
 | D17 offline reproduction and mutation checks | **Inherited from the D17/PR #8 verification:** original positive-profit-on-BLOCK reproduced, zero-substitution mutation failed 20 tests, zero-lockup mutation failed 2 tests. The full current suite above re-runs all D17 regressions; standalone mutation checks were not repeated in this fee review |
-| `.venv/bin/python -m prediction_arb.main --readiness` | **Exit 0, re-run 2026-10-10 after D18:** 0 snapshots, 0 opportunities, one live-capable venue, `LIVE MODE: NOT RECOMMENDED YET` |
+| `.venv/bin/python -m prediction_arb.main --readiness` | **Exit 0, re-run 2026-10-10 after the readiness work.** Header names the sources (§58, §98–§99); policy line `live=MANDATORY, paper=MANDATORY, historical=RESEARCH, collect=NOT_APPLICABLE`; thresholds read from `config/settings.yaml → readiness`. Blocks: `COLLECT: READY`, `HISTORICAL: NOT READY — 1 blocker(s)` (no recorded store), `PAPER (this run's mode): NOT READY — 5 blocker(s)`, `LIVE: NOT READY — 8 blocker(s)`, then `LIVE MODE: NOT RECOMMENDED YET` and the advisory footer. LIVE blockers: live-capable venues 1/2, no independent pair, matcher unconfigured, fee completeness 0/3, settlement UNKNOWN (polymarket_us, forecast_ex), recorded evidence 0/1000 + 0/50, eligibility UNKNOWN ×3, no `.env.live`. LIVE passes: fee freshness 3/3 (0 days old), book-staleness gates, kill switch disengaged, 12 risk limits configured. the run leaves the runtime tree unchanged (asserted in `tests/test_readiness.py`, and CI compares `data/ logs/ reports/` before and after — the suite itself leaves an empty `data/paper/`, see §7c) |
 | `.venv/bin/python -m prediction_arb.main --mode historical --date 2020-01-01` | **Exit 0, re-run 2026-10-10 after D18:** honestly empty ("No recorded historical order-book data … will NOT fabricate data"); `data/`, `logs/`, `reports/` deleted afterwards |
 | Paper CLI smoke, tracked-artifact guard, and venue smoke scripts | **Inherited from the D17 handoff, not re-run in the fee or D18 reviews.** Prior recorded results: empty fresh-clone data store; venue API TLS EOF; see date-specific rows in `docs/ROADMAP.md` / `docs/VENUE_RESEARCH.md` |
-| Frozen-wall-clock sweep (2026-10-14 / 2027-10-09 / 2031-01-02) | **Not re-run in the fee or D18 reviews** — inherited from 2026-10-09 (313/313 at each date). The new tests use fixed/reference values and do not change settlement-clock behavior |
+| Frozen-wall-clock sweep (2026-10-14 / 2027-10-09 / 2031-01-02) | **Re-run 2026-10-10 for this session: 534 passed at each of the three dates** (and at the real clock). The fee clock was frozen by patching only `prediction_arb.fees.calculator.utcnow` and `prediction_arb.fees.freshness.utcnow` via a throwaway pytest plugin; this is what exposed the fixture date bomb fixed below |
+| Readiness mutation checks | **Run 2026-10-10, all eight caught, source restored and diff-checked afterwards.** `freshness_enforced` always False → 9 failures; PAPER policy downgraded to RESEARCH → 9; `ModeReadiness.ready` hardcoded `False` → 7; `order_types_verified` ignored → 3; readiness probe creating the recorded store → 2; historical engine dropping the research label → 1; fee-freshness criterion always passing → 5; a stale RESEARCH schedule silently tolerated → 1 |
 | GitHub Actions CI | **Not run for the D18 working tree.** Inherited PR #8 result: `pull_request` runs `38012787059` and `38012962141` passed; not a CI run for this fee-review working tree. Baseline `796abec` was green as run `38009643994` |
 
 **Environment limitations a fresh agent must assume:**
@@ -235,7 +260,8 @@ cryptography 50.0.2, PyYAML 6.0.3, python-dotenv 1.2.4 (re-read from
 | **D18** | **Settlement-delay inputs had no meaning or evidence; passed and long-dated settlement could be costed as (near-)immediate** (inherited report: Polymarket US missing from `_EXPECTED_SETTLEMENT_DELAY_DAYS` — confirmed 2026-10-10) | The table held unsourced `kalshi: 0`, `forecast_ex: 0`, added to `settlement_time` (Kalshi's *expected* expiration, not a bound). A passed time clamped to zero lockup: past-dated pair with synthetic complete fees → `TRADE`, delay cost `0.0000`, net `7.32` (worktree at `caa57c8`). Historical/backtest measured lockup from the wall clock. Days via `float` | **FIXED 2026-10-10** (production + tests): `PRODUCTION_SETTLEMENT_TIMING` evidence registry (meaning, basis, delay, status, sources, review date, gaps; UNKNOWN cannot carry an estimator). Kalshi DOCUMENTED per market (`latest_expiration_time + settlement_timer_seconds` from the payload; round-trips the store); Polymarket US present as explicit UNKNOWN; ForecastEx 0-day withdrawn → UNKNOWN. Passed release ⇒ UNKNOWN; `evaluation_time` threaded, replay uses the frame time; lockup reason always reported; Decimal days; cost rounds up. 44 tests, 8 mutation checks. Evidence table: `docs/TRADING_LOGIC.md` |
 | **D17** | **A BLOCKed opportunity could expose a positive "verified" net profit** (inherited review, reproduced 2026-10-10). `evaluate_two_leg` caught `FeeDataError` and substituted `fees = Decimal("0")`, and substituted `delay_cost = Decimal("0")` for an unknown settlement lockup, so the profit test ran on fabricated free costs | Offline synthetic scan with a fee calculator missing one venue returned `status=BLOCK`, `total_fees=0`, `net_profit=+9.9630`, `return_on_capital=0.1107`; the dashboard printed `Net $9.96` beside `Fees $0.00`; `Repository.save_opportunity` stored `net_profit='9.9630'`, `fees='0'`. Only the *first* fee failure was reported, because one `FeeDataError` aborted the whole fee sum | **FIXED 2026-10-10** (production + tests): each mandatory cost is now a `core.types.CostComponent` in a `CostLedger` with no total while any component is missing; `net_profit`, `net_profit_per_contract`, `return_on_capital`, `total_fees`, `settlement_delay_cost` and `capital_required` become `None` (UNVERIFIED); components are evaluated independently so every failure is reported; `gross_edge`/`known_costs` stay available as pre-cost research figures; cost-of-capital is unavailable when fees are. Downstream: `optimizer.score()` refuses unpriced opportunities and `rank()` sorts them last, `Opportunity.is_executable` gates paper execution, metrics withhold a fee-drag ratio over a partially costed set, dashboard/CLI print `n/a`, `OpportunityRow` stores NULL + `unavailable_costs` (`SCHEMA_VERSION` 2 → 3, migration 003), paper/live reports count `opportunities_without_verified_net_profit`. 35 new tests, mutation-verified (20 fail on the fee mutation, 2 on the delay mutation). Fee engine untouched |
 | **D16** | **The inherited review reported one expired settlement fixture.** The old `tests/conftest.py` date was `2026-09-15T20:00Z`; after it passed, `capital_lockup_days()` correctly clamped lockup to zero, so `TestSettlementTiming::test_lockup_and_cost` failed and other tests silently stopped charging delay cost. Production behavior was correct — an already-settled contract locks no capital | Prior handoff recorded `pytest` → `310 passed, 1 failed`. In this session the reported test passed at the baseline commit; an explicit calculation with settlement `2026-09-15T20:00Z` and test clock `2026-10-09T00:00Z` returned `0.0`, confirming the cause | **FIXED / RE-VERIFIED 2026-10-09** (tests only): replaced the wall-clock-relative default with frozen `SETTLEMENT_TEST_NOW` and a default settlement three days later; `test_lockup_and_cost` pins the exact 3-day lockup and `$0.0411` cost. Found and fixed the same silent failure in the candidate-generation scan: its expired 2026-09 fixture had produced zero delay cost without failing; it now settles after the frozen test clock and asserts positive cost. Four settlement-timing tests and 27 candidate tests pass; full suite **313 passed in 25.01 s** and at each of 2026-10-14 / 2027-10-09 / 2031-01-02 under a frozen wall clock. Mutation-verified: restoring either stale fixture makes its regression test fail; last-leg and past-settlement clamp tests still pin the intended arithmetic. No production code changed. *Superseded in part by D18 (2026-10-10): the zero clamp itself was replaced — a passed release time is now UNKNOWN and blocks* |
-| **D10** (open, inherited and re-confirmed) | Live mode is monitor-only and `--readiness` hardcodes the two-venue check | `main.py::cmd_readiness` contains the literal `False`; `--readiness` printed "NOT YET: Two live-capable independent venues = 1"; `modes/live/engine.py::run` refuses to scan | **OPEN.** Correct-but-dishonest: the check cannot ever pass, even when two verified venues exist. Phase 8 work |
+| **D10** | Live mode is monitor-only and `--readiness` hardcoded the two-venue check | `main.py::cmd_readiness` contained the literal `False`; `--readiness` printed "NOT YET: Two live-capable independent venues = 1"; the probe also *created* `data/paper/` as a side effect | **FIXED 2026-10-10** (production + tests): `monitoring/readiness.py` derives every criterion (live-capable venues, venue independence, matcher, fee completeness *and* freshness, settlement timing, recorded evidence, eligibility, live credentials, kill switch, risk limits, book-staleness gates); a mode is ready iff nothing is BLOCKED, and `TestModeVerdictsAreComputed` proves a synthetic all-pass input yields `live.ready is True`, so no verdict is a constant. The recorded-store probe opens read-only and never creates a directory (mutation-checked, and CI asserts `data/` is absent after `--readiness`). Live remains monitor-only by construction and is still NOT READY on real state |
+| **D19** | **Mandatory fee freshness was documented but never enforced** — `fees.max_schedule_age_days: 30` was dead config | `strict_fee_freshness` existed as a parameter but every caller defaulted it to `False` and no mode passed `True` (re-confirmed 2026-10-10 by grep and by reading `modes/shared.py`, `arbitrage/two_leg.py`, `execution/simulated.py`); a schedule verified years ago, or with no `verified_at` at all, priced live/paper decisions identically to one verified yesterday, and `--readiness` reported freshness as a hardcoded pass | **FIXED 2026-10-10** (production + tests): one policy rule in `fees/freshness.py` (`policy_for_mode`, `freshness_enforced`) drives `schedule_for(..., strict_freshness=…)`; LIVE and PAPER are MANDATORY, HISTORICAL is RESEARCH (a stale schedule still prices the replay and the run is labelled `RESEARCH USE ONLY: …`), COLLECT takes no fee-derived decision. MANDATORY stale/undated/unverified ⇒ `FeeDataError("FEE_DATA_INCOMPLETE: … Re-verify before live execution")`; unknown modes fail closed. 138 tests in `tests/test_readiness.py` cover fresh / stale / exact-boundary / undated / missing / unverified schedules, each readiness gate passing and failing, and the CLI report |
 
 ### 7b. Inherited as FIXED — regression tests pass, but exit evidence is still owner-gated
 
@@ -262,18 +288,42 @@ can be validated against a real venue here. Details and evidence columns:
 Recorded here so they are not rediscovered, deliberately **not** added to the
 ROADMAP register because their impact needs an owner/agent decision first:
 
-- **`strict_fee_freshness` is not enabled end-to-end.** The flag is threaded
-  from `modes/shared.py` into `arbitrage/two_leg.py` and `fees/calculator.py`,
-  but paper, historical, and backtest callers do not pass `True`; both scan
-  and two-leg defaults are `False`. Therefore `fees.max_schedule_age_days: 30`
-  is not an active paper/live gate today. Live mode remains monitor-only; a
-  real scanning path must enforce freshness/effective-date selection before
-  any schedule is promoted. See `docs/FEE_READINESS.md`.
-- **Verification dates now differ by route.** Kalshi, Polymarket US,
-  ForecastEx, and IBKR/ForecastEx were directly re-reviewed and dated
-  `2026-10-10`; inactive/unreviewed schedules retain `2026-09-13` and will
-  exceed the configured 30-day age window after 2026-10-13 if strict checking
-  is ever enabled. Current active calculation statuses remain `INCOMPLETE`.
+- ~~**`strict_fee_freshness` is not enabled end-to-end.**~~ **Resolved
+  2026-10-10 as D19**: the flag is now derived from the mode by
+  `fees/freshness.py` and passed by `modes/shared.py`, `arbitrage/two_leg.py`
+  and `execution/simulated.py`; `fees.max_schedule_age_days: 30` is an active
+  gate for LIVE and PAPER. See `docs/FEE_READINESS.md` "System-level gates".
+- **Verification dates now differ by route — and strict checking IS enabled.**
+  Kalshi, Polymarket US, ForecastEx, and IBKR/ForecastEx were directly
+  re-reviewed and dated `2026-10-10`; inactive/unreviewed schedules retain
+  `2026-09-13` and exceed the configured 30-day age window after 2026-10-13.
+  Only schedules reachable from an *enabled adapter* are checked, so those
+  inactive routes do not block anything today, but a route promoted to an
+  enabled venue must be re-verified first or it will raise
+  `FEE_DATA_INCOMPLETE` in LIVE/PAPER. Current active calculation statuses
+  remain `INCOMPLETE`.
+- **Any test helper that computes "N days ago" must read the fee engine's
+  clock.** `tests/conftest.py::fresh_verification_date()` and
+  `tests/test_readiness.py::_fee_today()` both call
+  `prediction_arb.fees.calculator.utcnow()`, not `core.clock.utcnow` — the
+  modules import the clock by value, so mixing the two produced 7 / 72 / 70
+  spurious failures in the frozen-clock sweep. Never put a fixed
+  `verified_at` in a fixture reachable through `Mode.PAPER` or
+  `PaperExecutionEngine`: PAPER is MANDATORY-strict now, so the fixture
+  becomes a date bomb (this one broke 37 tests at a frozen 2026-10-14).
+- **Two pre-existing test files create `data/paper/` in the repo root.**
+  `tests/test_paths.py` and `tests/test_phase4_recording.py` resolve real
+  per-mode paths, so a full `pytest` run leaves an empty `data/paper/` behind
+  (git-ignored, no files, harmless). Consequence for CI and for any local
+  check: you cannot assert "the working copy has no `data/`" *after* the
+  suite — the readiness smoke therefore compares the runtime tree before and
+  after the command it is testing. An earlier version of that guard asserted
+  absence and failed for this reason alone (run `38021724449`).
+- **Cosmetic, pre-existing, deliberately not fixed:** `modes/paper/engine.py`
+  prints `f"[cycle {cycle}] no active-venue markets"` and Rich swallows
+  `[cycle 1]` as markup, so the operator sees ` no active-venue markets`.
+  Out of scope here; the new `print_block_reasons()` avoids it by
+  `escape()`-ing its label and reasons and printing with `soft_wrap=True`.
 - **Settlement fixtures are now tied to a deterministic test clock.**
   `tests/conftest.py` freezes only `normalization.settlement.utcnow` at
   `SETTLEMENT_TEST_NOW` and places its default settlement three days later;
@@ -313,6 +363,11 @@ ROADMAP register because their impact needs an owner/agent decision first:
    — Kalshi DOCUMENTED per-market bound; Polymarket US and ForecastEx
    explicit UNKNOWN (still blocking); passed/long-dated timing no longer
    costed as immediate; **396 passed in 25.99 s**.
+0c. ~~**Derive readiness from verified state and enforce mandatory fee
+   freshness (D10, D19).**~~ **DONE 2026-10-10** — one freshness policy per
+   mode, every readiness criterion computed with an explicit reason, block
+   reasons surfaced to the operator, live still NOT READY on real state;
+   **534 passed** at the real clock and at three frozen future dates.
 1. ~~**Restore a green baseline (D16).**~~ **DONE 2026-10-09** — 313 passed
    in 25.01 s with a fixed settlement clock and at three future wall-clock
    dates; stale fixtures fail mutation checks.
@@ -343,8 +398,11 @@ ROADMAP register because their impact needs an owner/agent decision first:
 7. **Phase 5/6 exits on real two-venue data** — approved/reviewed candidate
    pairs, false-match review, and the multi-week paper realism run. *Agent,
    blocked on 3–6.*
-8. **Phase 8 live readiness** — including D10, legal/account eligibility,
-   strict-fee-freshness enforcement, and an explicit owner go-ahead. Not before
+8. **Phase 8 live readiness** — D10 (derived verdicts) and D19 (mandatory fee
+   freshness) are done and the report names the real blockers; what remains is
+   owner-gated evidence: a second live-capable venue, complete fee schedules,
+   evidenced settlement timing, recorded volume, resolved legal/account
+   eligibility, `.env.live`, and an explicit owner go-ahead. Not before
    Phases 2–7 evidence exists; live orders remain prohibited in this session.
 
 Phase-by-phase detail, exit criteria and completion records: `docs/ROADMAP.md`
@@ -438,8 +496,8 @@ status + source + date. If you did not verify it, say so.
 **D. Update `docs/ROADMAP.md` when — and only when — it is demonstrably stale**
 
 The ROADMAP is the register of record for phases and defects. Correct a status
-you *proved* wrong, add a defect you *reproduced* (next free ID; D18 is
-taken),
+you *proved* wrong, add a defect you *reproduced* (next free ID; **D19 is
+taken**, so the next free one is **D20**),
 record a completion with its evidence. Do not redesign it, do not add
 aspirational plans, do not mark anything DONE whose exit criterion is
 owner-gated — say "code complete, exit owner-gated" instead. Also update
@@ -450,7 +508,7 @@ change invalidated — same commit.
 
 ```bash
 git add -A && git commit -m "<scope>: <what changed and why>"
-git push origin <your session branch>   # e.g. arena/206e5211-arb for the D18 session
+git push origin <your session branch>   # e.g. arena/c1d8507b-arb for the readiness session
 ```
 
 Small, reviewable, single-purpose commits. Never commit secrets, databases,
@@ -468,6 +526,26 @@ counts, doc updates, and the next action. Milestone-end reporting format:
 
 **Most recent meaningful changes** (newest first):
 
+00. **2026-10-10 — D10 + D19: readiness derived, mandatory fee freshness
+   enforced.** `--readiness` no longer prints a hardcoded `False`: new
+   `prediction_arb/monitoring/readiness.py` evaluates the gates that apply to
+   each mode (COLLECT 3, HISTORICAL 6, PAPER 9, LIVE 12 — 13 distinct
+   criteria) from observed adapter/provenance/recorded-data/fee/settlement/
+   compliance/risk state, each with `PASS`/`WARN`/`BLOCKED`, a value, a reason, and a
+   mode is ready only when nothing is BLOCKED (a synthetic all-pass input
+   proves `live.ready is True`). New `prediction_arb/fees/freshness.py` makes
+   `fees.max_schedule_age_days` a real gate: LIVE/PAPER MANDATORY (stale,
+   undated or unverified ⇒ `FeeDataError`), HISTORICAL RESEARCH (prices the
+   replay, labels it `RESEARCH USE ONLY: …` in the console, the run summary
+   and the report), COLLECT NOT APPLICABLE. New
+   `monitoring/dashboard.py::print_block_reasons()` tells the operator *why*
+   candidates were rejected instead of only how many. Thresholds moved to
+   `config/settings.yaml → readiness`. 138 new tests
+   (`tests/test_readiness.py`), fixture date bomb fixed, CI gained a
+   readiness smoke; **534 passed** at the real clock and at frozen
+   2026-10-14 / 2027-10-09 / 2031-01-02; eight mutation checks all caught.
+   Docs: SPEC §58 pointer + §98–§100, FEE_READINESS, TRADING_LOGIC,
+   MODE_SEPARATION, TESTING, ROADMAP, README.
 0. **2026-10-10 — D18: settlement timing made evidence-backed.** Confirmed
    the reported missing Polymarket US delay entry, and found the whole
    delay table unsupported (unsourced 0-day Kalshi/ForecastEx constants on
@@ -518,7 +596,8 @@ counts, doc updates, and the next action. Milestone-end reporting format:
    paper realism work.
 
 **Recommended next task (one):** the agent-side fee/source audit, the D18
-settlement-timing review, and their focused regressions are complete; request the redacted owner evidence listed in
+settlement-timing review, the readiness derivation (D10/D19), and their
+focused regressions are complete; request the redacted owner evidence listed in
 `docs/FEE_READINESS.md` (plus the two read-only smoke-script outputs). This
 sandbox cannot produce account route, actual fee-report, settlement-statement,
 or venue API evidence. No production fee schedule should be promoted before

@@ -17,6 +17,12 @@ while for a negative multiplier such as a maker rebate the same shortcut
 UNDERSTATES the credit, which is the flattering direction. Either way, use
 :meth:`FeeCalculator.trade_fee_fills` with the real walked levels; that is the
 defect recorded as D13 in ``docs/ROADMAP.md``.
+
+Freshness is a mode property, not a caller's mood: ``fees/freshness.py``
+holds the single policy (§98) and :meth:`FeeCalculator.freshness` /
+:meth:`FeeCalculator.schedule_check` report it without raising, which is what
+``--readiness`` prints. ``strict_freshness`` on the calculation methods is the
+enforcement switch that policy resolves.
 """
 from __future__ import annotations
 
@@ -27,6 +33,13 @@ from typing import Any, Optional, Sequence
 
 from ..core.clock import utcnow
 from ..core.types import FeeDataError
+from .freshness import (
+    FeeFreshness,
+    FeeFreshnessPolicy,
+    FeeScheduleCheck,
+    check_schedule,
+    schedule_freshness,
+)
 
 #: Rounding modes a documented schedule may specify. ``ceiling`` is the
 #: historical default of this engine (round a non-negative amount up to the
@@ -119,7 +132,11 @@ class FeeSchedule:
     version: str
     effective_date: Optional[date]
     expiration_date: Optional[date]
-    verified_at: date
+    #: When the cited source was last inspected. ``None`` is representable on
+    #: purpose: an undated schedule cannot be shown to be current, so the
+    #: freshness policy (§98) refuses it under MANDATORY and names it in the
+    #: research label instead of the config loader crashing on it.
+    verified_at: Optional[date]
     source: str
     currency: str
     rules: tuple[FeeRule, ...]
@@ -208,7 +225,10 @@ class FeeCalculator:
                     date.fromisoformat(str(entry["expiration_date"]))
                     if entry.get("expiration_date") else None
                 ),
-                verified_at=date.fromisoformat(str(entry["verified_at"])),
+                verified_at=(
+                    date.fromisoformat(str(entry["verified_at"]))
+                    if entry.get("verified_at") else None
+                ),
                 source=entry.get("source", ""),
                 currency=entry.get("currency", "USD"),
                 rules=rules,
@@ -270,13 +290,51 @@ class FeeCalculator:
                 f"FEE_DATA_INCOMPLETE: {venue} fee schedule expired on "
                 f"{schedule.expiration_date}.")
         if strict_freshness:
-            age = (today - schedule.verified_at).days
-            if age > self.max_schedule_age_days:
+            # One implementation of the age rule, shared with the readiness
+            # report (fees/freshness.py, §98): the operator sees exactly the
+            # observation the engine refused.
+            freshness = self.freshness(venue, FeeFreshnessPolicy.MANDATORY,
+                                       today=today)
+            if freshness.blocking:
                 raise FeeDataError(
-                    f"FEE_DATA_INCOMPLETE: {venue} fee schedule verified "
-                    f"{age} days ago (> {self.max_schedule_age_days}). "
-                    f"Re-verify before live execution.")
+                    f"FEE_DATA_INCOMPLETE: {venue}: {freshness.reason}")
         return schedule
+
+    # ------------------------------------------------------- state reporting
+    def freshness(self, venue: str,
+                  policy: FeeFreshnessPolicy = FeeFreshnessPolicy.MANDATORY,
+                  today: Optional[date] = None) -> FeeFreshness:
+        """How old this venue's schedule is under ``policy`` (never raises).
+
+        ``policy`` defaults to :attr:`FeeFreshnessPolicy.MANDATORY` — the
+        fail-closed choice. Production callers derive it from the mode with
+        :func:`fees.freshness.policy_for_mode`.
+        """
+        return schedule_freshness(
+            venue, self.schedules.get(venue), policy=policy,
+            max_age_days=self.max_schedule_age_days, today=today)
+
+    def schedule_check(self, venue: str,
+                       policy: FeeFreshnessPolicy = FeeFreshnessPolicy.MANDATORY,
+                       today: Optional[date] = None) -> FeeScheduleCheck:
+        """Structured readiness view of one venue's schedule (never raises).
+
+        Reports presence, evidence, effective window, both calculation
+        components and freshness, with an explicit reason for every unmet
+        requirement — the same requirements :meth:`schedule_for` and
+        :meth:`_require_calculable` enforce by raising.
+        """
+        return check_schedule(
+            venue, self.schedules.get(venue), policy=policy,
+            max_age_days=self.max_schedule_age_days, today=today)
+
+    def schedule_checks(self, venues: Sequence[str],
+                        policy: FeeFreshnessPolicy = FeeFreshnessPolicy.MANDATORY,
+                        today: Optional[date] = None
+                        ) -> tuple[FeeScheduleCheck, ...]:
+        """One :class:`FeeScheduleCheck` per venue, in the order given."""
+        return tuple(self.schedule_check(venue, policy, today)
+                     for venue in venues)
 
     @staticmethod
     def _require_calculable(schedule: FeeSchedule, component: str,

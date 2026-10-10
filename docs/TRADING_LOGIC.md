@@ -187,7 +187,14 @@ independence (INDEPENDENT required; UNKNOWN blocks), book freshness
 Utah-aware), API health (HealthMonitor), kill switch, order-type
 appropriateness (limit-only; market orders prohibited on illiquid books),
 and settlement timing (evidenced capital-release time per leg; unknown
-lockup blocks; delay spread limit). **Fee freshness is not currently
-enforced end-to-end:** `strict_fee_freshness` defaults to `False`, and paper,
-historical, and backtest callers do not override it; live mode is monitor-only.
-See `docs/FEE_READINESS.md` for the exact gap and release criterion.
+lockup blocks; delay spread limit). **Fee freshness is enforced end-to-end
+(2026-10-10, D19, SPEC §98):** one rule derives the strictness from the mode —
+live and paper MANDATORY, historical RESEARCH, collect NOT_APPLICABLE, unknown
+modes fail closed — and a schedule older than `fees.max_schedule_age_days`
+(30), with no `verified_at`, or not VERIFIED/sourced raises
+`FEE_DATA_INCOMPLETE … Re-verify before live execution` instead of pricing the
+trade. A research replay still costs a stale schedule and is labelled
+`RESEARCH USE ONLY: fee schedule(s) older than …`. Freshness is not
+completeness: every active production schedule is fresh *and* `INCOMPLETE`, so
+net profit stays `n/a` and the verdict stays BLOCK. See
+`docs/FEE_READINESS.md` for the exact gaps and release criteria.

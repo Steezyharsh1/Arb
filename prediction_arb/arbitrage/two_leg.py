@@ -46,6 +46,7 @@ from ..core.types import (
     WalkResult,
 )
 from ..fees.calculator import FeeCalculator, FillSlice
+from ..fees.freshness import freshness_enforced
 from ..normalization.settlement import assess_lockup, settlement_delay_cost
 from ..orderbooks.orderbook import slippage_vs_best, walk_buy
 from ..provenance.independence import (
@@ -122,7 +123,7 @@ def evaluate_two_leg(
     maximum_settlement_delay_days: Decimal = Decimal("5"),
     cost_of_capital_annual: Decimal = Decimal("0.05"),
     max_quantity: Optional[Decimal] = None,
-    strict_fee_freshness: bool = False,
+    strict_fee_freshness: Optional[bool] = None,
     evaluation_time: Optional[datetime] = None,
 ) -> Optional[Opportunity]:
     """Evaluate buying YES on yes_contract's venue and NO on no_contract's.
@@ -139,10 +140,20 @@ def evaluate_two_leg(
     ``evaluation_time`` is the instant the books describe. It defaults to
     now; replay passes the recorded frame time so lockup is measured from
     when the opportunity existed, not from the wall clock (D18).
+
+    ``strict_fee_freshness`` overrides the mode-derived fee-freshness policy
+    (``fees/freshness.py``, §98). ``None`` — what every production caller
+    passes — lets the mode decide: LIVE and PAPER refuse a schedule verified
+    more than ``fees.max_schedule_age_days`` ago (D19: the flag used to
+    default to ``False``, so the documented live gate never ran), while
+    HISTORICAL replay still costs it and is labelled research.
     """
     payout = yes_contract.payout
     if no_contract.payout != payout or yes_contract.currency != no_contract.currency:
         return None
+
+    # One resolution point for the mandatory-freshness policy (§98).
+    strict_freshness = freshness_enforced(mode, strict_fee_freshness)
 
     block: list[str] = []
 
@@ -204,22 +215,22 @@ def evaluate_two_leg(
             f"{yes_contract.venue}:trade_fee",
             lambda: fee_calc.trade_fee_fills(
                 yes_contract.venue, _fill_slices(yes_walk), is_taker=True,
-                strict_freshness=strict_fee_freshness).total),
+                strict_freshness=strict_freshness).total),
         _component(
             f"{no_contract.venue}:trade_fee",
             lambda: fee_calc.trade_fee_fills(
                 no_contract.venue, _fill_slices(no_walk), is_taker=True,
-                strict_freshness=strict_fee_freshness).total),
+                strict_freshness=strict_freshness).total),
         _component(
             f"{yes_contract.venue}:settlement_fee",
             lambda: fee_calc.settlement_fee(
                 yes_contract.venue, qty,
-                strict_freshness=strict_fee_freshness)),
+                strict_freshness=strict_freshness)),
         _component(
             f"{no_contract.venue}:settlement_fee",
             lambda: fee_calc.settlement_fee(
                 no_contract.venue, qty,
-                strict_freshness=strict_fee_freshness)),
+                strict_freshness=strict_freshness)),
     )
     # None whenever any fee component is unavailable: an unknown fee is not
     # a zero fee, so the fee total is unknown too.

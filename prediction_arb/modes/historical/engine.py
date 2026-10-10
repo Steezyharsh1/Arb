@@ -20,7 +20,14 @@ from ...core.logging import get_logger
 from ...core.types import Mode
 from ...database.repository import Repository
 from ...fees.calculator import FeeCalculator
+from ...fees.freshness import (
+    policy_for_mode,
+    policy_note,
+    research_fee_label,
+    summarize_checks,
+)
 from ...matching.llm_matcher import LLMMatcher
+from ...monitoring.dashboard import print_block_reasons
 from ...monitoring.formatting import UNAVAILABLE_TEXT
 from ..shared import run_arbitrage_scan, run_matching
 from .data_provider import HistoricalDataProvider
@@ -103,6 +110,23 @@ class HistoricalEngine:
                 f"contract and were excluded from matching: {reasons}. "
                 f"Nothing was invented in their place (§92).[/yellow]")
 
+        # §98/D19: replay runs under the RESEARCH fee-freshness policy. A
+        # schedule verified longer ago than the live limit is still costed —
+        # replaying recorded history with the schedule that was current then
+        # is more useful than refusing to measure it — but the run says so
+        # out loud, and the report carries the same label.
+        fee_policy = policy_for_mode(Mode.HISTORICAL)
+        fee_venues = sorted({c.venue for _ts, cs, _bs in frames for c in cs})
+        fee_checks = self.fee_calc.schedule_checks(fee_venues, fee_policy)
+        fee_label = research_fee_label(fee_checks)
+        self.console.print(
+            f"[dim]Fee-freshness policy for replay: "
+            f"{policy_note(fee_policy, self.fee_calc.max_schedule_age_days)}"
+            f"[/dim]")
+        if fee_label:
+            self.console.print(f"[yellow]{fee_label}[/yellow]")
+            log.warning("%s", fee_label)
+
         arb = self.config.settings.get("arbitrage", {})
         total_ops = 0
         surviving_fees = 0
@@ -161,6 +185,15 @@ class HistoricalEngine:
             "contracts_unreconstructable": len(under),
             "recorded_store": (str(self.recorded.db_path)
                                if self.recorded is not None else None),
+            #: The freshness policy this replay ran under, the RESEARCH USE
+            #: ONLY label (null when every schedule was fresh), and the
+            #: per-venue observations behind both (§98).
+            "fee_freshness": {
+                "policy": fee_policy.value,
+                "max_schedule_age_days": self.fee_calc.max_schedule_age_days,
+                "research_only_label": fee_label,
+                "schedules": summarize_checks(fee_checks)["venues"],
+            },
             "metrics": metrics.to_dict(),
         }
         self.console.print(
@@ -168,6 +201,11 @@ class HistoricalEngine:
             f"{total_ops} opportunities ({executable} executable), "
             f"{summary['contracts_reconstructed']} contracts reconstructed"
             + (f", {len(under)} unreconstructable" if under else ""))
+        # Why the blocked rows blocked, deduplicated: replay over many frames
+        # would otherwise repeat one stale-schedule reason per opportunity.
+        print_block_reasons(
+            self.console, [op for _ts, frame in per_frame for op in frame],
+            label="replay:")
         if unpriced:
             self.console.print(
                 f"[yellow]{unpriced} opportunity(ies) have no verified net "

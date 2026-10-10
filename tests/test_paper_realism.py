@@ -24,7 +24,7 @@ from prediction_arb.core.types import (
 from prediction_arb.execution.simulated import PaperExecutionEngine
 from prediction_arb.orderbooks.aggregator import OrderBookAggregator
 
-from .conftest import make_book
+from .conftest import fresh_verification_date, make_book
 
 
 def _flat_fee_calc():
@@ -32,7 +32,8 @@ def _flat_fee_calc():
     from prediction_arb.fees.calculator import FeeCalculator
     return FeeCalculator.from_config({"schedules": [{
         "venue": "kalshi", "version": "t", "effective_date": "2020-01-01",
-        "verified_at": "2026-09-13", "verification_status": "VERIFIED",
+        "verified_at": fresh_verification_date(),
+        "verification_status": "VERIFIED",
         "documentation_tested": True, "source": "test fixture",
         "trade_calculation_status": "COMPLETE",
         "settlement_calculation_status": "COMPLETE",

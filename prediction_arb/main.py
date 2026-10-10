@@ -8,7 +8,7 @@ Usage (after `pip install -e .` from the repository root):
   python -m prediction_arb.main --kill           # engage global kill switch
   python -m prediction_arb.main --unkill         # disengage kill switch
   python -m prediction_arb.main --status         # venue/API/provenance status
-  python -m prediction_arb.main --readiness      # historical→paper→live readiness
+  python -m prediction_arb.main --readiness      # derived per-mode readiness (advisory)
 
 Equivalent shortcuts: `python -m prediction_arb ...` and, once installed,
 the console script `prediction-arb ...`.
@@ -40,10 +40,12 @@ from prediction_arb.adapters.kalshi import KalshiAdapter
 from prediction_arb.adapters.moomoo import MoomooAdapter
 from prediction_arb.adapters.polymarket_us import PolymarketUSAdapter
 from prediction_arb.adapters.webull import WebullAdapter
+from prediction_arb.core import config as core_config
 from prediction_arb.core.config import AppConfig, load_config
 from prediction_arb.core.logging import setup_logging
 from prediction_arb.core.types import Mode, ModeIsolationError
 from prediction_arb.database.repository import Repository
+from prediction_arb.fees.calculator import FeeCalculator
 from prediction_arb.fees.venue_fees import load_fee_calculator
 from prediction_arb.matching.llm_client import (
     LLMConfigError,
@@ -52,6 +54,14 @@ from prediction_arb.matching.llm_client import (
 from prediction_arb.monitoring.dashboard import (
     print_mode_banner,
     print_startup_summary,
+)
+from prediction_arb.monitoring.readiness import (
+    ReadinessInputs,
+    evaluate_all,
+    load_recorded_evidence,
+    print_readiness,
+    probe_live_configuration,
+    probe_matcher,
 )
 from prediction_arb.provenance.exchange_registry import get_provenance
 from prediction_arb.provenance.independence import is_independent
@@ -196,28 +206,51 @@ def cmd_status(config: AppConfig) -> int:
     return 0
 
 
+def _fee_calculator(config: AppConfig) -> "FeeCalculator":
+    """The production fee ledger plus the configured staleness limit."""
+    return load_fee_calculator(config.fees, _max_schedule_age_days(config))
+
+
+def _max_schedule_age_days(config: AppConfig) -> int:
+    return int(config.settings.get("fees", {}).get("max_schedule_age_days", 30))
+
+
 def cmd_readiness(config: AppConfig) -> int:
-    """§58 readiness checks — advisory; the final decision is the user's."""
-    repo = Repository(config.database_path, config.mode)
-    from sqlalchemy import func, select
-    from sqlalchemy.orm import Session
-    from prediction_arb.database.models import (
-        OpportunityRow,
-        OrderBookSnapshotRow,
+    """§58 readiness — advisory, and derived from verified state (§98, §99).
+
+    Every criterion is computed from what the system can actually show:
+    each adapter's own API/order-type verification, the provenance
+    independence registry, the recorded store (opened read-only, never
+    created by a status report), the fee ledger's completeness plus the
+    mode's mandatory freshness policy, the settlement-timing evidence
+    registry, the compliance eligibility ledger, and the risk/kill-switch
+    configuration. D10: the two-venue gate used to be the literal ``False``;
+    D19: fee freshness used to be documented as a live gate that no caller
+    enforced. Both are derived now, and an unmet criterion names the
+    observation that failed.
+
+    This report enables nothing — live mode still requires config/live.yaml,
+    the typed confirmation phrase and every LiveOrderFirewall check.
+    """
+    env_label = str(config.mode_config.get("env_file")
+                    or f".env.{config.mode.value}")
+    inputs = ReadinessInputs(
+        adapters=build_adapters(config),
+        fee_calc=_fee_calculator(config),
+        settings=config.settings,
+        risk_limits=config.risk_limits,
+        recorded=load_recorded_evidence(config.recorded_store_path),
+        matcher=probe_matcher(
+            config.env, env_label=env_label,
+            max_comparisons_per_cycle=int(config.settings.get(
+                "llm", {}).get("max_comparisons_per_cycle", 200))),
+        kill_switch_engaged=kill_switch.is_engaged(),
+        jurisdiction=str(config.settings.get("compliance", {}).get(
+            "jurisdiction", "US-UT")),
+        live_configuration=probe_live_configuration(core_config.CONFIG_DIR,
+                                                    core_config.ROOT),
     )
-    with Session(repo.engine) as s:
-        snaps = s.scalar(select(func.count(OrderBookSnapshotRow.id))) or 0
-        ops = s.scalar(select(func.count(OpportunityRow.id))) or 0
-    checks = [
-        ("Recorded order-book snapshots", snaps, snaps > 1000),
-        ("Opportunities analyzed", ops, ops > 50),
-        ("Two live-capable independent venues", 1,
-         False),  # kalshi verified; forecast_ex untested
-    ]
-    ready = all(ok for _, _, ok in checks)
-    for name, value, ok in checks:
-        console.print(f"{'PASS' if ok else 'NOT YET'}: {name} = {value}")
-    console.print(f"\nLIVE MODE: {'READY (final decision is yours)' if ready else 'NOT RECOMMENDED YET'}")
+    print_readiness(evaluate_all(inputs), console, current_mode=config.mode)
     return 0
 
 
@@ -229,9 +262,7 @@ async def async_main(args: argparse.Namespace, config: AppConfig) -> int:
                           config.database_name)
 
     repo = Repository(config.database_path, config.mode)
-    fee_calc = load_fee_calculator(
-        config.fees,
-        int(config.settings.get("fees", {}).get("max_schedule_age_days", 30)))
+    fee_calc = _fee_calculator(config)
     # D9: the LLM matcher is wired from the mode env file (§97). With no
     # LLM configured this is still the conservative default — every
     # ambiguous pair ends in REVIEW and nothing is auto-APPROVED (§19).

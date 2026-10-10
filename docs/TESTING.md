@@ -84,6 +84,43 @@ use a TEST-ONLY ForecastEx timing entry from `tests/conftest.py`; the
 `production_settlement_timing` fixture restores production. Mutation-verified
 (each of eight reverts fails at least one test; see ROADMAP D18).
 
+**Readiness and mandatory fee freshness** (`test_readiness.py`, D10 + D19,
+2026-10-10 — all offline: stub adapters, synthetic fee schedules, a
+`tmp_path` copy of the real `config/`, an isolated kill-switch file):
+*one freshness policy, derived from the mode* (§98). Live and paper refuse a
+stale, undated, unverified or missing schedule (`FeeDataError` — never a stale
+number, never zero); historical still costs it and is labelled
+`RESEARCH USE ONLY: …`; collect never calculates a fee; an unrecognized mode
+fails closed; an explicit `strict_fee_freshness` override wins in both
+directions. Enforcement is proved at every layer that takes a fee-derived
+decision — `schedule_for`, `evaluate_two_leg`, `run_arbitrage_scan`, simulated
+paper execution, historical execution, and a full historical replay — plus the
+age boundary (`max_schedule_age_days` exactly, and a stricter configured
+limit). *Readiness verdicts are computed, never hardcoded* (§99): every
+criterion is shown passing **and** failing on its own observation (adapter
+`APIStatus` and verified order types, provenance independence including
+UNKNOWN, matcher configuration, fee completeness and freshness, settlement
+timing, recorded-evidence volume, eligibility, kill switch, risk limits,
+book-staleness gates, `.env.live` existence), a mode is ready only when no
+applicable criterion is BLOCKED, a synthetic all-pass input yields
+`live.ready is True` (so no verdict can be a constant), and producing the
+report does not create `data/`. The CLI is asserted end to end: exit 0, the
+per-mode policy line, thresholds read from `config/settings.yaml`, every real
+live blocker named with its reason, and the advisory footer that enables
+nothing. `print_block_reasons` (§100) is checked for deduplication, counts,
+most-common-first ordering, the bounded "and N further distinct reason(s)"
+tail, markup escaping, and silence when nothing was blocked. 138 tests.
+Mutation-verified (eight reverts, each caught, source restored and
+diff-checked): `freshness_enforced` always False → 9 failures; paper
+downgraded to RESEARCH → 9; `ModeReadiness.ready` hardcoded `False` → 7;
+`order_types_verified` ignored → 3; the readiness probe creating the recorded
+store → 2; the fee-freshness criterion always passing → 5; the historical
+engine dropping the research label → 1; a stale RESEARCH schedule silently
+tolerated → 1. The whole suite also passes with the fee clock frozen at
+2026-10-14 / 2027-10-09 / 2031-01-02 — that sweep is what exposed a fixed
+`verified_at` in the shared fixtures, now derived from the fee engine's own
+clock (`conftest.fresh_verification_date()`).
+
 **Arbitrage** (`test_arbitrage_engine.py`): marginal sizing stops at
 payout; profitable path yields TRADE; reproducibility (identical inputs
 → identical outputs); search requires APPROVED certificates; SAME_VENUE
@@ -156,3 +193,17 @@ On 2026-09-13, Phase 1 re-verified Kalshi/Polymarket US/Gemini documentation,
 but fresh sandbox HTTP smoke tests ended in a TLS EOF before any HTTP response.
 Those fresh network results are **UNAVAILABLE**, not successful live tests.
 `--status` and the full suite remain local verification gates.
+
+On 2026-10-10, `python -m prediction_arb.main --readiness` was re-run offline
+after the D10/D19 work: exit 0, four per-mode blocks with derived criteria
+(`COLLECT: READY`, `HISTORICAL: NOT READY — 1 blocker(s)`,
+`PAPER (this run's mode): NOT READY — 5 blocker(s)`,
+`LIVE: NOT READY — 8 blocker(s)`), `LIVE MODE: NOT RECOMMENDED YET`, and **no**
+`data/`, `logs/` or `reports/` directory created by the run — CI asserts the
+runtime tree is unchanged by it (a before/after delta, because the suite
+itself leaves an empty `data/paper/` behind). `--mode historical --date 2020-01-01` still exits 0 with the honest
+empty-replay message, and `--mode paper --cycles 1` exits 0 reporting no
+active-venue markets — with no opportunities there are no block reasons, and
+`print_block_reasons` correctly prints nothing rather than an empty table;
+artifacts were deleted afterwards. Venue network results remain **UNAVAILABLE** in this
+sandbox (TLS EOF before any HTTP response).

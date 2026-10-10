@@ -80,7 +80,9 @@ python -m prediction_arb.main --mode historical --start 2026-08-01 --end 2026-08
 # venue/provenance status + independence matrix
 python -m prediction_arb.main --status
 
-# readiness for live (advisory)
+# readiness, derived per mode from observed state (advisory: enables
+# nothing, creates nothing, calls no venue). Every criterion prints
+# PASS / WARN / BLOCKED with the value it observed and the reason.
 python -m prediction_arb.main --readiness
 
 # emergency stop (persists across restarts until --unkill)
@@ -158,8 +160,39 @@ live mode is monitor-only by construction.
   Books that fail the freshness gate are counted and reported, never
   silently dropped.
 - Mode isolation, kill switch, crash-recovery intents, and all ten mandatory
-  spec cases are covered by the test suite (`pytest` — **396 passing** on
-  Python 3.11.2, all offline; last run 2026-10-10).
+  spec cases are covered by the test suite (`pytest` — **534 passing** on
+  Python 3.11.2, all offline; last run 2026-10-10, also green with the fee
+  clock frozen at 2026-10-14 / 2027-10-09 / 2031-01-02).
+- Readiness is **derived, not asserted** (D10, SPEC §99). `--readiness`
+  reports one block per mode (COLLECT, HISTORICAL, PAPER, LIVE) and every
+  criterion is computed from observed state — adapter verification *and*
+  verified order-type support, provenance independence, matcher
+  configuration, fee completeness and freshness, settlement-timing evidence,
+  recorded-data volume, jurisdiction eligibility, the kill switch, the
+  configured hard risk limits, the book-staleness gates and the existence of
+  `.env.live` (existence only; live credentials are never read outside live
+  mode). A mode is READY only when nothing applicable is BLOCKED, and each
+  unmet criterion names the observation that failed, so the operator sees the
+  actual blocker. Live is NOT READY today for those derived reasons — one
+  live-capable venue, 0/3 complete fee schedules, UNKNOWN settlement timing on
+  two venues, no recorded volume, eligibility UNKNOWN, no `.env.live` — and
+  the report enables nothing.
+- Mandatory fee freshness is a real gate (D19, SPEC §98). One rule derives the
+  strictness from the mode: **live and paper MANDATORY**, **historical
+  RESEARCH**, **collect NOT_APPLICABLE**, unknown modes fail closed. A
+  schedule verified more than `fees.max_schedule_age_days` (30) ago, with no
+  verification date, or not VERIFIED/sourced is refused in live and paper
+  exactly like a missing one (`FEE_DATA_INCOMPLETE … Re-verify before live
+  execution`) — never priced on stale data and never assumed free. A research
+  replay is not blocked by an old schedule, because recorded history is still
+  evidence, but the run is labelled `RESEARCH USE ONLY: fee schedule(s) older
+  than …` in the console, the run summary and the report. Freshness is not
+  completeness: all three production schedules are fresh *and* `INCOMPLETE`,
+  so they still block.
+- Rejections explain themselves (SPEC §100). After the opportunity table,
+  paper and historical runs print the distinct block reasons with their
+  counts, most common first, instead of leaving the operator with a number of
+  blocked rows and no cause.
 - Capital lockup runs to each leg's evidenced capital-release time (venue
   resolution bound + documented settlement delay), not to the event time.
   Every venue's timing input carries a meaning, evidence status, sources and

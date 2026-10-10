@@ -534,8 +534,13 @@ deterministic fill model — the backtest simulator is an alias layer over
 (validate real-time behaviour) → LIVE. A readiness report MUST be advisory
 only: it reports recorded-data volume, opportunities analysed and the number of
 live-capable independent venues, and the final decision remains the operator's.
+Readiness MUST be reported per mode and derived from observed state (§99): each
+mode's block lists the criteria that apply to it with the observed value and,
+when a criterion is unmet, the reason. Fee-schedule freshness is one of those
+criteria, and its strictness depends on the mode (§98).
 **Evidence.** `prediction_arb/main.py` (`cmd_readiness`),
-`docs/MODE_SEPARATION.md`.
+`prediction_arb/monitoring/readiness.py`, `docs/MODE_SEPARATION.md`,
+`docs/FEE_READINESS.md`.
 
 ### §60 — The only live order path  `[C,T]`
 **Requirement.** `LiveExecutionEngine.submit_order` (the generic interface
@@ -785,6 +790,75 @@ hits never consume budget; the budget window resets once per
 `docs/API_SETUP.md` (LLM matcher section), `config/settings.yaml`
 (`llm.max_comparisons_per_cycle`), `docs/ROADMAP.md` (defect D9).
 
+### §98 — Mandatory fee-schedule freshness, per mode  `[C,T]`
+**Requirement.** Added 2026-10-10 (defect D19 fix). A fee schedule's
+`verified_at` date MUST be compared against `fees.max_schedule_age_days`
+whenever a fee-derived decision is taken, and the strictness MUST come from one
+rule keyed on the operating mode (`policy_for_mode`): LIVE and PAPER are
+MANDATORY, HISTORICAL is RESEARCH, COLLECT is NOT_APPLICABLE. Under MANDATORY a
+schedule that is older than the limit, carries no `verified_at`, or is not
+marked verified MUST be refused exactly like a missing one —
+`FeeDataError("FEE_DATA_INCOMPLETE: … Re-verify before live execution")` —
+never a silent fallback to the stale number and never zero. An unknown mode
+MUST fail closed (MANDATORY); an explicit caller override MUST win in both
+directions. Under RESEARCH the stale schedule still prices the replay, because
+history is still evidence, and the run MUST be labelled
+`RESEARCH USE ONLY: fee schedule(s) older than <N> days` in the console, the
+run summary and the report, so silence is never ambiguous. COLLECT takes no
+fee-derived decision (it records contracts, matches and order books, and
+`trade_fee_summary` reports UNKNOWN instead of raising), so freshness is
+reported as NOT APPLICABLE there rather than blocking evidence gathering;
+this is the one place where the mode policy is narrower than a literal reading
+of "freshness is mandatory everywhere" would suggest.
+**Evidence.** `prediction_arb/fees/freshness.py` (`FreshnessPolicy`,
+`policy_for_mode`, `freshness_enforced`, `check_schedule`, `research_fee_label`,
+`policy_note`), `prediction_arb/fees/calculator.py`
+(`FeeCalculator.schedule_for(..., strict_freshness=...)`),
+`prediction_arb/arbitrage/two_leg.py`, `prediction_arb/modes/shared.py`,
+`prediction_arb/execution/simulated.py`,
+`prediction_arb/modes/historical/engine.py`, `config/settings.yaml`
+(`fees.max_schedule_age_days`), `tests/test_readiness.py`,
+`docs/FEE_READINESS.md`, `docs/ROADMAP.md` (defect D19).
+
+### §99 — Readiness verdicts are computed, never hardcoded  `[C,T]`
+**Requirement.** Added 2026-10-10 (defect D10 fix). Every readiness criterion
+MUST be derived from observed system state: adapter verification
+(`APIStatus.VERIFIED` **and** verified order-type support), provenance
+independence (§15), matcher configuration (§97), fee completeness (§24) and
+freshness (§98), settlement-timing evidence (§28), recorded-data volume (§40),
+jurisdiction eligibility (§35), the persistent kill switch (§71), configured
+hard risk limits (§70), the order-book staleness gates (§23) and — for live
+only — the existence of the live credential file (§48; existence is checked,
+the file is never read outside live mode). A mode MUST be reported ready if and
+only if none of its applicable criteria is BLOCKED, and a criterion that cannot
+be evaluated MUST block rather than pass. Each unmet criterion MUST carry an
+explicit reason naming the observation that failed, so the operator sees the
+actual blocker. Producing the report MUST have no side effects: it MUST NOT
+create the recorded store or its directory, write logs or reports, call a
+venue, or enable anything — live stays gated by §43–§60 and §78.
+**Evidence.** `prediction_arb/monitoring/readiness.py` (`Criterion`,
+`CriterionState`, `ModeReadiness`, `ReadinessInputs`, `evaluate_all`,
+`load_recorded_evidence`), `prediction_arb/main.py` (`cmd_readiness`),
+`config/settings.yaml` (`readiness.minimum_recorded_snapshots`,
+`readiness.minimum_analyzed_opportunities`,
+`readiness.minimum_live_capable_venues`, `readiness.minimum_data_venues`),
+`tests/test_readiness.py`,
+`docs/MODE_SEPARATION.md`, `docs/ROADMAP.md` (defect D10).
+
+### §100 — Rejections state their reason to the operator  `[C,D,T]`
+**Requirement.** Added 2026-10-10. When a scan or replay cycle rejects
+candidates, the operator MUST be told *why*, not only how many: the distinct
+`block_reasons` MUST be printed with their occurrence counts, most common
+first, from a bounded list that ends with an explicit
+"and N further distinct reason(s)" tail. Nothing is printed when nothing was
+blocked, so silence unambiguously means no rejections. Console text MUST be
+escaped, so a reason containing brackets or markup cannot be swallowed or
+reinterpreted by the renderer.
+**Evidence.** `prediction_arb/monitoring/dashboard.py` (`print_block_reasons`),
+`prediction_arb/modes/paper/engine.py`,
+`prediction_arb/modes/historical/engine.py`, `tests/test_readiness.py`
+(`TestBlockReasonsAreVisible`).
+
 ---
 
 ## Appendix A — Index of reconstructed sections
@@ -840,7 +914,7 @@ hits never consume budget; the budget window resets once per
 | §55 | No fallback between modes | [C,D,T] | `prediction_arb/execution/executor.py`, `modes/historical/engine.py` |
 | §56 | Layered configuration | [C,G] | `prediction_arb/core/config.py`, `config/*.yaml` |
 | §57 | Per-mode data providers, one fill model | [C] | `prediction_arb/modes/historical/data_provider.py`, `modes/paper/data_provider.py` |
-| §58 | Workflow and readiness | [C,D] | `prediction_arb/main.py`, `cmd_readiness` |
+| §58 | Workflow and readiness | [C,D] | `prediction_arb/main.py`, `cmd_readiness`, `prediction_arb/monitoring/readiness.py` |
 | §60 | The only live order path | [C,T] | `prediction_arb/execution/live.py`, `execution/executor.py` |
 | §61 | Write-ahead intents and crash recovery | [C,D,T] | `prediction_arb/database/repository.py`, `write_trade_intent` |
 | §62 | Credentials are never logged | [C,T] | `prediction_arb/core/logging.py`, `_SECRET_RE` |
@@ -866,6 +940,9 @@ hits never consume budget; the budget window resets once per
 | §95 | Safe defaults | [G,C] | `config/settings.yaml`, `prediction_arb/core/config.py` |
 | §96 | Cross-venue candidate blocking | [C,T] | `prediction_arb/normalization/contracts.py`, `tests/test_candidate_generation.py`, `docs/LLM_MATCHING.md` |
 | §97 | LLM client wiring and comparison budget | [C,T] | `prediction_arb/matching/llm_client.py`, `prediction_arb/matching/llm_matcher.py`, `tests/test_llm_client.py`, `docs/API_SETUP.md` |
+| §98 | Mandatory fee-schedule freshness, per mode | [C,T] | `prediction_arb/fees/freshness.py`, `prediction_arb/fees/calculator.py`, `tests/test_readiness.py`, `docs/FEE_READINESS.md` |
+| §99 | Readiness verdicts are computed, never hardcoded | [C,T] | `prediction_arb/monitoring/readiness.py`, `prediction_arb/main.py`, `tests/test_readiness.py`, `docs/MODE_SEPARATION.md` |
+| §100 | Rejections state their reason to the operator | [C,D,T] | `prediction_arb/monitoring/dashboard.py`, `prediction_arb/modes/paper/engine.py`, `tests/test_readiness.py` |
 
 ## Appendix B — Numbers with no surviving citation
 
@@ -898,7 +975,9 @@ Ranges imply that every number inside them existed in the original spec.
 
 ## Appendix D — Reconstruction confidence
 
-* Sections reconstructed: **73** (every `§` cited in the repo resolves).
+* Sections reconstructed: **78** (every `§` cited in the repo resolves;
+  re-measured 2026-10-10 with `grep -c "^### §" docs/SPEC.md`, which also
+  corrects the stale 73 recorded before §96–§100 existed).
 * Citation sites covered: **224**.
 * Sections carrying an `[I]` INFERRED flag — confirm or correct these first:
 
@@ -909,10 +988,10 @@ Tag distribution:
 
 | Tag | Sections |
 |---|---|
+| `[C,T]` | 21 |
 | `[C]` | 18 |
-| `[C,T]` | 17 |
 | `[C,D]` | 15 |
-| `[C,D,T]` | 10 |
+| `[C,D,T]` | 11 |
 | `[C,G,T]` | 4 |
 | `[C,G]` | 3 |
 | `[C,D,I]` | 1 |
@@ -925,7 +1004,7 @@ Tag distribution:
 ## Appendix E — Maintaining this document
 
 1. **Never renumber.** 200+ call sites cite these numbers.
-2. New requirements get new numbers at the end (§96, §97, …) and a real
+2. New requirements get new numbers at the end (§98, §99, §100, …) and a real
    source: a decision record, an issue, or owner confirmation — not a guess.
 3. When you change behaviour that a section describes, update the section
    in the same commit and keep its `Evidence.` list accurate.

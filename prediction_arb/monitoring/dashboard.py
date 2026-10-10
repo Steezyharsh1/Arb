@@ -2,7 +2,10 @@
 future enhancement (interface note at bottom)."""
 from __future__ import annotations
 
+from typing import Sequence
+
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
@@ -92,6 +95,43 @@ def opportunities_table(opportunities: list[Opportunity],
             else op.status.value,
         )
     return table
+
+
+def print_block_reasons(console: Console,
+                        opportunities: Sequence[Opportunity],
+                        *, label: str = "", limit: int = 8) -> int:
+    """Print the distinct BLOCK reasons behind a set of opportunities.
+
+    The opportunity table shows a verdict, not a cause. A BLOCK whose reason
+    is an unavailable mandatory cost — a stale or incomplete fee schedule, an
+    unknown settlement lockup — has to be readable where the operator is
+    looking, not only in the database (§100, D19). Reasons are deduplicated
+    with a count, most common first, because one stale schedule blocks every
+    opportunity it touches and repeating it per row buries the other causes.
+
+    Returns the number of blocked opportunities (0 prints nothing).
+    """
+    blocked = [op for op in opportunities if op.block_reasons]
+    if not blocked:
+        return 0
+    counts: dict[str, int] = {}
+    for op in blocked:
+        for reason in op.block_reasons:
+            counts[reason] = counts.get(reason, 0) + 1
+    # The label is operator text (for example "cycle 3:"), not markup.
+    prefix = f"{escape(label)} " if label else ""
+    console.print(
+        f"[yellow]{prefix}{len(blocked)} opportunity(ies) BLOCKed — "
+        f"distinct reason(s):[/yellow]", soft_wrap=True)
+    ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    for reason, count in ordered[:limit]:
+        console.print(f"[yellow]  ({count}x) {escape(reason)}[/yellow]",
+                      soft_wrap=True)
+    hidden = len(ordered) - limit
+    if hidden > 0:
+        console.print(f"[dim]  … and {hidden} further distinct reason(s)[/dim]",
+                      soft_wrap=True)
+    return len(blocked)
 
 
 class WebDashboard:

@@ -15,6 +15,7 @@ from typing import Optional
 from ..arbitrage.optimizer import search_event
 from ..core.types import Mode, NormalizedContract, Opportunity, OrderBook
 from ..fees.calculator import FeeCalculator
+from ..fees.freshness import freshness_enforced
 from ..matching.deterministic_matcher import deterministic_match
 from ..matching.llm_matcher import LLMMatcher
 from ..matching.match_certificates import MatchCertificate, build_certificate
@@ -82,9 +83,20 @@ async def run_arbitrage_scan(
     maximum_settlement_delay_days: Decimal,
     cost_of_capital_annual: Decimal,
     max_quantity: Optional[Decimal] = None,
-    strict_fee_freshness: bool = False,
+    strict_fee_freshness: Optional[bool] = None,
     evaluation_time: Optional[datetime] = None,
 ) -> list[Opportunity]:
+    """Scan every event group for approved, independent two-leg arbitrage.
+
+    ``strict_fee_freshness`` defaults to ``None`` = "the mode decides"
+    (§98, D19): LIVE and PAPER refuse a fee schedule verified more than
+    ``fees.max_schedule_age_days`` ago, HISTORICAL replay still costs it and
+    the caller labels the run RESEARCH USE ONLY
+    (:func:`fees.freshness.policy_for_mode`). Passing an explicit boolean
+    overrides the policy, which is what the freshness tests do to prove both
+    directions.
+    """
+    strict = freshness_enforced(mode, strict_fee_freshness)
     contracts = [with_normalized_keys(c) for c in contracts]
     groups = group_by_event(contracts)
     out: list[Opportunity] = []
@@ -98,6 +110,6 @@ async def run_arbitrage_scan(
             maximum_settlement_delay_days=maximum_settlement_delay_days,
             cost_of_capital_annual=cost_of_capital_annual,
             max_quantity=max_quantity,
-            strict_fee_freshness=strict_fee_freshness,
+            strict_fee_freshness=strict,
             evaluation_time=evaluation_time))
     return out
