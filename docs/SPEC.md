@@ -2,15 +2,18 @@
 
 **Status:** RECONSTRUCTED; §101 adapter evidence, §102 causal historical
 evaluation, and §103 pipeline observability were added by 2026-10-10 (UTC).
+§18 and §20 were revised 2026-10-11 (UTC) for the D25 threshold-operator /
+units tri-state.
 **Confidence:** derived, not authoritative. See "How this was reconstructed".
 
 The original numbered specification that this codebase was built against was
 never committed to the repository. Its section numbers survive across code,
 config, docs and tests. The original audit counted 73 distinct references at
 224 sites on 2026-09-13. After additions through §103, **81 sections** are
-reconstructed. The current tracked Python/YAML inventory has **340 literal
-citation sites across 77 distinct section numbers** (2026-10-10); every
-reference resolves here. This count uses tracked `.py`, `.yaml`, and `.yml`
+reconstructed. The current tracked Python/YAML inventory has **344 literal
+citation sites across 77 distinct section numbers** (re-measured 2026-10-11;
+342 at the Arb.17 merge, 340 on 2026-10-10, before the Arb.16–Arb.18
+citation sites landed); every reference resolves here. This count uses tracked `.py`, `.yaml`, and `.yml`
 files and the pattern `§` followed by a number; Markdown documentation-local
 headings are not included. The older 451-site code/doc audit is historical,
 not a current measurement. This document reconstructs the cited requirements
@@ -177,8 +180,22 @@ LLM is consulted: outcome type, payout and currency, settlement time within a
 small tolerance (6h), threshold/operator/units when either leg declares one,
 presence of resolution-source text on both legs, and early-resolution
 symmetry. A REJECT here is FINAL — no later stage may overrule it.
+
+The threshold/operator/units checks are three-state (revised 2026-10-11
+(UTC), defect D25). The comparison operator each leg declares MUST first be
+translated to a documented shared vocabulary
+(`prediction_arb/normalization/thresholds.py`); a declared-vs-declared
+difference is a final mismatch, but a leg that declares no operator or unit
+while the other declares one, or a venue token with no documented
+translation, is **UNVERIFIED**: not a mismatch (never a REJECT on that
+ground) and never a pass. An unverified pair MUST reach the certificate as
+REVIEW, MUST NOT be APPROVED on any LLM verdict, and MUST be counted
+separately from deterministic rejections. UNKNOWN is never permission, and
+it is also not evidence of disagreement.
 **Evidence.** `prediction_arb/matching/deterministic_matcher.py`,
-`matching/rules_validator.py`, `tests/test_units.py`.
+`prediction_arb/normalization/thresholds.py`, `matching/rules_validator.py`,
+`tests/test_units.py`,
+`tests/test_threshold_operator_normalization.py`.
 
 ### §19 — Stage 2: LLM semantic matcher  `[C,D,T]`
 **Requirement.** The LLM stage compares structured JSON payloads (not raw
@@ -198,7 +215,10 @@ independence classification, and the matcher/LLM-model/prompt versions. Only
 APPROVED certificates may reach the arbitrage search. A certificate MUST be
 APPROVED only when the venue relationship is proven INDEPENDENT (§33):
 same-venue frontends and unresolved relationships are REVIEW, never
-APPROVED (2026-09-14, defect D15).
+APPROVED (2026-09-14, defect D15). It MUST also record any deterministic
+check that could not be evaluated (an unverifiable operator or units field,
+§18) instead of showing it as passed, and such a pair MUST NOT be APPROVED
+(2026-10-11, defect D25).
 **Evidence.** `prediction_arb/matching/match_certificates.py`,
 `matching/rules_validator.py`, `database/repository.py`
 (`save_match_certificate`), `arbitrage/optimizer.py`.
@@ -997,7 +1017,7 @@ reported only where the adapter observes them.
 | §15 | Independence engine | [C,T] | `prediction_arb/provenance/independence.py`, `tests/test_units.py` |
 | §16 | Contract normalization | [C] | `prediction_arb/normalization/contracts.py`, `normalization/outcomes.py` |
 | §17 | Outcome types | [C] | `prediction_arb/normalization/outcomes.py`, `arbitrage/multi_leg.py` |
-| §18 | Stage 1: deterministic filter | [C,T] | `prediction_arb/matching/deterministic_matcher.py`, `matching/rules_validator.py` |
+| §18 | Stage 1: deterministic filter | [C,T] | `prediction_arb/matching/deterministic_matcher.py`, `prediction_arb/normalization/thresholds.py`, `matching/rules_validator.py` |
 | §19 | Stage 2: LLM semantic matcher | [C,D,T] | `prediction_arb/matching/llm_matcher.py`, `docs/LLM_MATCHING.md` |
 | §20 | Match certificates | [C,T] | `prediction_arb/matching/match_certificates.py`, `matching/rules_validator.py` |
 | §21 | Arbitrage graph | [C] | `prediction_arb/arbitrage/graph.py` |

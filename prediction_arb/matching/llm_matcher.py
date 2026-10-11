@@ -75,6 +75,26 @@ class LLMMatchResult:
     error: str = ""
 
 
+#: Marker on the error of a result that was deliberately not produced. The
+#: certificate must say "not consulted" rather than imply a verdict existed.
+NOT_CONSULTED_PREFIX = "NOT_CONSULTED"
+
+
+def not_consulted(reason: str) -> LLMMatchResult:
+    """A clearly-labelled "no verdict was requested" result.
+
+    Used when the deterministic stage has already decided the pair cannot be
+    approved (an unverified field, D25): spending the bounded per-cycle
+    comparison budget on a pair that no verdict could approve would only
+    starve candidates that can be approved. The certificate records that the
+    semantic stage was deliberately not consulted, rather than inventing a
+    verdict.
+    """
+    return LLMMatchResult(match=False, confidence=0.0, reasoning_summary="",
+                          valid=False,
+                          error=f"{NOT_CONSULTED_PREFIX}: {reason}")
+
+
 def _contract_payload(c: NormalizedContract) -> dict[str, Any]:
     return {
         "venue": c.venue,

@@ -138,6 +138,22 @@ clock (`conftest.fresh_verification_date()`).
 
 **Candidate retrieval (§96, Arb.8)** (`test_candidate_retrieval.py`, 31 tests; `test_candidate_generation.py`, 29 tests): settlement window and day boundary; numeric normalization (`100k` = `100,000`); different wording; generic words that must not link; non-transitivity; proposal is not approval; labelled reference set including the pinned known miss (K22/P18); synthetic recall at 300 contracts (pinned); the frozen 1,000-contract baseline (1 component, pinned). The 1,000-contract recall figures are in committed artifacts, not in a test. Offline. Benchmark and results: `docs/CANDIDATE_RETRIEVAL.md`.
 
+**Threshold-operator and units normalization** (`test_threshold_operator_normalization.py`,
+D25, 2026-10-11 — 70 tests, all offline): the documented Kalshi
+`strike_type` → canonical operator vocabulary (and the deliberate
+non-mapping of `functional`/`custom`/`structured`/unknown tokens), the
+Polymarket US vocabulary staying UNKNOWN with no invented mapping, canonical
+pass-through for already-canonical and legacy recorded tokens, three-state
+`compare_operators`/`compare_units` verdicts, adapter normalization of
+documented payloads (raw token preserved in `resolution_method`/`raw`), the
+deterministic matcher's unverified semantics (declared-vs-unknown is not a
+mismatch, declared-vs-declared still is, unverified lowers confidence), the
+validator refusing APPROVED even on a confident valid LLM verdict, the
+certificate recording/rendering the unverified field, and the pipeline
+recording REVIEW without spending the LLM budget. Mutation-verified: seven
+reverts of the production change were each caught by the targeted files (4, 3,
+6, 1, 1, 4 and 11 failures respectively).
+
 **Arbitrage** (`test_arbitrage_engine.py`): marginal sizing stops at
 payout; profitable path yields TRADE; reproducibility (identical inputs
 → identical outputs); search requires APPROVED certificates; SAME_VENUE
@@ -353,3 +369,16 @@ in `docs/VENUE_RESEARCH.md`; this later collection attempt also produced no
 HTTP response and did not change any venue evidence status. `gh pr checks 19`
 reported merged PR #19's `tests + CLI smoke` check successful (run
 `38071479907`); that is not a CI result for this documentation change.
+
+## Arb.18 verification — 2026-10-11 (threshold-operator/units normalization, D25)
+
+| Command | Result |
+|---|---|
+| `.venv/bin/pytest -o addopts=''` | **860 passed in 46.79 s**, Python 3.11.2 / pytest 9.1.1; all offline. Arb.17's 790 plus the 70 tests in `test_threshold_operator_normalization.py`. |
+| Mutation batch (7 reverts of the Arb.18 production change) | Each caught by the targeted files (failure counts 4, 4, 3, 6, 1, 11, 1); every mutated file restored and verified by sha256. |
+| `.venv/bin/python -m prediction_arb.main --status` / `--readiness` / `--pipeline-report` | Exit 0; verdicts unchanged from the 2026-10-10 record (`COLLECT: READY`, `HISTORICAL: NOT READY — 1`, `PAPER: NOT READY — 5`, `LIVE: NOT READY — 8`; no paper store → `UNAVAILABLE`). Readiness created no runtime files; generated artifacts were removed. No venue was contacted. |
+
+The Arb.18 change is matcher-internal: no venue, fee, settlement, eligibility,
+or live-readiness claim moved. The D25 reproduction and its pre-fix comparison
+are recorded in `docs/ROADMAP.md` (D25) and
+`tests/test_threshold_operator_normalization.py`.

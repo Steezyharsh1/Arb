@@ -18,7 +18,7 @@ from ..core.types import Independence, Mode, NormalizedContract, Opportunity, Or
 from ..fees.calculator import FeeCalculator
 from ..fees.freshness import freshness_enforced
 from ..matching.deterministic_matcher import deterministic_match
-from ..matching.llm_matcher import LLMMatcher
+from ..matching.llm_matcher import LLMMatcher, not_consulted
 from ..matching.match_certificates import MatchCertificate, build_certificate
 from ..matching.rules_validator import validate_match
 from ..normalization.contracts import (
@@ -78,6 +78,10 @@ class ScanResult:
     #: Deterministic rejections by the failing check name (§103). A pair that
     #: fails several checks counts once under each failing check.
     deterministic_rejects: dict[str, int] = field(default_factory=dict)
+    #: Pairs whose deterministic fields could not be verified (D25) by check
+    #: name. These are REVIEW-only, never APPROVED, and are counted
+    #: separately so an unverifiable field is never reported as a rejection.
+    deterministic_unverified: dict[str, int] = field(default_factory=dict)
     certificates: list[MatchCertificate] = field(default_factory=list)
     opportunities: list[Opportunity] = field(default_factory=list)
 
@@ -154,6 +158,21 @@ async def run_matching(contracts: list[NormalizedContract],
 
     approved: dict[tuple[str, str], tuple[str, float]] = {}
     for sort_key, i, j, a, b, det in scored:
+        if det.unverified:
+            # D25: an unverifiable deterministic field (declared-vs-unknown
+            # operator or units) makes the pair REVIEW-only, whatever any
+            # verdict would say. Do not spend the bounded comparison budget
+            # on a pair the pipeline can never approve: record it with an
+            # explicitly-labelled "not consulted" result so the human review
+            # set stays complete.
+            for check, reason in det.unverified.items():
+                result.deterministic_unverified[check] = (
+                    result.deterministic_unverified.get(check, 0) + 1)
+            llm_res = not_consulted("; ".join(det.unverified.values()))
+            outcome = validate_match(a, b, det, llm_res)
+            cert = build_certificate(a, b, det, llm_res, outcome)
+            result.certificates.append(cert)
+            continue
         llm_res = await llm.compare(a, b)
         outcome = validate_match(a, b, det, llm_res)
         cert = build_certificate(a, b, det, llm_res, outcome)

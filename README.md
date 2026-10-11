@@ -120,8 +120,14 @@ monitor-only by construction.
   transitive. On the synthetic 1,000-contract benchmark this is 3,262 pairs
   instead of 333,296, with every deterministically passable equivalent pair
   kept. Retrieval only proposes candidates. The deterministic matcher still
-  rejects on any hard mismatch, and its REJECT is final. Benchmark, design and
-  known misses: `docs/CANDIDATE_RETRIEVAL.md`.
+  rejects on any hard mismatch (a mismatch between two declared operators or
+  units is still final), but a field the two legs cannot be compared on — one
+  leg declares a comparison operator or unit and the other declares none, as
+  with Kalshi's `strike_type` versus Polymarket US's absent operator (D25) —
+  is no longer reported as a mismatch: the pair is recorded as REVIEW with the
+  field named, can never be APPROVED, and is counted separately from
+  rejections. Benchmark, design and known misses:
+  `docs/CANDIDATE_RETRIEVAL.md`.
 - **The LLM matcher is now wired** (optional, owner-supplied key): put
   `LLM_API_BASE` / `LLM_API_KEY` / `LLM_MODEL` in `.env.paper` and any
   OpenAI-compatible endpoint can approve cross-venue matches — with

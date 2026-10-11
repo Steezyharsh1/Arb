@@ -28,6 +28,9 @@ class MatchCertificate:
     llm_prompt_version: str
     status: str              # APPROVED / REJECTED / REVIEW
     reasons: list[str] = field(default_factory=list)
+    #: Checks that could not be evaluated (D25): field -> why. Present so a
+    #: certificate never shows an unverifiable field as if it had passed.
+    unverified: dict[str, str] = field(default_factory=dict)
     created_at: datetime = field(default_factory=utcnow)
 
     def to_json(self) -> str:
@@ -42,6 +45,8 @@ class MatchCertificate:
                  f"Contract B: {self.contract_b}", ""]
         for check, ok in self.checks.items():
             lines.append(f"{check}: {'PASS' if ok else 'FAIL'}")
+        for check, why in self.unverified.items():
+            lines.append(f"{check}: UNVERIFIED (review only) — {why}")
         lines += ["",
                   f"Underlying venue relationship: {self.independence}",
                   f"LLM confidence: {self.llm_confidence:.4f}",
@@ -94,4 +99,5 @@ def build_certificate(a: NormalizedContract, b: NormalizedContract,
         llm_prompt_version=llm.prompt_version,
         status=outcome.status,
         reasons=list(outcome.reasons),
+        unverified=dict(det.unverified),
     )
