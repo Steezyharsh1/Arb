@@ -1,7 +1,7 @@
 """Repository over the mode-specific database (§40, §49, §61).
 
-Includes the crash-recovery queries: PENDING/SUBMITTED trade intents are
-discoverable at startup for reconciliation against venue state.
+Includes the crash-recovery queries: PENDING/SUBMITTED/UNKNOWN trade intents
+are discoverable at startup for reconciliation against venue state.
 """
 from __future__ import annotations
 
@@ -379,12 +379,13 @@ class Repository:
             s.commit()
 
     def unreconciled_trades(self) -> list[TradeRow]:
-        """PENDING/SUBMITTED intents — crash recovery input (§61)."""
+        """PENDING/SUBMITTED/UNKNOWN intents — crash recovery input (§61, D32)."""
         with Session(self.engine) as s:
             return list(s.scalars(select(TradeRow).where(
                 TradeRow.mode == self.mode.value,
                 TradeRow.status.in_([OrderStatus.PENDING.value,
-                                     OrderStatus.SUBMITTED.value]))))
+                                     OrderStatus.SUBMITTED.value,
+                                     OrderStatus.UNKNOWN.value]))))
 
     # ------------------------------------------------------------ positions
     def open_position(self, position_id: str, venue: str, contract_id: str,

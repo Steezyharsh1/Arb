@@ -49,6 +49,7 @@ class SimState:
     cash: dict[str, Decimal] = field(default_factory=dict)
     positions: list[SimPosition] = field(default_factory=list)
     orders: dict[str, OrderResult] = field(default_factory=dict)
+    client_orders: dict[str, OrderResult] = field(default_factory=dict)
     fills: list[dict[str, Any]] = field(default_factory=list)
     # Realized only when a simulated position is sold. Open-position P&L and
     # settlement are intentionally not invented.
@@ -82,6 +83,15 @@ class _SimulatedExecutionEngine(ExecutionEngine):
                 fees=Decimal("0"),
                 message=f"mode mismatch: engine={self.mode.value} "
                         f"request={request.mode.value}")
+        if (request.client_order_id
+                and request.client_order_id in self.state.client_orders):
+            return OrderResult(
+                client_order_id=request.client_order_id,
+                venue_order_id=None, status=OrderStatus.REJECTED,
+                filled_quantity=Decimal("0"), average_fill_price=None,
+                fees=Decimal("0"),
+                message=f"duplicate client_order_id "
+                        f"{request.client_order_id!r}")
         # A missing venue allocation is a configuration error, not a zero
         # balance and never a successful sell. Report it explicitly before
         # looking at books so the operator sees the root cause.
@@ -98,6 +108,15 @@ class _SimulatedExecutionEngine(ExecutionEngine):
             return self._reject(request, "no order book available")
 
         async with self._lock:
+            if (request.client_order_id
+                    and request.client_order_id in self.state.client_orders):
+                return OrderResult(
+                    client_order_id=request.client_order_id,
+                    venue_order_id=None, status=OrderStatus.REJECTED,
+                    filled_quantity=Decimal("0"), average_fill_price=None,
+                    fees=Decimal("0"),
+                    message=f"duplicate client_order_id "
+                            f"{request.client_order_id!r}")
             walk_quantity = request.quantity
             if request.action.value == "sell":
                 held = sum((
@@ -234,6 +253,8 @@ class _SimulatedExecutionEngine(ExecutionEngine):
                 average_fill_price=avg, fees=fees,
                 message="simulated fill")
             self.state.orders[result.venue_order_id or ""] = result
+            if request.client_order_id:
+                self.state.client_orders[request.client_order_id] = result
             self.state.fills.append({
                 "venue": request.venue, "contract_id": request.contract_id,
                 "side": request.side.value, "quantity": str(filled),
@@ -241,27 +262,37 @@ class _SimulatedExecutionEngine(ExecutionEngine):
             return result
 
     def _reject(self, request: OrderRequest, why: str) -> OrderResult:
-        return OrderResult(
+        result = OrderResult(
             client_order_id=request.client_order_id, venue_order_id=None,
             status=OrderStatus.REJECTED, filled_quantity=Decimal("0"),
             average_fill_price=None, fees=Decimal("0"), message=why)
+        if (request.client_order_id
+                and request.client_order_id not in self.state.client_orders):
+            self.state.client_orders[request.client_order_id] = result
+        return result
 
     async def cancel_order(self, venue: str, order_id: str) -> bool:
         async with self._lock:
-            r = self.state.orders.get(order_id)
+            r = (self.state.orders.get(order_id)
+                 or self.state.client_orders.get(order_id))
             if r and r.status == OrderStatus.SUBMITTED:
-                self.state.orders[order_id] = OrderResult(
+                vid = r.venue_order_id or order_id
+                canceled = OrderResult(
                     client_order_id=r.client_order_id,
-                    venue_order_id=order_id, status=OrderStatus.CANCELED,
+                    venue_order_id=vid, status=OrderStatus.CANCELED,
                     filled_quantity=r.filled_quantity,
                     average_fill_price=r.average_fill_price, fees=r.fees)
+                self.state.orders[vid] = canceled
+                if r.client_order_id:
+                    self.state.client_orders[r.client_order_id] = canceled
                 return True
         return False
 
     async def get_order_status(self, venue: str,
                                order_id: str) -> Optional[OrderResult]:
         async with self._lock:
-            return self.state.orders.get(order_id)
+            return (self.state.orders.get(order_id)
+                    or self.state.client_orders.get(order_id))
 
     async def get_positions(self) -> list[dict[str, Any]]:
         async with self._lock:

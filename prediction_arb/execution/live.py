@@ -19,6 +19,8 @@ import asyncio
 from decimal import Decimal
 from typing import Any, Optional
 
+import httpx
+
 from ..adapters.base import PredictionMarketAdapter
 from ..core.logging import get_logger
 from ..core.types import (
@@ -35,6 +37,13 @@ from .firewall import FirewallContext, LiveOrderFirewall
 log = get_logger("execution.live")
 
 LIVE_CONFIRMATION_PHRASE = "I UNDERSTAND LIVE TRADING"
+
+_AMBIGUOUS_TRANSMISSION_ERRORS = (
+    asyncio.TimeoutError,
+    TimeoutError,
+    httpx.TimeoutException,
+    httpx.TransportError,
+)
 
 
 class LiveConfirmationToken:
@@ -97,10 +106,12 @@ class LiveExecutionEngine(ExecutionEngine):
 
         try:
             result = await adapter.place_order(request)
-        except asyncio.TimeoutError:
-            # §72: NEVER assume failure on timeout — reconcile first.
-            log.warning("order transmission timed out; querying venue "
-                        "before any retry",
+        except _AMBIGUOUS_TRANSMISSION_ERRORS as exc:
+            # §72, D31: NEVER assume failure on timeout or transport error —
+            # reconcile by client_order_id first.
+            log.warning("order transmission outcome ambiguous (%s); querying "
+                        "venue before any retry",
+                        type(exc).__name__,
                         extra={"data": {"client_order_id":
                                         request.client_order_id}})
             result = await self._reconcile_by_client_id(adapter, request)
@@ -167,7 +178,28 @@ class LiveExecutionEngine(ExecutionEngine):
         adapter = self.adapters.get(venue)
         if adapter is None:
             return None
-        return await adapter.get_order(order_id)
+        result = await adapter.get_order(order_id)
+        if result is not None:
+            return result
+        for o in await adapter.get_open_orders():
+            if o.get("client_order_id") == order_id:
+                return OrderResult(
+                    client_order_id=order_id,
+                    venue_order_id=o.get("order_id"),
+                    status=OrderStatus.SUBMITTED,
+                    filled_quantity=Decimal("0"),
+                    average_fill_price=None, fees=Decimal("0"),
+                    message="found resting by client_order_id")
+        for f in await adapter.get_fills():
+            if f.get("client_order_id") == order_id:
+                return OrderResult(
+                    client_order_id=order_id,
+                    venue_order_id=f.get("order_id"),
+                    status=OrderStatus.FILLED,
+                    filled_quantity=Decimal(str(f.get("count", 0))),
+                    average_fill_price=None, fees=Decimal("0"),
+                    message="found filled by client_order_id")
+        return None
 
     async def get_positions(self) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
@@ -191,7 +223,7 @@ class LiveExecutionEngine(ExecutionEngine):
 
     # ------------------------------------------------- crash recovery §61
     async def recover_on_startup(self) -> list[str]:
-        """Reconcile PENDING/SUBMITTED intents against venue state."""
+        """Reconcile PENDING/SUBMITTED/UNKNOWN intents against venue state."""
         notes: list[str] = []
         for row in self.repo.unreconciled_trades():
             adapter = self.adapters.get(row.venue)
@@ -224,18 +256,23 @@ class LiveExecutionEngine(ExecutionEngine):
                     for f in await adapter.get_fills():
                         if f.get("client_order_id") == row.client_order_id:
                             self.repo.update_trade_status(
-                                row.client_order_id, OrderStatus.FILLED)
+                                row.client_order_id, OrderStatus.FILLED,
+                                order_id=f.get("order_id", ""),
+                                filled_quantity=str(f.get("count", 0) or ""))
                             notes.append(f"{row.client_order_id}: FILLED at "
                                          f"venue (orphaned leg — review "
                                          f"hedge state)")
                             resolved = True
                             break
                 if not resolved:
-                    # intent written but venue has no trace → never sent
+                    # D33: absence from a single open-orders/fills listing is
+                    # NOT proof that the order was never transmitted or was
+                    # rejected. Keep status UNKNOWN for manual reconciliation.
                     self.repo.update_trade_status(row.client_order_id,
-                                                  OrderStatus.REJECTED)
-                    notes.append(f"{row.client_order_id}: no venue trace — "
-                                 f"marked REJECTED (never transmitted)")
+                                                  OrderStatus.UNKNOWN)
+                    notes.append(f"{row.client_order_id}: no venue trace in "
+                                 f"open orders or fills — marked UNKNOWN "
+                                 f"(manual reconciliation required)")
             except Exception as exc:
                 notes.append(f"{row.client_order_id}: reconciliation error "
                              f"{exc} — left as-is")

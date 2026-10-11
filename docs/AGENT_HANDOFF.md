@@ -4,14 +4,19 @@
 is the authoritative prioritized task list and defect register. Subject-specific
 evidence and definitions remain in the linked documents below.
 
-- **Snapshot date:** 2026-10-11 (UTC). Arb.16 execution safety assessment on Python 3.11.2 (prior consolidation: 2026-10-10).
+- **Snapshot date:** 2026-10-11 (UTC). Arb.17 execution-safety fault-matrix remediation (D31–D37) on Python 3.11.2 (prior sessions: Arb.16 on 2026-10-11, consolidation on 2026-10-10).
 - **Repository:** `Steezyharsh1/Arb`, package `prediction_arb`.
-- **Fixed session branch:** `arena/5e91ce2b-arb` (Arb.16).
-- **Base:** `d7ec12d1a2c81063f2cb900505e689085790834f` (`main`, merge of PR #20).
-- Arb.16 made one scoped live-adapter safety fix (D30: an order POST is sent once,
-  never retried or failed over) with offline tests, and added the execution
-  safety assessment in `docs/EXECUTION_SAFETY_ASSESSMENT.md`. It adds no venue,
-  strategy family, or live-order capability. Live stays not enabled.
+- **Fixed session branch:** `arena/c09068ab-arb` (Arb.17).
+- **Base:** `0e689ad461183c9d7c1cc7379b8ac48f4fa84f77` (`main`, merge of PR #21 / `b67b1d4` Arb.16).
+- **Arb.17 change summary:** resolved all seven open execution-safety fault-matrix
+  defects (D31–D37) across `prediction_arb/database/repository.py`,
+  `prediction_arb/execution/live.py`, `prediction_arb/execution/simulated.py`,
+  `prediction_arb/execution/coordinator.py`, and
+  `prediction_arb/execution/partial_fills.py`. All 7 prior `xfail(strict=True)`
+  cases plus 7 new edge-case regressions in `tests/test_execution_fault_matrix.py`
+  now pass (`20 passed` in the fault matrix; `790 passed, 0 xfailed` across the
+  full offline suite), verified by reverting each modified module to `HEAD`. Adds
+  no venue, strategy family, or live-order capability; live stays monitor-only.
 
 ---
 
@@ -39,17 +44,17 @@ public requests failed before HTTP response.
 
 ---
 
-## 2. Verified state (re-run 2026-10-10)
+## 2. Verified state (re-run 2026-10-11)
 
 | Check | Observed result |
 |---|---|
-| Full offline suite | `.venv/bin/pytest -o addopts=''`: **776 passed, 7 xfailed in 41 s** on Python 3.11.2 / pytest 9.1.1 (2026-10-11; the 764 prior tests plus 12 Arb.16 tests, of which the 7 open-defect cases are strict xfails). The suite uses mocks/local fixtures, not venue connectivity. |
+| Full offline suite | `.venv/bin/pytest -o addopts=''`: **790 passed in 44.00 s** on Python 3.11.2 / pytest 9.1.1 (2026-10-11 Arb.17; 0 xfails; includes 20 passing execution fault-matrix tests covering D30–D37). The suite uses mocks/local fixtures, not venue connectivity. |
 | `python -m prediction_arb.main --status` | Exit 0. Kalshi `MARKET_DATA_OBSERVED` (historical observation only); Polymarket US `API_DOCUMENTED_UNTESTED`; ForecastEx `API_DOCUMENTED_UNTESTED` (stub). No adapter is fully verified. All three enabled unordered pairs are provenance-`INDEPENDENT`; that says nothing about books or costs. The latest dedicated smoke-script claims still show `UNAVAILABLE` (TLS EOF) from the 2026-10-10 morning probes. |
 | `python -m prediction_arb.main --readiness` | Exit 0, advisory and side-effect-free. On a fresh runtime tree: `COLLECT: READY` (one of three adapters with market-data evidence), `HISTORICAL: NOT READY` (no recorded store), `PAPER: NOT READY — 5 blocker(s)`, `LIVE: NOT READY — 8 blocker(s)`. There are 0 fully verified live-capable venues. Fee freshness passed 3/3 on this date; fee completeness is still 0/3. |
-| `python -m prediction_arb.main --mode collect --cycles 1` | Exit 0, **no current books recorded**. At about 18:04 UTC, Kalshi's two configured REST bases and Polymarket US's public gateway returned TLS EOF before an HTTP response. ForecastEx was skipped as a stub; Polymarket US was subsequently skipped by the collection admission gate. No credentials or orders were used. The CLI catches discovery failures, so exit 0 is not a successful-data assertion. |
+| `python -m prediction_arb.main --mode collect --cycles 1` | Exit 0 (2026-10-10 consolidation probe), **no current books recorded**. At about 18:04 UTC, Kalshi's two configured REST bases and Polymarket US's public gateway returned TLS EOF before an HTTP response. ForecastEx was skipped as a stub; Polymarket US was subsequently skipped by the collection admission gate. No credentials or orders were used. The CLI catches discovery failures, so exit 0 is not a successful-data assertion. |
 | `python -m prediction_arb.main --mode historical --date 2020-01-01` | Exit 0 after that collection attempt. The recorded store opened read-only and contained 0 snapshots: 0 as-of frames, 0 calculated opportunities, no simulated positions; simulated and realized P&L were `n/a`. The report did not fall back to a live feed or fabricate history. |
 | `python -m prediction_arb.main --pipeline-report` | Exit 0; `UNAVAILABLE: no scan cycle was recorded` for the day. Missing observations are not rendered as zero. |
-| GitHub Actions | `gh pr checks 19`: merged PR #19's `tests + CLI smoke` check passed (run `38071479907`). This is not a CI result for this documentation change. |
+| GitHub Actions | `gh pr checks 19`: merged PR #19's `tests + CLI smoke` check passed (run `38071479907`). This is not a CI result for the current branch. |
 
 The generated empty databases, logs, and reports from these probes were removed;
 there is no checked-out recorded dataset. The separate official-source reviews
@@ -83,12 +88,17 @@ payload and does not change any adapter's evidence status.
   `FirewallContext` is constructed and no application order loop calls the
   submit method. This is **not** an enabled live-execution path. No real order
   may be added or tested in this task.
-- **Execution safety (Arb.16):** the simulated boundary is verified: collect,
-  historical, and paper hold no order-placement path. The live path has seven
-  open defects (D31–D37) for ambiguous outcomes, startup recovery, and
-  coordinator handling of live results, plus D38 (live fill accounting) and D39
-  (paper restart resets risk state). Read `docs/EXECUTION_SAFETY_ASSESSMENT.md`
-  before any live work; its §9 gives the remediation order.
+- **Execution safety (Arb.16 / Arb.17):** the simulated boundary is verified:
+  collect, historical, and paper hold no order-placement path. Arb.16 fixed D30
+  (single-shot order POST) and Arb.17 fixed D31–D37 (`httpx` timeout/transport
+  reconciliation, `UNKNOWN` inclusion in `unreconciled_trades()`, non-fabrication
+  of `REJECTED` when an order is absent from listings, simulator `client_order_id`
+  idempotency, coordinator reconciliation/cancel and conservative exposure + kill
+  switch on ambiguous or resting Leg A, and partial-fill handler halt before
+  further hedge retries or leg-A unwind on ambiguous retry outcomes). D38 (live
+  fill accounting), D39 (paper restart resets in-memory risk state), and D24/D26
+  (live coordinator/`FirewallContext` and emergency wiring) remain open. Read
+  `docs/EXECUTION_SAFETY_ASSESSMENT.md` before any live work.
 - **Telemetry:** Arb.14 added bounded persisted pipeline counters, simulated
   attempt records, and the read-only `--pipeline-report`. D29 remains open:
   the same economic pair can receive new opportunity UUIDs and be simulated
@@ -139,7 +149,12 @@ unredacted statements local. Never ask the owner to paste a secret into chat.
 Newest first; merge commits are shown only where useful for locating the
 consolidated change:
 
-- `43c683b` — merge PR #19, the current base.
+- `0e689ad` — merge PR #21 (`b67b1d4`), the base for Arb.17.
+- `b67b1d4` — **Arb.16: execution safety assessment and single-shot order POST (D30)**;
+  added `docs/EXECUTION_SAFETY_ASSESSMENT.md` and `tests/test_execution_fault_matrix.py`
+  (776 passed, 7 xfailed).
+- `d7ec12d` — merge PR #20 (`10b4c42`, Arb.15 handoff/roadmap consolidation).
+- `43c683b` — merge PR #19 (`514c088`).
 - `514c088` — **Arb.14: persisted pipeline observability and read-only report**;
   schema 5 / migration 005, closed-vocabulary counters, simulated attempt
   records, and D29 finding. Full suite at that change: 764 tests; ten targeted
