@@ -5,8 +5,10 @@ task order, phase status, dependencies, and defects. `docs/AGENT_HANDOFF.md` is
 the short fresh-session entry point and must point here rather than maintain a
 competing backlog.
 
-**Updated:** 2026-10-10 (UTC), consolidation re-run on the current tree. The
-local suite passes **764 tests in 36.12 s**; status/readiness and bounded
+**Updated:** 2026-10-11 (UTC), Arb.16 execution safety assessment (see §3 Phase 8 and
+`docs/EXECUTION_SAFETY_ASSESSMENT.md`). Prior consolidation 2026-10-10: the local
+suite passed **764 tests in 36.12 s**; on 2026-10-11 it passes **776 tests plus 6
+strict xfails in 41 s**. Earlier consolidation notes: status/readiness and bounded
 collect/historical commands were exercised. The collection attempt received no venue HTTP response
 and produced no data. No genuine two-venue dataset, account fill/settlement
 evidence, or performance result is available. Older implementation records
@@ -28,7 +30,7 @@ Status tags:
 
 | Check | Result |
 |---|---|
-| Full offline test suite | `.venv/bin/pytest -o addopts=''`: **764 passed in 36.12 s** on Python 3.11.2 / pytest 9.1.1 (current consolidation run; 60 Arb.14 telemetry tests are included). This is code/test evidence, not venue or performance evidence. |
+| Full offline test suite | `.venv/bin/pytest -o addopts=''`: **776 passed, 7 xfailed in 41 s** on Python 3.11.2 / pytest 9.1.1 (2026-10-11 Arb.16 run; the 764 prior tests include the 60 Arb.14 telemetry tests). The xfails are the open live-path defects D31–D37, each with a strict marker. This is code/test evidence, not venue or performance evidence. |
 | `--status` | Exit 0. Kalshi `MARKET_DATA_OBSERVED` only from the 2026-08-30 historical capture; Polymarket US `API_DOCUMENTED_UNTESTED`; ForecastEx `API_DOCUMENTED_UNTESTED` and a structured stub. No adapter is fully verified; the three enabled pairs are provenance-independent only. Dedicated smoke-script claims remain `UNAVAILABLE` (TLS EOF, 2026-10-10). |
 | `--readiness` | Exit 0. On the clean runtime tree: `COLLECT: READY` (1/3 market-data-evidenced adapters), `HISTORICAL: NOT READY — 1 blocker(s)` (no recorded store), `PAPER: NOT READY — 5 blocker(s)`, `LIVE: NOT READY — 8 blocker(s)`. There are 0 live-capable venues. **COLLECT READY is an evidence/admission verdict, not current connectivity or proof a collection cycle succeeded.** The report is advisory and side-effect-free. |
 | `--mode collect --cycles 1` | Exit 0, but records no books. At about 18:04 UTC the two Kalshi public REST bases and Polymarket US public gateway returned TLS EOF before HTTP response; ForecastEx is a stub and Polymarket US is not admitted for collection. Exceptions are caught, so exit 0 does not mean data was collected. No credentials or orders. |
@@ -86,7 +88,7 @@ redacted evidence under ignored `reports/evidence/` or owner-controlled storage.
 | 5 | Matching that can actually match | CODE COMPLETE 2026-09-14 (D6 blocking §96, D9 LLM wiring §97, D15 provenance gate); **exit needs owner's real two-venue data + LLM key (H7)** | APPROVED certificates produced from real cross-venue data |
 | 6 | Paper validation & realism | PARTIAL — D11, D12 fixed 2026-09-13; **owner's multi-week run pending** | Multi-week paper run with realistic fill/staleness modelling |
 | 7 | Compliance & legal re-verification | PARTIAL — 2026-09-13 Utah/CFTC snapshot complete | Owner/legal review and venue/category eligibility evidence before live |
-| 8 | Live readiness & first live path | NOT STARTED (HUMAN) | IBKR paper + Kalshi demo drills, then a capped live trade |
+| 8 | Live readiness & first live path | NOT STARTED (HUMAN); Arb.16 pre-live blockers D31–D39 open | IBKR paper + Kalshi demo drills, then a capped live trade |
 | 9 | v2 strategy surface (multi-leg, logical, routing) | NOT STARTED | Behind existing stubs, only after Phase 6 evidence |
 | 10 | Operations (scheduler, alerting, retention) | NOT STARTED | Unattended collection + alerting |
 
@@ -689,6 +691,32 @@ legal conclusions. Nothing here is legal advice.
 
 ### Phase 8 — Live readiness & first live path  ·  NOT STARTED (HUMAN)
 
+#### Arb.16 pre-live safety assessment (2026-10-11)
+
+Offline review of the simulated boundary and the live order path, with fault
+injection; full evidence in `docs/EXECUTION_SAFETY_ASSESSMENT.md`.
+
+- **Verified:** collect, historical, and paper have no order-placement path
+  (§3 of the assessment). The live order path is not reachable from the CLI.
+  Firewall checks, the confirmation gate, kill-switch refusal, and coordinator
+  risk limits each have tests. The strict-xfail file
+  `tests/test_execution_fault_matrix.py` records the open defects.
+- **Fixed (D30):** a Kalshi order POST was retried and failed over across hosts,
+  so one intent could be sent up to eight times. It is now sent once.
+- **Still blocking live (D31–D39):** timeouts are not reconciled, `UNKNOWN`
+  intents are not recovered on restart, absence from a listing is recorded as
+  `REJECTED`, a leg-A exception or resting leg A leaves exposure unrecorded, an
+  ambiguous hedge retry sends another order, live fill accounting is incomplete,
+  and paper restart resets risk state.
+- **Order before any live work:** (1) an explicit ambiguous-outcome model with
+  reconciliation before retry, next leg, or unwind (D31, D35–D37); (2) startup
+  recovery (D32, D33); (3) honest live result mapping (D38); (4) idempotent
+  simulator and persisted risk state (D34, D39, D21); (5) live coordinator and
+  `FirewallContext` construction, only after 1–3 and with demo drills (D24, D26);
+  (6) unwind and emergency bounds (D22, D23); (7) owner-gated demo verification of
+  endpoint behavior, with no live orders; (8) durable order and fill audit trail.
+
+
 Sequence: owner-selected venue **paper/sandbox** → Kalshi **demo**
 (`external-api.demo.kalshi.co`) → only then a separately approved live path
 with hard caps. Rehearse: kill switch, crash recovery reconciliation,
@@ -771,6 +799,16 @@ collection), and log rotation.
 | D27 | **RESOLVED 2026-10-10 — adapter evidence was overclaimed and collection admitted invalid/unverified books.** Kalshi was unconditionally `VERIFIED`; a historical public observation was not separated from current endpoint connectivity/full adapter coverage. Collection's blocklist could admit other unverified states and saved non-empty books without validating crossed/non-finite levels. Smoke scripts mixed credentialed/authenticated surfaces with public checks and treated some network failures as hard failures. | Added claim-level documentation/connectivity/usable-data/full-verification/latest-smoke evidence; Kalshi is `MARKET_DATA_OBSERVED` from the 2026-08-30 public capture only, Polymarket US stays `API_DOCUMENTED_UNTESTED`, ForecastEx remains a stub. Smoke probes are bounded public GET-only/no credentials/no orders; latest 2026-10-10 attempts are explicitly `UNAVAILABLE` with exact TLS EOF details (K9/P7), not adapter failures. Collection now admits only MARKET_DATA_OBSERVED/VERIFIED and records usable books without an execution path; paper REST and streaming gates are distinct. Unknown Polymarket tick/minimum rules remain unknown. Offline regressions cover collection, parsers, timestamps, books, status and Kalshi sequence-gap/REST recovery; full current endpoint verification remains unavailable and is not claimed. | 2–3 |
 | D28 | **RESOLVED IN CODE 2026-10-10 (Arb.13) — historical metrics implied execution and minute replay leaked future data.** Both paths only scanned; repeated TRADE profits became MODELLED equity and walks became fill statistics. Later independent quotes entered rounded earlier decisions, mutable terms/wall-clock fees lacked as-of support, and historical startup connected venues. | Exact receipt/as-of replay, nullable schema-4 capture/context with no legacy backfill, dated costs/IDs/evidence, common conditional latency/IOC/depth/cash/fee-reserve model, schema-2 theory/simulation/exposure separation. At the Arb.13 change, 61 deterministic cases and full suite 704 passed with eight caught mutations; empty CLI retains null P&L and connects no venue adapters. **Genuine-data/calibration exit still owner-gated**; docs/HISTORICAL_EVALUATION.md defines requirements/limits. | 4 |
 | D29 | **OPEN (found by Arb.14 telemetry, 2026-10-10) — paper simulation re-executes the same economic contract pair across cycles with no position dedupe.** Paper `opportunity_id` is a `uuid4` per evaluation (`arbitrage/two_leg.py`), so one pair appears under many ids and there is no per-pair check against existing simulated positions (only the global open-position cap). The report exposes this as `distinct_contract_pairs` and per-cycle observation counts; it does not fix it. | Phase 6 realism: pair/position dedupe or cooldown and a stable pair key, decided with the owner. Simulated P&L must not be read as performance until this is closed. Not changed in Arb.14. | 6 |
+| D30 | ~~A live order POST was retried and failed over across hosts~~ **RESOLVED IN CODE 2026-10-11 (Arb.16).** `KalshiAdapter.place_order` used the GET retry policy and host rotation for `POST /portfolio/orders`. Probe: one intent with one `client_order_id` produced 8 POSTs across both hosts on ReadTimeout or ConnectError and 2 on HTTP 500. | Fix: `_post_order_once` sends one POST to the sticky base with no retry and no rotation, and errors propagate for reconciliation. Evidence: `tests/test_safety.py::TestOrderPostIsNotRetried`; the four failure cases fail on the pre-fix adapter and the success and read-failover controls pass. The live path was not reachable from the CLI, so the impact was latent. | 8 |
+| D31 | **OPEN (Arb.16) — real adapter timeouts are not reconciled.** `LiveExecutionEngine` reconciles only on `asyncio.TimeoutError`, but the Kalshi adapter raises `httpx.ReadTimeout`/`TransportError`. The intent ends `UNKNOWN` and the exception is re-raised with no venue query. | `test_httpx_timeout_is_reconciled_by_client_id` (strict xfail). Fix: treat the adapter's ambiguous-outcome error as UNKNOWN and reconcile by `client_order_id` before anything else. | 8 |
+| D32 | **OPEN (Arb.16) — `UNKNOWN` intents are excluded from startup recovery.** `unreconciled_trades()` returns only PENDING and SUBMITTED. | `test_unknown_intent_is_visible_to_startup_recovery` (strict xfail). | 8 |
+| D33 | **OPEN (Arb.16) — absence from a venue listing is recorded as `REJECTED`.** `recover_on_startup` writes "no venue trace — never transmitted" when a single unpaginated open-orders or fills call lacks the id. | `test_missing_from_listing_is_not_recorded_as_never_sent` (strict xfail). Fix: mark REJECTED only on a definitive response for that id. | 8 |
+| D34 | **OPEN (Arb.16) — the simulator does not deduplicate `client_order_id`.** Resubmitting one request fills twice (10 contracts held from a 5-contract request). No in-tree caller reuses an id; the coordinator generates a uuid per attempt. | `test_resubmitting_the_same_client_order_id_does_not_double_fill` (strict xfail). | 6 |
+| D35 | **OPEN (Arb.16) — a leg-A exception is assumed to be pre-transmission.** The coordinator notes "leg A failed pre-transmission", records no exposure, and does not engage the kill switch. | `test_leg_a_exception_is_not_treated_as_safe_no_order` (strict xfail). | 8 |
+| D36 | **OPEN (Arb.16) — a resting or `UNKNOWN` leg A aborts with no cancel and no tracking.** Kalshi's `resting` maps to `SUBMITTED`, so a normal resting limit order takes this path. | `test_resting_leg_a_is_cancelled_or_tracked` (strict xfail). | 8 |
+| D37 | **OPEN (Arb.16) — an ambiguous hedge-retry error leads to another hedge under a new id.** `PartialFillHandler` treats any exception as not-filled and submits the next retry or the unwind under a fresh `uuid4`. | `test_ambiguous_hedge_retry_error_does_not_submit_another_hedge` (strict xfail: 4 submissions, expected 3). | 8 |
+| D38 | **OPEN (Arb.16) — live results drop average fill price, fees, and maker fills.** `KalshiAdapter.place_order` returns `average_fill_price=None`, `fees=0`, and counts only `taker_fill_count`. The coordinator then prices exposure and deployment at the limit price. | Code reading (`kalshi.py` order mapping; `coordinator.py` entry price). Field names need venue payload samples. No test yet. | 8 |
+| D39 | **OPEN (Arb.16, code-verified) — paper restart resets risk state.** `RiskState` (daily loss, deployment, open positions and orders) and `ExposureTracker` are in memory. A daily-loss breach blocks trades but does not engage the kill switch, so a restart clears that gate. Only an engaged kill switch survives. | No restart test. Fix together with D21's settlement and daily ledger. | 6 |
 
 ---
 
