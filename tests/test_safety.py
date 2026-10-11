@@ -217,3 +217,112 @@ class TestKillSwitch:
         assert kill_switch.status()["reason"] == "test"
         kill_switch.disengage()
         assert not kill_switch.is_engaged()
+
+
+class TestOrderPostIsNotRetried:
+    """Arb.16 / D30: an order POST is sent exactly once per intent.
+
+    Before the fix a ReadTimeout, ConnectError, or 5xx on POST /portfolio/orders
+    was retried by RetryPolicy and rotated across fallback hosts, sending the
+    same client_order_id up to eight times. Reads keep their failover; see
+    tests/test_kalshi_phase2.py. Offline only: httpx.MockTransport, no network.
+    """
+
+    PRIMARY = "https://external-api.kalshi.com/trade-api/v2"
+    FALLBACK = "https://api.elections.kalshi.com/trade-api/v2"
+
+    @staticmethod
+    def _adapter(handler):
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        from prediction_arb.adapters.kalshi import KalshiAdapter
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        pem = key.private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption()).decode()
+        adapter = KalshiAdapter(
+            rest_base=TestOrderPostIsNotRetried.PRIMARY,
+            rest_base_fallbacks=[TestOrderPostIsNotRetried.FALLBACK],
+            api_key_id="test-key", private_key_pem=pem,
+            allow_order_placement=True)
+        import httpx
+        adapter._client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler))
+        return adapter
+
+    @staticmethod
+    def _live_order():
+        return OrderRequest(
+            venue="kalshi", contract_id="K1", side=Side.YES,
+            action=OrderAction.BUY, quantity=Decimal("10"),
+            order_type=OrderType.LIMIT, limit_price=Decimal("0.40"),
+            client_order_id=str(uuid.uuid4()), mode=Mode.LIVE)
+
+    @pytest.mark.parametrize("failure", ["read_timeout", "connect_error",
+                                         "http_500", "http_429"])
+    def test_failed_order_post_is_sent_once_and_not_failed_over(self,
+                                                                failure):
+        import httpx
+        posts: list[tuple[str, str]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method != "POST":
+                return httpx.Response(200, json={})
+            import json as _json
+            posts.append((request.url.host,
+                          _json.loads(request.content)["client_order_id"]))
+            if failure == "read_timeout":
+                raise httpx.ReadTimeout("read timed out", request=request)
+            if failure == "connect_error":
+                raise httpx.ConnectError("TLS/SSL EOF", request=request)
+            if failure == "http_500":
+                return httpx.Response(500, json={"error": "boom"})
+            return httpx.Response(429, json={"error": "slow down"})
+
+        adapter = self._adapter(handler)
+        order = self._live_order()
+        with pytest.raises(Exception):
+            asyncio.run(adapter.place_order(order))
+        asyncio.run(adapter._client.aclose())
+
+        assert len(posts) == 1, posts
+        assert posts[0] == ("external-api.kalshi.com", order.client_order_id)
+
+    def test_successful_order_post_is_one_request_and_returns_result(self):
+        import httpx
+        posts = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST":
+                posts.append(request)
+                return httpx.Response(201, json={"order": {
+                    "order_id": "venue-1", "status": "resting",
+                    "taker_fill_count": 0}})
+            return httpx.Response(200, json={})
+
+        adapter = self._adapter(handler)
+        order = self._live_order()
+        result = asyncio.run(adapter.place_order(order))
+        asyncio.run(adapter._client.aclose())
+
+        assert len(posts) == 1
+        assert result.venue_order_id == "venue-1"
+        assert result.client_order_id == order.client_order_id
+
+    def test_reads_still_fail_over_to_the_fallback_host(self):
+        import httpx
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request.url.host)
+            if request.url.host == "external-api.kalshi.com":
+                raise httpx.ConnectError("down", request=request)
+            return httpx.Response(200, json={"orders": []})
+
+        adapter = self._adapter(handler)
+        orders = asyncio.run(adapter.get_open_orders())
+        asyncio.run(adapter._client.aclose())
+
+        assert orders == []
+        assert seen == ["external-api.kalshi.com", "api.elections.kalshi.com"]

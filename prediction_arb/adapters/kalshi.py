@@ -320,10 +320,28 @@ class KalshiAdapter(PredictionMarketAdapter):
             lambda: self._request("GET", path, params=params, auth=auth),
             _RETRYABLE)
 
-    async def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
-        return await self._retry.run(
-            lambda: self._request("POST", path, body=body, auth=True),
-            _RETRYABLE)
+    async def _post_order_once(self, path: str,
+                               body: dict[str, Any]) -> dict[str, Any]:
+        """Exactly ONE order POST to the sticky base (Arb.16 / D30).
+
+        Order writes are not idempotent at the transport layer. A ReadTimeout,
+        connection reset, or 5xx can follow a request the venue already
+        accepted, so retrying it, or failing over to another host, can
+        transmit the same intent again (the pre-Arb.16 path sent up to eight
+        POSTs for one intent). This method therefore never retries and never
+        rotates hosts. The error propagates unchanged so the caller treats the
+        outcome as UNKNOWN and reconciles by client_order_id.
+        """
+        assert self._client is not None, "connect() first"
+        await self._write_bucket.acquire()
+        headers = self._auth_headers("POST", path)
+        base = self.rest_bases[self._base_index]
+        resp = await self._client.post(base + path, json=body,
+                                       headers=headers)
+        if resp.status_code == 429:
+            self.rate_limit_events += 1   # §103: counted; never retried here
+        resp.raise_for_status()
+        return resp.json()
 
     async def _delete(self, path: str) -> int:
         return await self._retry.run(lambda: self._raw_delete(path),
@@ -696,7 +714,8 @@ class KalshiAdapter(PredictionMarketAdapter):
                 body["yes_price"] = cents
             else:
                 body["no_price"] = cents
-        data = await self._post("/portfolio/orders", body)
+        # One attempt only: see _post_order_once (Arb.16 / D30).
+        data = await self._post_order_once("/portfolio/orders", body)
         order = data.get("order", {})
         return OrderResult(
             client_order_id=body["client_order_id"],
