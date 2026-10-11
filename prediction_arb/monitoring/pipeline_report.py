@@ -146,6 +146,11 @@ def build_pipeline_report(repo, day: Optional[str] = None) -> dict[str, Any]:
         "generated": _total(counts, tel.PAIRS_CONSIDERED),
         "deterministic_passed": _total(counts, tel.PAIRS_DET_PASSED),
         "deterministic_rejected_by_check": _grp(counts, tel.PAIRS_DET_REJECTED),
+        # D25: a declared-vs-unknown operator/unit is not a rejection. It is
+        # reported separately so an operator can see why a pair stopped at
+        # REVIEW instead of seeing an empty reject list.
+        "deterministic_unverified_by_check": _grp(
+            counts, tel.PAIRS_DET_UNVERIFIED),
     }
     report["match_decisions_by_status"] = _grp(counts, tel.MATCH_STATUS)
     report["opportunities"] = {

@@ -176,6 +176,16 @@ class PaperEngine:
 
         approved, match_result = await run_matching(contracts, self.llm)
         self._record_matching(match_result)
+        if match_result.deterministic_unverified:
+            # D25: explain where the pair went. An unverifiable field is not
+            # a rejection, and a silent REVIEW looks identical to a quiet
+            # market.
+            self.console.print(
+                "[yellow]pairs with unverifiable deterministic fields "
+                "(REVIEW only, never APPROVED): "
+                + ", ".join(f"{check}={n}" for check, n
+                            in sorted(match_result.deterministic_unverified.items()))
+                + "[/yellow]")
         await self._ensure_streaming(contracts)
         books = await self._fetch_books(contracts)
         # Merge: streamed books (updated in real time by WS callbacks) stay
@@ -396,6 +406,8 @@ class PaperEngine:
                     n=match_result.pairs_deterministic_pass)
         for check, n in match_result.deterministic_rejects.items():
             self._count(tel.PAIRS_DET_REJECTED, check, n)
+        for check, n in match_result.deterministic_unverified.items():
+            self._count(tel.PAIRS_DET_UNVERIFIED, check, n)
         for cert in match_result.certificates:
             self._count(tel.MATCH_STATUS, cert.status)
 

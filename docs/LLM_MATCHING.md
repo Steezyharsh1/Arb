@@ -20,6 +20,17 @@ ALL MARKETS
   → match certificate (APPROVED / REJECTED / REVIEW), persisted
 ```
 
+A deterministic check can also be **unverified** (D25, 2026-10-11): one leg
+declares a comparison operator or a unit and the other declares none, or a
+venue token has no documented translation. That is not a mismatch and not a
+pass. Such a pair is recorded as REVIEW with the field named, is **never**
+APPROVED whatever the LLM says, and is deliberately not sent to the LLM at
+all — no verdict could approve it, so it must not consume the bounded
+per-cycle comparison budget. The certificate's semantic-stage entry records
+`NOT_CONSULTED` explicitly rather than implying a verdict existed, and the
+counts are reported separately from rejections
+(`pairs.deterministic_unverified`).
+
 Candidate proposal only *proposes* cross-venue pairs; it never decides
 equivalence and can never promote a pair past the deterministic filter.
 Measured recall and lost matches: `docs/CANDIDATE_RETRIEVAL.md`.
@@ -58,7 +69,9 @@ evidence:
 
 Ordering is fully deterministic: `(-priority, delta_seconds, sorted_contract_a,
 sorted_contract_b, version_a, version_b)`. No gross edge or unverified LLM
-output is used for ordering, and deterministic REJECT remains final.
+output is used for ordering, and deterministic REJECT remains final. Pairs
+with an unverifiable deterministic field (D25) take no LLM budget at all;
+they are recorded as REVIEW in the same priority order.
 
 Persistence deduplication: `Repository.save_match_certificate` skips writes
 when all meaningful fields (status, score, independence, versions) are

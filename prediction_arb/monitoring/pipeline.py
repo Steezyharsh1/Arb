@@ -39,6 +39,7 @@ SCAN_CYCLES = "scan.cycles"
 PAIRS_CONSIDERED = "pairs.considered"                    # candidate pairs generated
 PAIRS_DET_PASSED = "pairs.deterministic_passed"
 PAIRS_DET_REJECTED = "pairs.deterministic_rejected"      # label: failing check
+PAIRS_DET_UNVERIFIED = "pairs.deterministic_unverified"  # label: unverifiable field (D25)
 MATCH_STATUS = "match.status"                            # label: APPROVED/REVIEW/REJECTED
 OPP_STATUS = "opportunity.status"                        # label: TRADE/WATCH/BLOCK
 OPP_BLOCKED_BY = "opportunity.blocked_by"                # label: mandatory input category
@@ -60,6 +61,7 @@ ADAPTER_STREAM_FALLBACK = "adapter.stream_fallback"      # label: venue (gave up
 
 METRICS: frozenset[str] = frozenset({
     SCAN_CYCLES, PAIRS_CONSIDERED, PAIRS_DET_PASSED, PAIRS_DET_REJECTED,
+    PAIRS_DET_UNVERIFIED,
     MATCH_STATUS, OPP_STATUS, OPP_BLOCKED_BY, OPP_EDGE, BOOK_AGE, BOOK_SKEW,
     EXEC_ATTEMPT, EXEC_SUBMISSION, EXEC_HEDGE, EXEC_LEG_GAP, EXEC_RECOVERY,
     RISK_BREACH, RISK_KILL_ENGAGED, ADAPTER_TELEMETRY, ADAPTER_RATE_LIMITED,

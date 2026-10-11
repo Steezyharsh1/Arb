@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from ..core.types import Independence, NormalizedContract
 from ..provenance.independence import contracts_independent
 from .deterministic_matcher import DeterministicResult
-from .llm_matcher import LLMMatchResult
+from .llm_matcher import NOT_CONSULTED_PREFIX, LLMMatchResult
 
 
 @dataclass
@@ -28,6 +28,23 @@ def validate_match(a: NormalizedContract, b: NormalizedContract,
     if not det.passed:
         return ValidationOutcome("REJECTED", independence,
                                  ["deterministic filter failed"] + det.reasons)
+
+    # §18 revised 2026-10-11 (D25): a check that could not be evaluated (one
+    # leg declares an operator or a unit and the other declares none) is not
+    # a mismatch, but it is also not agreement. No LLM verdict — however
+    # confident — may approve a pair whose declared economics it cannot
+    # compare: the pair is REVIEW only, and the reason names the field.
+    if det.unverified:
+        reasons.extend(
+            f"unverified deterministic field: {check}: {why}"
+            for check, why in det.unverified.items())
+        if not llm.valid and llm.error.startswith(NOT_CONSULTED_PREFIX):
+            # run_matching deliberately skips the semantic budget for a pair
+            # no verdict can approve; say so instead of implying a verdict.
+            reasons.append(f"semantic stage not consulted: {llm.error}")
+        reasons.append("a pair with an unverifiable deterministic field is "
+                       "never APPROVED; human review required")
+        return ValidationOutcome("REVIEW", independence, reasons)
 
     if not llm.valid:
         reasons.append(f"LLM result invalid/unavailable: {llm.error}")

@@ -66,6 +66,7 @@ from ..core.types import (
     PriceLevel,
     Side,
 )
+from ..normalization.thresholds import CANONICAL, read_operator
 from .base import OrderBookCallback, PredictionMarketAdapter
 from .evidence import AdapterEvidence, EvidenceClaim, EvidenceState
 from .kalshi_ws import (
@@ -496,6 +497,18 @@ class KalshiAdapter(PredictionMarketAdapter):
             return None
 
         strike_type = m.get("strike_type") or ""
+        # D25: `strike_type` is Kalshi's own vocabulary ("greater",
+        # "greater_or_equal", ...). Translate it to the shared canonical
+        # operator so the deterministic matcher compares like with like.
+        # normalization/thresholds.py owns the mapping and its evidence.
+        # A token with no documented translation is kept verbatim (never
+        # guessed at, never silently dropped): the matcher reads it as an
+        # unsupported token, which is UNVERIFIED — not agreement and not a
+        # mismatch. `resolution_method` and the raw payload keep the venue's
+        # own value either way.
+        operator = read_operator(self.venue, strike_type)
+        threshold_operator = (operator.canonical if operator.state == CANONICAL
+                              else operator.raw)
         floor_strike = m.get("floor_strike")
         try:
             threshold = (Decimal(str(floor_strike))
@@ -529,7 +542,7 @@ class KalshiAdapter(PredictionMarketAdapter):
             resolution_source=m.get("rules_primary", "")[:500],
             resolution_method=strike_type,
             threshold=threshold,
-            threshold_operator=strike_type or None,
+            threshold_operator=threshold_operator,
             units=None,
             payout=Decimal("1.00"),
             currency="USD",

@@ -336,18 +336,34 @@ recovered, a similarity signal that stays proposal-only is the cleaner route.
 - **Threshold-only retrieval.** Looked perfect on a generator with no
   threshold-less families. It reaches 0.809 eq∩det recall with threshold-less families.
 
-## 11. Related defect (not fixed) — D25
+## 11. Related defect — D25
 
 Recorded as D25 in `docs/ROADMAP.md` and summarized in
 `docs/AGENT_HANDOFF.md` §3. Retrieval proposes the pair, and the deterministic
-matcher rejects it because the venues encode the same threshold
-differently: Kalshi sets `threshold_operator` to the raw `strike_type` string
+matcher used to reject it because the venues encoded the same threshold
+differently: Kalshi set `threshold_operator` to the raw `strike_type` string
 (for example `greater`), and Polymarket US sets it to `None`. Reproduced
 2026-10-10: identical event, threshold 5.0, settlement equal, Kalshi `greater`
-vs Polymarket `None` ⇒ `threshold_operator` check fails. With both `>` it
-passes. Units are `None` on both adapters, so the units check passes
-vacuously, and a real units mismatch cannot be detected. This is outside
-retrieval and is not fixed here.
+vs Polymarket `None` ⇒ `threshold_operator` check failed. With both `>` it
+passed.
+
+**Matcher side fixed 2026-10-11 (Arb.18).** `normalization/thresholds.py` owns
+the documented venue→canonical operator vocabulary and the Kalshi adapter now
+emits canonical operators, so `greater` == `>`. More importantly, a field the
+two legs cannot be compared on (declared vs unknown, or an unmapped venue
+token) is no longer reported as a mismatch: it is *unverified*, which reaches
+the certificate as REVIEW, is counted separately from rejections
+(`pairs.deterministic_unverified`) and is never APPROVED — so retrieval's
+proposed pair is now visible for review instead of deleted. A declared-vs-
+declared difference is still a final reject. The adapter-side field gap
+(Polymarket US documents typed `assetPriceTerms` the adapter does not read, and
+Kalshi's `cap_strike` is unmodelled) is recorded as **D40**; until an observed
+payload and an inclusivity rule exist, the adapter deliberately keeps
+`threshold_operator=None` rather than guessing.
+
+This document's benchmark numbers are unchanged by that fix: the reference and
+synthetic listings already use the canonical operators, and retrieval keys are
+untouched.
 
 ## 12. Tests
 

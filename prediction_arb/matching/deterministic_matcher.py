@@ -3,6 +3,16 @@
 Rejects candidate pairs on any hard mismatch. Only survivors may be sent
 to the LLM (stage 2). A REJECT here is FINAL — the LLM cannot overrule
 deterministic filters (Principle B).
+
+A check can also come back **unverified** (2026-10-11, D25): the two legs
+declare values that cannot be compared (one leg declares an operator or a
+unit and the other declares none, or a venue token has no documented
+translation). Unverified is NOT a mismatch and NOT a pass: it is recorded in
+:attr:`DeterministicResult.unverified` with its reason, the pair survives to
+the certificate as REVIEW, and no LLM verdict may ever turn it into an
+APPROVED match. Treating "cannot verify" as "does not match" silently deleted
+possibly-equivalent cross-venue pairs from the pipeline — exactly the
+false-negative D25 documents.
 """
 from __future__ import annotations
 
@@ -11,8 +21,9 @@ from datetime import timedelta
 
 from ..core.clock import ensure_utc
 from ..core.types import NormalizedContract
+from ..normalization.thresholds import compare_operators, compare_units
 
-MATCHER_VERSION = "det-1.0.0"
+MATCHER_VERSION = "det-1.1.0"
 
 # Venues may quote the same real-world event with slightly different
 # expiration timestamps (e.g. "3pm ET" vs "end of day"). Tolerance is
@@ -25,13 +36,20 @@ class DeterministicResult:
     passed: bool
     checks: dict[str, bool] = field(default_factory=dict)
     reasons: list[str] = field(default_factory=list)
+    #: Checks that could not be evaluated (declared-vs-unknown operator or
+    #: units). Maps check name -> the reason it is unverifiable. A non-empty
+    #: map means REVIEW only: an unverified field can never be APPROVED.
+    unverified: dict[str, str] = field(default_factory=dict)
     version: str = MATCHER_VERSION
 
     @property
     def confidence(self) -> float:
-        if not self.checks:
+        """Share of checks that passed. Unverified checks lower it: they are
+        not evidence of agreement."""
+        total = len(self.checks) + len(self.unverified)
+        if not total:
             return 0.0
-        return sum(self.checks.values()) / len(self.checks)
+        return sum(1 for ok in self.checks.values() if ok) / total
 
 
 def _fail(res: DeterministicResult, check: str, reason: str) -> None:
@@ -42,6 +60,24 @@ def _fail(res: DeterministicResult, check: str, reason: str) -> None:
 
 def _ok(res: DeterministicResult, check: str) -> None:
     res.checks[check] = True
+
+
+def _unverified(res: DeterministicResult, check: str, reason: str) -> None:
+    """Record a check that neither passed nor failed — it could not be
+    evaluated against evidence. Never sets ``passed=False`` (it is not a
+    mismatch) and never sets ``checks[check]`` (it is not a pass either)."""
+    res.unverified[check] = reason
+    res.reasons.append(reason)
+
+
+def _apply_verdict(res: DeterministicResult, check: str,
+                   verdict: str, reason: str) -> None:
+    if verdict == "match":
+        _ok(res, check)
+    elif verdict == "mismatch":
+        _fail(res, check, reason)
+    else:
+        _unverified(res, check, reason)
 
 
 def deterministic_match(a: NormalizedContract,
@@ -72,20 +108,17 @@ def deterministic_match(a: NormalizedContract,
             _ok(res, "settlement_time")
 
     # threshold + units (when either declares one)
+    # §18 revised 2026-10-11 (D25): the operator and units checks are
+    # three-state. A declared-vs-declared difference is still a final
+    # mismatch; a declared-vs-unknown field is unverifiable, not a mismatch.
     if a.threshold is not None or b.threshold is not None:
         if a.threshold != b.threshold:
             _fail(res, "threshold", f"{a.threshold} != {b.threshold}")
         else:
             _ok(res, "threshold")
-        if (a.threshold_operator or "") != (b.threshold_operator or ""):
-            _fail(res, "threshold_operator",
-                  f"{a.threshold_operator!r} != {b.threshold_operator!r}")
-        else:
-            _ok(res, "threshold_operator")
-        if (a.units or "") != (b.units or ""):
-            _fail(res, "units", f"{a.units!r} != {b.units!r}")
-        else:
-            _ok(res, "units")
+        _apply_verdict(res, "threshold_operator", *compare_operators(
+            a.venue, a.threshold_operator, b.venue, b.threshold_operator))
+        _apply_verdict(res, "units", *compare_units(a.units, b.units))
     else:
         _ok(res, "threshold")
         _ok(res, "threshold_operator")
