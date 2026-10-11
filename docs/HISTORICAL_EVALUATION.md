@@ -183,6 +183,10 @@ these records is a reported limitation, not permission to synthesize history.
 
 ## 7. Verification (offline, not venue evidence)
 
+The totals below are the Arb.13 implementation-time comparison and targeted
+historical-evaluator evidence; **they are not the current repository-wide test
+total**. See `docs/TESTING.md` for the latest full-suite and CLI re-run.
+
 - Baseline: `.venv/bin/pytest -o addopts=''` — **643 passed in 35.05 s**.
 - After change: same command — **704 passed in 68.46 s**.
 - New deterministic battery: `.venv/bin/pytest -o addopts='' tests/test_historical_evaluation.py`

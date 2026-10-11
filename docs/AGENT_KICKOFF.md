@@ -10,12 +10,12 @@ seen this conversation.
 
 You are the engineer taking over **`prediction_arb`**, a conservative,
 safety-first multi-venue prediction-market arbitrage engine (Python 3.11+,
-asyncio, httpx, SQLAlchemy, pydantic, rich). A previous engineer built a
-complete v1: hard mode isolation (historical / paper / live / collect), a
-15-check live-order firewall, honest stubs, full audit logging, and a
-passing safety suite. Your job is to take it from "architecturally sound but has
-never found a single opportunity" to "two genuinely independent venues
-producing real, costed arbitrage candidates in paper mode."
+asyncio, httpx, SQLAlchemy, pydantic, rich). A previous engineer built a substantial v1: hard mode isolation (historical /
+paper / live / collect), a 15-check firewall component, honest stubs, audit
+logging, and a passing offline safety suite. The live application remains
+monitor-only; no production order loop is enabled. Your job is to move from
+synthetic/offline validation to two genuinely independent venues producing real,
+costed research candidates in paper mode.
 
 ## MISSION (in priority order)
 
@@ -27,7 +27,8 @@ producing real, costed arbitrage candidates in paper mode."
    Kalshi host refresh, matching/LLM wiring, paper risk and Arb.12 synthetic core
    tests are implemented. Arb.13 adds exact-time as-of evaluation, conditional
    depth/latency/cash simulation and honest theory/simulation/exposure reporting.
-   Full offline suite: **704 passed in 68.46 s**, 2026-10-10. There is **no genuine
+   Arb.14 adds persisted pipeline observability. Current offline suite:
+   **764 passed in 36.12 s** on Python 3.11.2 / pytest 9.1.1, re-run 2026-10-10. There is **no genuine
    two-venue dataset**, tick-accurate feed ledger or realized performance proof.
 3. **Keep the reconstructed spec current.** Every cited section resolves in
    `docs/SPEC.md`; §102 describes causal historical requirements. §33/§68 remain
@@ -44,32 +45,39 @@ producing real, costed arbitrage candidates in paper mode."
    critical path, deferred work, and the recommended next task. It is kept
    current; everything else below is background.
 1. `docs/ROADMAP.md` — the phase map, verified current state, defect
-   register (D1–D28), and the human-action checklist (H1–H6). **This is
+   register (D1–D29), and the human-action checklist (H1–H7). **This is
    your primary reference; keep it updated as you work.**
 2. `docs/SPEC.md` — the reconstructed specification. Every `§N` cited in the
    code resolves here; read the sections covering whatever you are changing.
-2. `README.md` — headline research result and quick start.
-3. `docs/VENUE_RESEARCH.md` — the completed 2026-09-13 Phase 1 evidence
+3. `README.md` — headline research result and quick start.
+4. `docs/VENUE_RESEARCH.md` — the completed 2026-09-13 Phase 1 evidence
    ledger, ranked shortlist, recommendation, and owner checkpoint.
-4. `docs/ARCHITECTURE.md`, `docs/MODE_SEPARATION.md`,
+5. `docs/ARCHITECTURE.md`, `docs/MODE_SEPARATION.md`,
    `docs/TRADING_LOGIC.md`, `docs/RISK_MANAGEMENT.md`,
    `docs/CRASH_RECOVERY.md`, `docs/LLM_MATCHING.md`,
    `docs/COMPLIANCE.md`, `docs/TESTING.md`, `docs/API_SETUP.md`,
    `docs/HISTORICAL_EVALUATION.md` (required before historical work).
-5. Code, in this order: `main.py` → `prediction_arb/core/config.py` → `prediction_arb/core/types.py` →
+6. Code, in this order: `main.py` → `prediction_arb/core/config.py` → `prediction_arb/core/types.py` →
    `prediction_arb/adapters/base.py` + `prediction_arb/adapters/kalshi.py` + `prediction_arb/adapters/stubs.py` →
    `provenance/*` → `prediction_arb/modes/shared.py` → `prediction_arb/normalization/contracts.py` →
    `matching/*` → `prediction_arb/arbitrage/two_leg.py` + `prediction_arb/arbitrage/optimizer.py` →
    `execution/*` → `modes/{collect,paper,historical,live}/*` →
    `database/*` → `tests/*`.
 
-## ENVIRONMENT & ACCESS (confirmed by the project owner)
+## ENVIRONMENT & ACCESS (prior owner-reported state; re-confirm before use)
 
-- An **IBKR account** is available (paper and/or live) and the owner can
-  run the **Client Portal Gateway** locally at `https://localhost:5000`.
-  A draft session-bootstrap script already exists at `reconnect.py`
-  (root) — promote it to `scripts/`, fix its `verify=False`, and make it
-  robust.
+The following account/network details were reported in an earlier project
+handoff; they were **not independently verified during this consolidation**.
+The current sandbox used only bounded public reads, received TLS EOF before
+HTTP responses, and placed no orders. Do not assume credentials are available
+inside this checkout.
+
+- The owner previously reported an **IBKR account** (paper and/or live) and
+  ability to run the **Client Portal Gateway** locally at `https://localhost:5000`.
+  The old root-level `reconnect.py` was already replaced by
+  `scripts/ibkr_gateway_session.py`; TLS verification is retained except for
+  the explicitly gated localhost self-signed case. Do not redo this completed
+  Phase 0 work.
 - A **Kalshi API key** (Key ID + RSA private key) is available for
   WebSocket/demo use. Kalshi **public REST market data needs no
   credentials**.
@@ -149,9 +157,11 @@ Verify with:
 ```bash
 pip install -e ".[dev]" && pytest && python -m prediction_arb.main --status
 ```
-Left over from Phase 0 (owner decisions, not yours to make alone): CI's first
-real run on push; whether to rewrite git history to purge the 17 MB SQLite
-blob; the data-retention policy (H5); confirming SPEC §33 and §68 (`[I]`).
+Still owner-gated from Phase 0: whether to rewrite git history to purge the
+17 MB SQLite blob; the data-retention policy (H5); and confirmation of SPEC
+§33 and §68 (`[I]`). CI has run on merged work; see `docs/ROADMAP.md` for the
+latest verified check. Do not treat a historical CI pass as a pass for a
+new change until its own CI completes.
 
 ### M1 — Venue research refresh (Phase 1) · **DONE 2026-09-13 / CHECKPOINT**
 - Kalshi hosts, books, sequencing, limits, and contextual fees were re-verified
@@ -248,8 +258,10 @@ conditional net and unresolved exposure. No sizing-derived fill probability,
 repeated-profit equity, fabricated recovery or credited settlement cash.
 Unknown/partial execution cannot silently earn a complete portfolio profit;
 realized net remains unavailable. Historical startup uses no venue adapters.
-61 new deterministic cases / full 704 tests pass; eight leaking/optimistic
-mutations are caught. This does not establish real strategy performance.
+The Arb.13 implementation added 61 deterministic cases; its change-time suite
+was 704 tests and eight leaking/optimistic mutations were caught. The current
+repository-wide suite is recorded in `docs/AGENT_HANDOFF.md` and
+`docs/TESTING.md`. This does not establish real strategy performance.
 
 **Next:** follow `docs/HISTORICAL_EVALUATION.md` §6 and the handoff's owner-evidence
 plan. Adequate paired common-clock recording through both arrivals and complete
@@ -337,8 +349,9 @@ milestone's first action. Keep `docs/ROADMAP.md` statuses current.
    so you know how the `§` numbering works before you touch code that cites it.
 4. Skim `main.py`, `prediction_arb/core/config.py`, `prediction_arb/adapters/kalshi.py`,
    `provenance/*`, `prediction_arb/modes/shared.py`, `prediction_arb/normalization/contracts.py`.
-5. Review current open D21–D26 and D28's collection/calibration limitations;
-   do not redo fixed defects or broaden the milestone without direction.
+5. Review current open D21–D26 and D29, plus D28's outstanding real-data /
+   calibration exit, in `docs/ROADMAP.md`; do not redo fixed code or broaden
+   the milestone without direction.
 6. Confirm the owner-selected Kalshi ↔ Polymarket US evidence plan before any
    new venue work. Use the safe read-only checklist, no credentials in chat,
    no live order, no fabricated history or unsupported verification claim.

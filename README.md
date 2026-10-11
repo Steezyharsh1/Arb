@@ -2,9 +2,9 @@
 
 A conservative, safety-first system for detecting **guaranteed (TYPE A)**
 two-leg arbitrage across genuinely independent prediction-market venues,
-with hard mode isolation (historical / paper / live), a live-order
-firewall, full audit logging, and honest handling of everything that is
-UNKNOWN.
+with hard mode isolation (historical / paper / live), a guarded live-order
+firewall component (live mode is monitor-only, not an enabled order path),
+audit logging, and honest handling of everything that is UNKNOWN.
 
 ## PHASE 1 RESEARCH RESULT (read this first)
 
@@ -60,9 +60,9 @@ pytest                                               # run the full safety suite
 # safest first step — inspect provenance/readiness; sends no orders
 python -m prediction_arb.main --status
 
-# collect usable snapshots only from adapters with market-data evidence;
-# read-only collection does not invoke the execution engine
-python -m prediction_arb.main --mode collect
+# one bounded, public read-only collection attempt; it does not invoke execution
+# A successful exit alone does not mean a book was received or saved.
+python -m prediction_arb.main --mode collect --cycles 1
 
 # bounded, public-only read-only smoke probes (no credentials or orders);
 # network failure is recorded as UNAVAILABLE, not adapter failure. A
@@ -70,7 +70,7 @@ python -m prediction_arb.main --mode collect
 python scripts/polymarket_us_smoke.py
 python scripts/kalshi_smoke.py
 
-# paper trading (default mode): real data, simulated execution
+# paper research: admitted venue data when reachable; simulated execution only
 python -m prediction_arb.main --mode paper
 
 # replay recorded data
@@ -130,12 +130,14 @@ monitor-only by construction.
   on every certificate. With **no** key configured everything still runs,
   but every ambiguous pair ends in REVIEW and nothing is ever evaluated
   for arbitrage — never auto-APPROVED.
-- Full paper/collect pipeline: discovery → normalization → bounded candidate
-  proposal → deterministic + LLM-gated matching → certificates
-  → order-book walking → fee/slippage/settlement costing → risk checks →
-  simulated execution. Incomplete fees
-  now block rather than becoming estimates, so direct Kalshi opportunities
-  remain blocked until contextual metadata is integrated.
+- The paper research pipeline is implemented in code: discovery → normalization
+  → bounded candidate proposal → deterministic + LLM-gated matching → certificates
+  → order-book walking → fee/slippage/settlement costing → paper risk checks →
+  simulated execution. It has **not** been validated end-to-end on current real
+  two-venue inputs: no current Polymarket US payload is observed, there is no
+  LLM configured, and active production fees/timing block costed decisions. A
+  test-only synthetic end-to-end path is covered separately; it is not venue or
+  strategy evidence.
 - Collect mode records only usable two-sided snapshots for adapters with
   `MARKET_DATA_OBSERVED` or `VERIFIED` evidence. It never invokes execution.
   Normalized contracts retain observed settlement/cutoff, provenance,
@@ -168,11 +170,13 @@ monitor-only by construction.
   Books that fail the freshness gate are counted and reported, never
   silently dropped.
 - Mode isolation, kill switch, crash-recovery intents, and all ten mandatory
-  spec cases are covered by the test suite (`.venv/bin/pytest -o addopts=''` —
-  **704 passed in 68.46 s** on Python 3.11.2, all offline, 2026-10-10).
+  spec cases are covered by the offline suite. Current checkout re-run
+  (`.venv/bin/pytest -o addopts=''`, Python 3.11.2 / pytest 9.1.1, 2026-10-10): **764 passed in 36.12 s**.
   The earlier 534-test suite also passed with the fee clock frozen at
   2026-10-14 / 2027-10-09 / 2031-01-02; that future-clock sweep was not
-  repeated for the 704-test suite.
+  repeated for the current 764-test suite. Current CLI outcomes, including a
+  failed one-cycle collection attempt and an honestly empty replay, are recorded
+  in `docs/TESTING.md`.
 - Readiness is **derived, not asserted** (D10, SPEC §99). `--readiness`
   reports one block per mode (COLLECT, HISTORICAL, PAPER, LIVE) and every
   criterion is computed from observed state — adapter verification *and*
@@ -186,7 +190,10 @@ monitor-only by construction.
   actual blocker. On 2026-10-10, readiness reported zero fully verified
   live-capable venues, 0/3 complete fee schedules, UNKNOWN settlement timing
   on two venues, no recorded volume, eligibility UNKNOWN, and no `.env.live`;
-  the report enables nothing.
+  the report enables nothing. `COLLECT: READY` reflects applicable evidence/admission
+  gates; it is not current network reachability or a successful collection run.
+  This checkout's 2026-10-10 one-cycle collector attempt received TLS EOF and
+  recorded no books (details in `docs/TESTING.md`).
 - Mandatory fee freshness is a real gate (D19, SPEC §98). One rule derives the
   strictness from the mode: **live and paper MANDATORY**, **historical
   RESEARCH**, **collect NOT_APPLICABLE**, unknown modes fail closed. A
@@ -266,8 +273,8 @@ never committed; `.env.*` files hold credentials and are never committed either
 **Start here:** `docs/AGENT_HANDOFF.md` — the permanent entry point for a fresh
 engineer or agent session (current baseline commit, verified test results,
 environment limits, defects, critical path, what not to start). Then
-`docs/ROADMAP.md` (phase map, verified current state, defect register D1–D28,
-human-action checklist) and `docs/SPEC.md` (the reconstructed specification —
+`docs/ROADMAP.md` (authoritative prioritized task list, current state, defect
+register D1–D29, human-action checklist) and `docs/SPEC.md` (the reconstructed specification —
 every `§N` cited in the code resolves there).
 
 `docs/`: AGENT_HANDOFF, ROADMAP, SPEC, AGENT_KICKOFF, VENUE_RESEARCH, ARCHITECTURE, API_SETUP,
@@ -275,10 +282,12 @@ COMPLIANCE, TRADING_LOGIC, LLM_MATCHING, RISK_MANAGEMENT, TESTING,
 MODE_SEPARATION, CRASH_RECOVERY, HISTORICAL_EVALUATION.
 
 ## Safety posture
-- No real order can leave any non-live mode: simulated engines hold no
-  adapter references; the Kalshi adapter refuses order placement unless
-  constructed for live mode; the firewall re-verifies 15 conditions per
-  order; UNKNOWN never means yes.
+- `--mode live` is monitor-only in the current application. The
+  `LiveExecutionEngine` and 15-check firewall exist as guarded code/test
+  components, but production code does not construct `FirewallContext` or call
+  its order-submission method. Do not read the firewall's existence as live
+  execution being enabled. Simulated engines hold no adapter references, and
+  non-live modes cannot place real orders; UNKNOWN never means yes.
 - Match certificates are APPROVED only for pairs whose venue relationship
   is **proven INDEPENDENT** — same-venue frontends (e.g. Kalshi contracts
   reached through Webull) and any unresolved relationship end in REVIEW
