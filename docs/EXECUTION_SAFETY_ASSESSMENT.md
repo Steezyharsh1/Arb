@@ -1,6 +1,6 @@
-# Execution safety assessment — simulated boundary and live-path readiness (Arb.16)
+# Execution safety assessment — simulated boundary and live-path readiness (Arb.16 / Arb.17)
 
-- **Date:** 2026-10-11 (UTC). **Branch:** `arena/5e91ce2b-arb`, from `main` at `d7ec12d`.
+- **Date:** 2026-10-11 (UTC). **Branch:** `arena/c09068ab-arb` (Arb.17 remediation, from `main` at `0e689ad`; original assessment in Arb.16 on `arena/5e91ce2b-arb`).
 - **Scope:** the order-intent lifecycle in `prediction_arb/execution/`, the live
   order path (`live.py`, `firewall.py`, `adapters/kalshi.py`), risk and kill-switch
   controls, and their offline tests. This document is an engineering assessment,
@@ -10,8 +10,10 @@
   use `httpx.MockTransport` and in-memory engines; and one read-only check of
   Kalshi's public documentation. **No venue was contacted, no credential was
   loaded, and no order was sent.**
-- **Result:** 764 → **776 passed, 7 `xfail(strict=True)`** (the seven open defects
-  D31–D37 below, each failing for its stated reason; see §5).
+- **Result:** Arb.16 took the suite from 764 → 776 passed, 7 `xfail(strict=True)`
+  (D31–D37). Arb.17 remediated D31–D37 and expanded fault-matrix coverage:
+  **790 passed, 0 xfailed** (`tests/test_execution_fault_matrix.py`: 20 passed,
+  mutation-verified across all 5 modified modules; see §5 and §9).
 
 ---
 
@@ -21,9 +23,9 @@
 |---|---|---|
 | Can `collect`, `historical`, or `paper` reach a real order-placement path? | **No, by construction and by test.** Simulated engines hold no adapter or transport. Only `LiveExecutionEngine` calls `place_order`, and no paper, historical, or collect module constructs it. | §3; `test_paper_engine_has_no_adapters`, `test_simulated_engines_hold_no_order_transport`, `test_kalshi_adapter_blocks_orders_outside_live` |
 | Can the live path place an order today from the CLI? | **No.** `LiveEngine.run()` is monitor-only and never calls `submit_order_with_context`. No production code builds a `FirewallContext`. | §2; ROADMAP D24 |
-| Is the live path safe to enable? | **No.** Seven open defects (D31–D37) affect ambiguous outcomes, restart recovery, and the coordinator's handling of live results. D38 affects accounting, and D39 affects paper restart. See §8. | §5, §8 |
-| Was a safety defect fixed here? | **Yes: D30.** An order POST was retried and failed over across hosts, so one intent could be transmitted up to eight times. Now it is sent once. | §4; `TestOrderPostIsNotRetried` |
-| Is the paper boundary adequate for research simulation? | **Adequate for the simulation boundary itself, with known limits**: restart resets paper risk state (D39), daily-loss and unwind bounds are incomplete (D21, D22), and simulated fills do not dedupe identifiers (D34). Simulated P&L is not performance evidence (D29). | §6, §8 |
+| Is the live path safe to enable? | **No.** While D30 (Arb.16) and D31–D37 (Arb.17) are now fixed in code, D38 still affects live fill accounting (needs venue payload samples), D39 affects in-memory risk state across restarts, and D24/D26 remain unwired. See §8. | §5, §8 |
+| Were safety defects fixed here? | **Yes: D30 (Arb.16) and D31–D37 (Arb.17).** Order POST is single-attempt (D30); `httpx` timeouts/transport errors trigger reconciliation (D31); `UNKNOWN` intents stay in `unreconciled_trades` (D32); missing listing traces stay `UNKNOWN` rather than `REJECTED` (D33); the simulator deduplicates `client_order_id` (D34); unresolvable leg-A exceptions and resting/unknown leg-A states record exposure and engage the kill switch unless confirmed canceled with zero fill (D35, D36); and ambiguous hedge retries halt recovery before duplicate orders or unwinds (D37). | §4, §5; `TestOrderPostIsNotRetried`, `tests/test_execution_fault_matrix.py` |
+| Is the paper boundary adequate for research simulation? | **Adequate for the simulation boundary itself, with known limits**: simulator `client_order_id` deduplication (D34) and coordinator/recovery fail-closed handling (D35–D37) are now enforced, while restart still resets in-memory paper risk state (D39) and daily-loss / unwind bounds remain partial (D21, D22). Simulated P&L is not performance evidence (D29). | §6, §8 |
 
 ---
 
@@ -118,17 +120,17 @@ Every scenario below is offline. "Passing" means the test passes today.
 | Venue disconnection on order POST | Single attempt. The error propagates and does not rotate host. A 429 now surfaces as `httpx.HTTPStatusError` (it was `TransportError`); the engine maps any non-timeout exception to `UNKNOWN`, so the outcome is still ambiguous. | `TestOrderPostIsNotRetried` (4 failure modes) | **Verified after D30 fix** |
 | Duplicate order POST | Before D30: 8 POSTs for one intent on ReadTimeout or ConnectError, 2 on 500. After: 1. | `TestOrderPostIsNotRetried` | **Verified after D30 fix** |
 | Timeout, asyncio type | Reconciled by `client_order_id` (open orders, then fills). The order is never re-sent. | `test_live_timeout_by_asyncio_error_reconciles_by_client_id` | Verified |
-| Timeout, httpx type (the real adapter's exception) | Not reconciled. Re-raised with the intent left `UNKNOWN`. | `test_httpx_timeout_is_reconciled_by_client_id` | **Open, D31** |
+| Timeout, httpx type (the real adapter's exception) | Reconciled by `client_order_id` on `httpx.TimeoutException` and `httpx.TransportError`; stays `UNKNOWN` when absent from listings. | `test_httpx_timeout_is_reconciled_by_client_id`, `test_httpx_transport_error_reconciles_resting_or_unknown` | **Verified after D31 fix (Arb.17)** |
 | Firewall block | Adapter not called. Intent `REJECTED`. | `test_firewall_block_never_reaches_the_adapter` | Verified |
 | Partial fill, retry hedges | Exposure cleared. | `test_partial_fill_retry_safely_hedges_and_clears_exposure` | Verified |
 | Failed hedge, failed unwind | Kill switch engaged, exposure retained. | `test_failed_hedges_and_failed_unwind_engage_kill_switch` | Verified |
 | Leg B raises | Treated as unfilled. Hedged by retry. Not reported as success. | `test_leg_b_exception_is_recovered_not_reported_as_success` | Verified |
-| Hedge retry raises (ambiguous) | Another hedge is submitted under a new uuid before the first is resolved. | `test_ambiguous_hedge_retry_error_does_not_submit_another_hedge` | **Open, D37** |
-| Leg A raises | Treated as "failed pre-transmission". No exposure recorded, no kill switch. | `test_leg_a_exception_is_not_treated_as_safe_no_order` | **Open, D35** |
-| Leg A resting (`SUBMITTED`) | Aborts with no cancel, no exposure, no kill switch. | `test_resting_leg_a_is_cancelled_or_tracked` | **Open, D36** |
-| Restart with an `UNKNOWN` intent | Not in startup recovery. | `test_unknown_intent_is_visible_to_startup_recovery` | **Open, D32** |
-| Restart with an order missing from the listing | Marked `REJECTED` ("never transmitted"). | `test_missing_from_listing_is_not_recorded_as_never_sent` | **Open, D33** |
-| Simulator: same `client_order_id` twice | Fills twice (10 held from a 5-contract request). | `test_resubmitting_the_same_client_order_id_does_not_double_fill` | **Open, D34** |
+| Hedge retry raises or returns `UNKNOWN` (ambiguous) | Reconciled by `get_order_status` first; if still ambiguous, recovery halts before any further hedge or unwind, retaining exposure and engaging the kill switch. | `test_ambiguous_hedge_retry_error_does_not_submit_another_hedge`, `test_unknown_status_on_hedge_retry_halts_before_unwind` | **Verified after D37 fix (Arb.17)** |
+| Leg A raises | Reconciled via `get_order_status`; if unresolvable, conservative exposure and deployment are recorded and the kill switch engages before leg B. | `test_leg_a_exception_is_not_treated_as_safe_no_order`, `test_leg_a_exception_reconciled_to_fill_proceeds_to_hedge`, `test_leg_a_exception_reconciled_to_definitive_reject_aborts_cleanly` | **Verified after D35 fix (Arb.17)** |
+| Leg A resting (`SUBMITTED`) | Attempts cancel and status check; aborts cleanly only if confirmed `CANCELED`/`REJECTED` with zero fill, otherwise records exposure and engages the kill switch. | `test_resting_leg_a_is_cancelled_or_tracked`, `test_resting_leg_a_confirmed_canceled_with_zero_fill_aborts_cleanly` | **Verified after D36 fix (Arb.17)** |
+| Restart with an `UNKNOWN` intent | Included in `unreconciled_trades()` alongside `PENDING` and `SUBMITTED`. | `test_unknown_intent_is_visible_to_startup_recovery` | **Verified after D32 fix (Arb.17)** |
+| Restart with an order missing from the listing | Marked `UNKNOWN` (never `REJECTED`), staying in `unreconciled_trades()` unless resolved by a definitive `get_order` lookup. | `test_missing_from_listing_is_not_recorded_as_never_sent`, `test_startup_recovery_accepts_definitive_order_lookup` | **Verified after D33 fix (Arb.17)** |
+| Simulator: same `client_order_id` twice | Second submission is rejected (`duplicate client_order_id`); cash, positions, and fills are unchanged and `get_order_status` returns the original result. | `test_resubmitting_the_same_client_order_id_does_not_double_fill` | **Verified after D34 fix (Arb.17)** |
 | Kill switch engaged before execute | Precheck refuses. No leg submitted. | `test_kill_switch_is_checked_inside_coordinator_not_only_paper_loop` | Verified |
 | Kill switch engaged mid-lifecycle | Next trade blocked. Recovery continues by design. | `test_timeout_breach_engages_kill_but_recovery_order_remains_allowed` | Verified |
 | Restart of the paper process | Positions, exposure, daily P&L, and deployment reset. The kill file persists. | Code reading: `PaperEngine.__init__` builds fresh `RiskState` and `ExposureTracker`. No restart test. | **Open, D39** (code-verified only) |
@@ -152,19 +154,43 @@ pre-fix behavior and the post-fix behavior:
 
 ---
 
-## 5. Open defects — test marker and exact failure
+## 5. Remediated fault-matrix defects (D31–D37, resolved in Arb.17)
 
-Each `xfail(strict=True)` test fails for the reason its marker states. `strict`
-means that when the defect is fixed, the suite reports XPASS and the marker must
-be removed on purpose. Checked with `pytest --runxfail`:
+In Arb.16, D31–D37 were recorded as `xfail(strict=True)` cases in
+`tests/test_execution_fault_matrix.py`. Arb.17 resolved all seven in code,
+removed the `xfail` markers, added seven companion edge-case regressions (20
+fault-matrix tests total), and mutation-verified each module by reverting it to
+`HEAD` and confirming the suite fails:
 
-- D31: `httpx.ReadTimeout` raised; no reconciliation.
-- D32: `UNKNOWN` row absent from `unreconciled_trades()`.
-- D33: intent status `REJECTED` after an empty listing.
-- D34: `held == 10`, expected `5`.
-- D35: `exposed == False` and `kill_switch.is_engaged() == False`.
-- D36: same.
-- D37: 4 submissions, expected 3.
+- **D31 (`live.py`):** `submit_order_with_context` now catches `TimeoutError`,
+  `asyncio.TimeoutError`, `httpx.TimeoutException`, and `httpx.TransportError`
+  and runs `_reconcile_by_client_id`. Reverting `live.py` fails 3 fault-matrix
+  tests.
+- **D32 (`repository.py`):** `unreconciled_trades()` now includes
+  `OrderStatus.UNKNOWN` alongside `PENDING` and `SUBMITTED`. Reverting
+  `repository.py` fails 3 fault-matrix tests.
+- **D33 (`live.py`):** `recover_on_startup()` marks an intent `OrderStatus.UNKNOWN`
+  (never `REJECTED`) when no trace appears in the open-orders or fills listing,
+  keeping it in `unreconciled_trades()` until resolved by a definitive `get_order`
+  response or manual reconciliation.
+- **D34 (`simulated.py`):** `_SimulatedExecutionEngine` tracks `client_orders`
+  by `client_order_id`, rejects duplicate `client_order_id` submissions without
+  altering cash, positions, or fills, and resolves `get_order_status` /
+  `cancel_order` by either `venue_order_id` or `client_order_id`. Reverting
+  `simulated.py` fails `test_resubmitting_the_same_client_order_id_does_not_double_fill`.
+- **D35 & D36 (`coordinator.py`):** on a leg-A exception or a resting/unknown
+  status (`SUBMITTED`, `PENDING`, `UNKNOWN`), `ExecutionCoordinator` attempts
+  cancellation (for resting/pending orders) and `get_order_status` reconciliation;
+  unless the order is confirmed `CANCELED`/`REJECTED` with zero fill (or
+  reconciled to a fill that can proceed to leg B), it records conservative
+  unhedged exposure and deployment, engages the kill switch, and aborts before
+  leg B. Ambiguous leg-B statuses also halt before recovery. Reverting
+  `coordinator.py` fails 5 fault-matrix tests.
+- **D37 (`partial_fills.py`):** on a hedge-retry exception or resting/unknown
+  status, `PartialFillHandler` reconciles via `get_order_status` (attempting
+  cancellation first if resting/pending) and halts both further hedge retries
+  and the leg-A unwind when the retry outcome remains ambiguous. Reverting
+  `partial_fills.py` fails 2 fault-matrix tests.
 
 ---
 
@@ -242,19 +268,19 @@ be removed on purpose. Checked with `pytest --runxfail`:
 
 ---
 
-## 8. Unresolved failure modes
+## 8. Failure modes and status
 
-| ID | Failure mode | Severity | Phase | Test |
+| ID | Failure mode | Severity | Phase | Status / Test |
 |---|---|---|---|---|
-| D31 | Real adapter timeout is not reconciled (httpx types are not `asyncio.TimeoutError`) | High (live) | 8 | `test_httpx_timeout_is_reconciled_by_client_id` (xfail) |
-| D32 | `UNKNOWN` intents are never picked up by startup recovery | High (live) | 8 | `test_unknown_intent_is_visible_to_startup_recovery` (xfail) |
-| D33 | Absence from a listing is recorded as `REJECTED` | High (live) | 8 | `test_missing_from_listing_is_not_recorded_as_never_sent` (xfail) |
-| D34 | Simulator does not deduplicate `client_order_id` (no in-tree trigger) | Medium (paper) | 6 | `test_resubmitting_the_same_client_order_id_does_not_double_fill` (xfail) |
-| D35 | Leg-A exception assumed pre-transmission; no exposure, no kill switch | High (live), Medium (paper) | 8 | `test_leg_a_exception_is_not_treated_as_safe_no_order` (xfail) |
-| D36 | Resting (or `UNKNOWN`) leg A aborts with no cancel and no tracking. Kalshi maps a resting limit to `SUBMITTED`, so a normal resting order takes this path. | High (live) | 8 | `test_resting_leg_a_is_cancelled_or_tracked` (xfail) |
-| D37 | Ambiguous hedge-retry error leads to another hedge under a new id | High (live) | 8 | `test_ambiguous_hedge_retry_error_does_not_submit_another_hedge` (xfail) |
-| D38 | Live result drops average fill price, fees, and maker fills; exposure dollars use the limit price | High (live accounting) | 8 | Documented only; no test (field names unverified) |
-| D39 | Paper restart resets daily loss, deployment, and unresolved exposure; a daily-loss breach does not engage the kill switch | Medium (paper) | 6 | Code-verified; no restart test |
+| D31 | Real adapter timeout / transport error reconciliation (`httpx` types) | High (live) | 8 | **RESOLVED IN CODE (Arb.17)** — `test_httpx_timeout_is_reconciled_by_client_id`, `test_httpx_transport_error_reconciles_resting_or_unknown` |
+| D32 | `UNKNOWN` intents included in startup recovery | High (live) | 8 | **RESOLVED IN CODE (Arb.17)** — `test_unknown_intent_is_visible_to_startup_recovery` |
+| D33 | Absence from a listing kept `UNKNOWN`, never recorded as `REJECTED` | High (live) | 8 | **RESOLVED IN CODE (Arb.17)** — `test_missing_from_listing_is_not_recorded_as_never_sent`, `test_startup_recovery_accepts_definitive_order_lookup` |
+| D34 | Simulator deduplicates `client_order_id` | Medium (paper) | 6 | **RESOLVED IN CODE (Arb.17)** — `test_resubmitting_the_same_client_order_id_does_not_double_fill` |
+| D35 | Leg-A exception reconciled or recorded as unhedged exposure with kill switch | High (live), Medium (paper) | 8 | **RESOLVED IN CODE (Arb.17)** — `test_leg_a_exception_is_not_treated_as_safe_no_order`, `test_leg_a_exception_reconciled_to_fill_proceeds_to_hedge`, `test_leg_a_exception_reconciled_to_definitive_reject_aborts_cleanly` |
+| D36 | Resting (or `UNKNOWN`) leg A canceled/reconciled or tracked with kill switch | High (live) | 8 | **RESOLVED IN CODE (Arb.17)** — `test_resting_leg_a_is_cancelled_or_tracked`, `test_resting_leg_a_confirmed_canceled_with_zero_fill_aborts_cleanly`, `test_ambiguous_leg_b_status_halts_before_recovery` |
+| D37 | Ambiguous hedge-retry error/status halts recovery before further hedge or unwind | High (live) | 8 | **RESOLVED IN CODE (Arb.17)** — `test_ambiguous_hedge_retry_error_does_not_submit_another_hedge`, `test_unknown_status_on_hedge_retry_halts_before_unwind` |
+| D38 | Live result drops average fill price, fees, and maker fills; exposure dollars use the limit price | High (live accounting) | 8 | **OPEN** — Documented only; no test (field names unverified against venue payload samples) |
+| D39 | Paper restart resets daily loss, deployment, and unresolved exposure; a daily-loss breach does not engage the kill switch | Medium (paper) | 6 | **OPEN** — Code-verified; no restart test (fix together with D21 settlement/daily ledger) |
 | D21, D22, D23, D24, D26, D29 | Existing defects (see ROADMAP) | — | — | — |
 
 ---
@@ -262,42 +288,41 @@ be removed on purpose. Checked with `pytest --runxfail`:
 ## 9. Prioritized remediation
 
 1. **Done (Arb.16): D30.** One POST per order intent, no host rotation.
-2. **Make ambiguous outcomes first-class (D31, D35, D36, D37).** Introduce one
-   outcome type: ACCEPTED, REJECTED (definitive), or UNKNOWN. Reconcile UNKNOWN
-   by `client_order_id` before any retry, next leg, or unwind. Unresolved UNKNOWN
-   engages the kill switch. Ambiguity is never coerced to "not sent".
-3. **Fix startup recovery (D32, D33).** Include `UNKNOWN` in `unreconciled_trades`.
-   Mark `REJECTED` only from a definitive venue response for that
-   `client_order_id`, never from absence in a listing. Page fills and open orders
-   to completion, or look up by id.
-4. **Map live results honestly (D38).** Record average fill price, fees, maker and
-   taker fills, and partial states. Compute exposure from actual fills, not from
-   the limit price. Fixture tests need venue payload samples or the official
-   schema.
-5. **Idempotent simulator (D34).** Reject or return the original result for a
-   repeated `client_order_id`.
-6. **Persist risk state (D39, D21).** Persist exposure and the daily-loss ledger,
-   with a UTC day rollover, and reconcile on start. A daily-loss breach should
-   block, and the block should survive restart.
-7. **Build the live coordinator (D24, D26)** only after items 2–4, with
+2. **Done in code (Arb.17): ambiguous outcomes (D31, D35, D36, D37).** Reconcile
+   `httpx` timeouts/transport errors and ambiguous leg/retry outcomes by
+   `client_order_id` before any retry, next leg, or unwind; unresolved ambiguity
+   records exposure and engages the kill switch.
+3. **Done in code (Arb.17): startup recovery (D32, D33).** Include `UNKNOWN` in
+   `unreconciled_trades` and mark `REJECTED` only from a definitive venue
+   response for that order, never from absence in an unpaginated listing.
+4. **Map live results honestly (D38, OPEN).** Record average fill price, fees,
+   maker and taker fills, and partial states. Compute exposure from actual fills,
+   not from the limit price. Fixture tests need venue payload samples or the
+   official schema.
+5. **Done in code (Arb.17): idempotent simulator (D34).** Reject a repeated
+   `client_order_id` while preserving original order status lookup.
+6. **Persist risk state (D39, D21, OPEN).** Persist exposure and the daily-loss
+   ledger, with a UTC day rollover, and reconcile on start. A daily-loss breach
+   should block, and the block should survive restart.
+7. **Build the live coordinator (D24, D26, OPEN)** only after item 4, with
    demo or sandbox fault drills (duplicate, timeout, cancel failure, orphaned
    fill, firewall context generation). Keep `EmergencyManager` disconnected until
    it can cancel and flatten.
-8. **Unwind and emergency bounds (D22, D23).** A freshness-gated recovery quote
-   and fee preflight, and a defined liquidity and latency gate.
-9. **Owner-gated venue verification (demo only).** Confirm duplicate
+8. **Unwind and emergency bounds (D22, D23, OPEN).** A freshness-gated recovery
+   quote and fee preflight, and a defined liquidity and latency gate.
+9. **Owner-gated venue verification (demo only, OPEN).** Confirm duplicate
    `client_order_id` behavior on the endpoint the adapter uses. Confirm status
    enums, cancel-after-fill, fill pagination, and 429 behavior. No live orders.
-10. **Durable audit trail.** A per-mode order and fill ledger, persisted alerts,
-    and payload logging with credentials redacted.
+10. **Durable audit trail (OPEN).** A per-mode order and fill ledger, persisted
+    alerts, and payload logging with credentials redacted.
 
 ---
 
 ## 10. Reproduce
 
 ```bash
-.venv/bin/pytest -o addopts='' -q                              # 776 passed, 7 xfailed
-.venv/bin/pytest -o addopts='' -q tests/test_execution_fault_matrix.py -k TestOpenDefects --runxfail
+.venv/bin/pytest -o addopts='' -q                              # 790 passed
+.venv/bin/pytest -o addopts='' -v tests/test_execution_fault_matrix.py
 .venv/bin/pytest -o addopts='' -q tests/test_safety.py -k TestOrderPostIsNotRetried
 python -m prediction_arb.main --status                         # exit 0
 python -m prediction_arb.main --readiness                      # exit 0, advisory

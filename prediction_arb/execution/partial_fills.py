@@ -23,6 +23,7 @@ from ..core.types import (
     Opportunity,
     OrderAction,
     OrderRequest,
+    OrderResult,
     OrderStatus,
     OrderType,
 )
@@ -87,6 +88,7 @@ class PartialFillHandler:
         # Strategy 1: chase the hedge leg with bounded price concession.
         base_price = unfilled_leg.limit_price or Decimal("0.50")
         remaining = outcome.remaining_unhedged
+        ambiguous_recovery = False
         for attempt in range(1, self.max_retry_attempts + 1):
             if remaining <= 0:
                 break
@@ -107,12 +109,48 @@ class PartialFillHandler:
                 quantity=remaining, order_type=OrderType.LIMIT,
                 limit_price=min(Decimal("0.99"), base_price + concession),
                 client_order_id=str(uuid.uuid4()), mode=unfilled_leg.mode)
+            result: Optional[OrderResult] = None
             try:
                 outcome.attempts += 1
                 result = await engine.submit_order(retry)
             except Exception as exc:
                 outcome.notes.append(f"hedge retry {attempt} error: {exc}")
-                continue
+                result = await self._reconcile_order(engine, retry)
+                if result is None:
+                    # D37: an exception during a hedge retry means the order
+                    # may already have transmitted. Never send another hedge
+                    # or unwind until it is reconciled.
+                    outcome.notes.append(
+                        f"hedge retry {attempt} outcome ambiguous after error "
+                        "— halting recovery before any further order")
+                    ambiguous_recovery = True
+                    break
+
+            if result.status in (OrderStatus.SUBMITTED, OrderStatus.PENDING,
+                                 OrderStatus.UNKNOWN):
+                if result.status in (OrderStatus.SUBMITTED,
+                                     OrderStatus.PENDING):
+                    cancel_id = result.venue_order_id or retry.client_order_id
+                    if cancel_id:
+                        try:
+                            await engine.cancel_order(retry.venue, cancel_id)
+                        except Exception as exc:
+                            log.warning("cancel_order failed for hedge retry "
+                                        "%s: %s", cancel_id, exc)
+                reconciled = await self._reconcile_order(
+                    engine, retry, result.venue_order_id)
+                if reconciled is not None:
+                    result = reconciled
+                if result.status in (OrderStatus.SUBMITTED,
+                                     OrderStatus.PENDING,
+                                     OrderStatus.UNKNOWN):
+                    outcome.notes.append(
+                        f"hedge retry {attempt} unresolved "
+                        f"({result.status.value}) — halting recovery before "
+                        "any further order")
+                    ambiguous_recovery = True
+                    break
+
             if result.status in (OrderStatus.FILLED,
                                  OrderStatus.PARTIALLY_FILLED):
                 got = min(remaining, result.filled_quantity)
@@ -135,8 +173,10 @@ class PartialFillHandler:
 
         # Strategy 2: unwind only the still-unmatched portion of leg A.  This
         # leaves any quantity already filled on both legs as a hedged pair.
+        # D37: never submit an unwind when a hedge retry is in an ambiguous
+        # state, because that retry may already have filled.
         unwind_quantity = min(remaining, filled_quantity)
-        if unwind_quantity > 0:
+        if unwind_quantity > 0 and not ambiguous_recovery:
             if risk_checkpoint is not None:
                 await risk_checkpoint("before unwind")
             unwind = OrderRequest(
@@ -194,3 +234,23 @@ class PartialFillHandler:
                 "The coordinator will engage the kill switch; manual "
                 "reconciliation is required.")
         return outcome
+
+    @staticmethod
+    async def _reconcile_order(
+        engine: ExecutionEngine,
+        request: OrderRequest,
+        venue_order_id: Optional[str] = None,
+    ) -> Optional[OrderResult]:
+        for lookup_id in (venue_order_id, request.client_order_id):
+            if not lookup_id:
+                continue
+            try:
+                status = await engine.get_order_status(
+                    request.venue, lookup_id)
+            except Exception as exc:
+                log.warning("order status lookup failed for %s/%s: %s",
+                            request.venue, lookup_id, exc)
+                return None
+            if status is not None:
+                return status
+        return None

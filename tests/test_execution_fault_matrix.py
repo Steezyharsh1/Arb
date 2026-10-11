@@ -1,17 +1,15 @@
-"""Arb.16 execution fault matrix (simulation and offline live-path doubles only).
+"""Arb.16 / Arb.17 execution fault matrix (simulation and offline live-path doubles only).
 
 Every test here is offline: in-memory engines, scripted fakes, a temporary
 SQLite store, and an isolated kill-switch file. Nothing reaches a venue.
 
-Two groups:
+Groups:
 
-* Protections verified now (plain asserts). They pass today and must keep
-  passing.
-* Open defects (``xfail(strict=True)``). Each one documents the expected safe
-  behaviour. It is expected to fail until its defect is repaired. ``strict``
-  means that once the defect is fixed the suite reports XPASS, so the marker
-  must be removed deliberately. The register is in docs/ROADMAP.md (D30-D36);
-  the evidence and remediation plan are in docs/EXECUTION_SAFETY_ASSESSMENT.md.
+* ``TestVerifiedProtections`` — baseline protections verified in Arb.16.
+* ``TestOpenDefects`` — the seven Arb.16 defects (D31-D37), resolved in
+  Arb.17 and retained under this class name so existing reproduction
+  commands keep selecting them, plus additional edge-case regressions for
+  each remediation.
 """
 from __future__ import annotations
 
@@ -259,29 +257,59 @@ class TestVerifiedProtections:
         assert len(adapter.placed) == 1   # reconciled, never re-sent
 
 
-# ------------------------------------------------------- open defects
+# ------------------------------------------------------- D31-D37 regressions
 
 
 class TestOpenDefects:
-    @pytest.mark.xfail(strict=True, reason=(
-        "D31: an httpx.ReadTimeout from the real Kalshi adapter is not "
-        "asyncio.TimeoutError, so the engine skips venue reconciliation and "
-        "re-raises with the intent left UNKNOWN."))
     def test_httpx_timeout_is_reconciled_by_client_id(self, tmp_path):
+        """D31: httpx.ReadTimeout from the Kalshi adapter triggers venue
+        reconciliation by client_order_id rather than raising uninspected."""
         request = _live_request()
         adapter = RecordingAdapter(
             place_exc=httpx.ReadTimeout("read timed out"),
             fills=[{"client_order_id": request.client_order_id,
                     "order_id": "v-9", "count": 5}])
-        engine, _repo = _live_engine(tmp_path, adapter)
+        engine, repo = _live_engine(tmp_path, adapter)
         result = asyncio.run(engine.submit_order_with_context(
             request, _firewall_ctx()))
         assert result.status is OrderStatus.FILLED
+        assert result.filled_quantity == Decimal("5")
+        assert _intent_status(repo, request.client_order_id) == \
+            OrderStatus.FILLED.value
+        assert len(adapter.placed) == 1
 
-    @pytest.mark.xfail(strict=True, reason=(
-        "D32: unreconciled_trades() returns only PENDING/SUBMITTED, so an "
-        "UNKNOWN intent is never reconciled by startup recovery."))
+    def test_httpx_transport_error_reconciles_resting_or_unknown(
+            self, tmp_path):
+        """D31: httpx.TransportError also reconciles; if the venue has no
+        trace yet, the result and persisted intent remain UNKNOWN."""
+        req_resting = _live_request()
+        adapter_resting = RecordingAdapter(
+            place_exc=httpx.ConnectError("connection reset"),
+            open_orders=[{"client_order_id": req_resting.client_order_id,
+                          "order_id": "v-rest"}])
+        engine_r, repo_r = _live_engine(tmp_path, adapter_resting, "rest")
+        res_r = asyncio.run(engine_r.submit_order_with_context(
+            req_resting, _firewall_ctx()))
+        assert res_r.status is OrderStatus.SUBMITTED
+        assert res_r.venue_order_id == "v-rest"
+        assert _intent_status(repo_r, req_resting.client_order_id) == \
+            OrderStatus.SUBMITTED.value
+
+        req_unknown = _live_request()
+        adapter_unknown = RecordingAdapter(
+            place_exc=httpx.ReadTimeout("read timed out"))
+        engine_u, repo_u = _live_engine(tmp_path, adapter_unknown, "unk")
+        res_u = asyncio.run(engine_u.submit_order_with_context(
+            req_unknown, _firewall_ctx()))
+        assert res_u.status is OrderStatus.UNKNOWN
+        assert _intent_status(repo_u, req_unknown.client_order_id) == \
+            OrderStatus.UNKNOWN.value
+        assert any(row.client_order_id == req_unknown.client_order_id
+                   for row in repo_u.unreconciled_trades())
+
     def test_unknown_intent_is_visible_to_startup_recovery(self, tmp_path):
+        """D32: unreconciled_trades() includes UNKNOWN intents alongside
+        PENDING and SUBMITTED."""
         request = _live_request()
         _adapter = RecordingAdapter()
         _engine, repo = _live_engine(tmp_path, _adapter)
@@ -290,38 +318,70 @@ class TestOpenDefects:
         assert any(row.client_order_id == request.client_order_id
                    for row in repo.unreconciled_trades())
 
-    @pytest.mark.xfail(strict=True, reason=(
-        "D33: absence from a truncated venue fills/open-orders listing is "
-        "treated as 'never transmitted' and the intent is marked REJECTED, "
-        "even though the order may already have filled."))
     def test_missing_from_listing_is_not_recorded_as_never_sent(self, tmp_path):
+        """D33: absence from a venue open-orders/fills listing marks the
+        intent UNKNOWN, never REJECTED, and leaves it visible for manual
+        reconciliation."""
         request = _live_request()
         adapter = RecordingAdapter(open_orders=[], fills=[])
         engine, repo = _live_engine(tmp_path, adapter)
         _seed_pending_intent(repo, request)
-        asyncio.run(engine.recover_on_startup())
-        assert _intent_status(repo, request.client_order_id) != \
-            OrderStatus.REJECTED.value
+        notes = asyncio.run(engine.recover_on_startup())
+        assert _intent_status(repo, request.client_order_id) == \
+            OrderStatus.UNKNOWN.value
+        assert any("UNKNOWN" in note for note in notes)
+        assert any(row.client_order_id == request.client_order_id
+                   for row in repo.unreconciled_trades())
 
-    @pytest.mark.xfail(strict=True, reason=(
-        "D34: the simulator does not deduplicate client_order_id; resubmitting "
-        "one request fills it twice."))
+    def test_startup_recovery_accepts_definitive_order_lookup(self, tmp_path):
+        """D33: when venue order_id is known and get_order returns a
+        definitive REJECTED or FILLED result, startup recovery records it."""
+        request = _live_request()
+        definitive = OrderResult(
+            client_order_id=request.client_order_id,
+            venue_order_id="v-def",
+            status=OrderStatus.REJECTED,
+            filled_quantity=Decimal("0"),
+            average_fill_price=None,
+            fees=Decimal("0"))
+        adapter = RecordingAdapter(order=definitive)
+        engine, repo = _live_engine(tmp_path, adapter)
+        _seed_pending_intent(repo, request)
+        repo.update_trade_status(
+            request.client_order_id, OrderStatus.SUBMITTED, order_id="v-def")
+        asyncio.run(engine.recover_on_startup())
+        assert _intent_status(repo, request.client_order_id) == \
+            OrderStatus.REJECTED.value
+        assert repo.unreconciled_trades() == []
+
     def test_resubmitting_the_same_client_order_id_does_not_double_fill(self):
+        """D34: the simulator deduplicates client_order_id, rejecting a
+        duplicate submission while preserving the original fill and order
+        lookup."""
         book = make_book("kalshi", "K", asks=[("0.40", "100")])
         engine = PaperExecutionEngine({"kalshi": Decimal("1000")},
                                       _fee_calc(), lambda v, c: book)
         request = _request("kalshi", "K", OrderAction.BUY, quantity="5")
-        asyncio.run(engine.submit_order(request))
-        asyncio.run(engine.submit_order(request))
+        first = asyncio.run(engine.submit_order(request))
+        cash_after_first = engine.state.cash["kalshi"]
+        second = asyncio.run(engine.submit_order(request))
         held = sum(p.quantity for p in engine.state.positions)
+        assert first.status is OrderStatus.FILLED
+        assert second.status is OrderStatus.REJECTED
+        assert "duplicate client_order_id" in second.message
         assert held == Decimal("5")
+        assert engine.state.cash["kalshi"] == cash_after_first
+        assert len(engine.state.fills) == 1
+        looked_up = asyncio.run(
+            engine.get_order_status("kalshi", request.client_order_id))
+        assert looked_up is not None
+        assert looked_up.status is OrderStatus.FILLED
+        assert looked_up.filled_quantity == Decimal("5")
 
-    @pytest.mark.xfail(strict=True, reason=(
-        "D37: a hedge retry that raises is treated as 'not filled' and the "
-        "handler immediately submits another hedge under a NEW client_order_id. "
-        "If the first retry was transmitted, the position is doubled."))
     def test_ambiguous_hedge_retry_error_does_not_submit_another_hedge(
             self, kill_file):
+        """D37: a hedge retry that raises an unresolvable error halts
+        recovery immediately without submitting another hedge or unwind."""
         from prediction_arb.execution.executor import ExecutionEngine
 
         class AmbiguousRetry(ExecutionEngine):
@@ -361,38 +421,180 @@ class TestOpenDefects:
                 return {}
 
         engine = AmbiguousRetry()
-        coordinator, _tracker, _state, _alerts = _coordinator(engine)
-        asyncio.run(coordinator.execute(_op()))
+        coordinator, tracker, _state, _alerts = _coordinator(engine)
+        report = asyncio.run(coordinator.execute(_op()))
         # Leg A, leg B, retry 1: nothing else may be sent until retry 1 is
         # reconciled, because retry 1 may already have transmitted.
         assert len(engine.requests) == 3
+        assert not report.success
+        assert report.recovery is not None
+        assert report.recovery.resolution == "UNRESOLVED"
+        assert asyncio.run(tracker.total_unhedged_dollars()) > 0
+        assert kill_switch.is_engaged()
 
-    @pytest.mark.xfail(strict=True, reason=(
-        "D35: a leg-A exception is assumed to be pre-transmission. The "
-        "coordinator records no exposure and does not engage the kill switch, "
-        "even though the order may be live at the venue."))
+    def test_unknown_status_on_hedge_retry_halts_before_unwind(
+            self, kill_file):
+        """D37: a hedge retry returning UNKNOWN or uncancelable SUBMITTED
+        also halts recovery before retry 2 or leg-A unwind."""
+        engine = FaultEngine([
+            (OrderStatus.FILLED, None, "0.40", "0"),
+            (OrderStatus.REJECTED, "0", None, "0"),
+            (OrderStatus.UNKNOWN, "0", None, "0"),
+            (OrderStatus.FILLED, None, "0.52", "0"),
+        ])
+        coordinator, tracker, _state, _alerts = _coordinator(engine)
+        report = asyncio.run(coordinator.execute(_op()))
+        assert len(engine.requests) == 3
+        assert not report.success
+        assert report.recovery is not None
+        assert report.recovery.resolution == "UNRESOLVED"
+        assert asyncio.run(tracker.total_unhedged_dollars()) == Decimal("4.00")
+        assert kill_switch.is_engaged()
+
     def test_leg_a_exception_is_not_treated_as_safe_no_order(self, kill_file):
+        """D35: an unresolvable leg-A exception records conservative unhedged
+        exposure, updates deployment, engages the kill switch, and never
+        submits leg B."""
         class RaisingLegA(FaultEngine):
             async def submit_order(self, request):
                 self.requests.append(request)
                 raise ConnectionResetError("reset after send?")
 
         engine = RaisingLegA([])
-        coordinator, tracker, _state, _alerts = _coordinator(engine)
+        coordinator, tracker, state, _alerts = _coordinator(engine)
         report = asyncio.run(coordinator.execute(_op()))
         assert not report.success
+        assert len(engine.requests) == 1
         exposed = asyncio.run(tracker.total_unhedged_dollars()) > 0
-        assert exposed or kill_switch.is_engaged()
+        assert exposed and kill_switch.is_engaged()
+        assert state.open_positions == 1
 
-    @pytest.mark.xfail(strict=True, reason=(
-        "D36: a resting (SUBMITTED) leg A aborts the lifecycle without cancel, "
-        "without recording exposure, and without engaging the kill switch."))
+    def test_leg_a_exception_reconciled_to_fill_proceeds_to_hedge(
+            self, kill_file):
+        """D35: if leg A raises after filling and get_order_status reconciles
+        the fill, the coordinator proceeds to leg B to hedge it."""
+        class ReconciledLegA(FaultEngine):
+            async def submit_order(self, request):
+                if not self.requests:
+                    self.requests.append(request)
+                    raise TimeoutError("response lost after leg A fill")
+                return await super().submit_order(request)
+
+            async def get_order_status(self, venue, order_id):
+                if (self.requests
+                        and order_id == self.requests[0].client_order_id):
+                    return OrderResult(
+                        client_order_id=order_id,
+                        venue_order_id="reconciled-a",
+                        status=OrderStatus.FILLED,
+                        filled_quantity=self.requests[0].quantity,
+                        average_fill_price=Decimal("0.40"),
+                        fees=Decimal("0"))
+                return None
+
+        engine = ReconciledLegA([(OrderStatus.FILLED, None, "0.50", "0")])
+        coordinator, tracker, state, _alerts = _coordinator(engine)
+        report = asyncio.run(coordinator.execute(_op()))
+        assert report.success
+        assert len(engine.requests) == 2
+        assert asyncio.run(tracker.total_unhedged_dollars()) == Decimal("0")
+        assert not kill_switch.is_engaged()
+        assert state.open_positions == 2
+
+    def test_leg_a_exception_reconciled_to_definitive_reject_aborts_cleanly(
+            self, kill_file):
+        """D35: if leg A raises and get_order_status confirms a definitive
+        REJECTED with zero fill, the coordinator aborts before leg B without
+        phantom exposure or kill-switch activation."""
+        class RejectedAfterRaiseLegA(FaultEngine):
+            async def submit_order(self, request):
+                self.requests.append(request)
+                raise TimeoutError("lost reject response")
+
+            async def get_order_status(self, venue, order_id):
+                return OrderResult(
+                    client_order_id=order_id,
+                    venue_order_id="rej-a",
+                    status=OrderStatus.REJECTED,
+                    filled_quantity=Decimal("0"),
+                    average_fill_price=None,
+                    fees=Decimal("0"),
+                    message="venue rejected")
+
+        engine = RejectedAfterRaiseLegA([])
+        coordinator, tracker, state, _alerts = _coordinator(engine)
+        report = asyncio.run(coordinator.execute(_op()))
+        assert not report.success
+        assert len(engine.requests) == 1
+        assert asyncio.run(tracker.total_unhedged_dollars()) == Decimal("0")
+        assert not kill_switch.is_engaged()
+        assert state.open_positions == 0
+
+    def test_ambiguous_leg_b_status_halts_before_recovery(self, kill_file):
+        """D36/D37: if leg B returns UNKNOWN (or uncancelable SUBMITTED),
+        the coordinator halts before recovery so no duplicate hedge or
+        unwind is submitted while leg B may be live."""
+        engine = FaultEngine([
+            (OrderStatus.FILLED, None, "0.40", "0"),
+            (OrderStatus.UNKNOWN, "0", None, "0"),
+            (OrderStatus.FILLED, None, "0.52", "0"),
+        ])
+        coordinator, tracker, state, _alerts = _coordinator(engine)
+        report = asyncio.run(coordinator.execute(_op()))
+        assert not report.success
+        assert len(engine.requests) == 2
+        assert report.recovery is None
+        assert asyncio.run(tracker.total_unhedged_dollars()) == Decimal("4.00")
+        assert kill_switch.is_engaged()
+        assert state.open_positions == 2
+
     def test_resting_leg_a_is_cancelled_or_tracked(self, kill_file):
+        """D36: a resting (SUBMITTED) leg A whose cancel/status cannot be
+        confirmed as zero-fill CANCELED records exposure and engages the
+        kill switch."""
         engine = FaultEngine([(OrderStatus.SUBMITTED, "0", None, "0")])
-        coordinator, tracker, _state, _alerts = _coordinator(engine)
-        asyncio.run(coordinator.execute(_op()))
+        coordinator, tracker, state, _alerts = _coordinator(engine)
+        report = asyncio.run(coordinator.execute(_op()))
+        assert not report.success
+        assert len(engine.requests) == 1
         exposed = asyncio.run(tracker.total_unhedged_dollars()) > 0
-        assert exposed or kill_switch.is_engaged()
+        assert exposed and kill_switch.is_engaged()
+        assert state.open_positions == 1
+
+    def test_resting_leg_a_confirmed_canceled_with_zero_fill_aborts_cleanly(
+            self, kill_file):
+        """D36: if a resting leg A is canceled and get_order_status confirms
+        CANCELED with zero fill, the coordinator aborts before leg B without
+        phantom exposure."""
+        class CancelableRestingLegA(FaultEngine):
+            def __init__(self):
+                super().__init__([(OrderStatus.SUBMITTED, "0", None, "0")])
+                self.canceled_ids: list[str] = []
+
+            async def cancel_order(self, venue, order_id):
+                self.canceled_ids.append(order_id)
+                return True
+
+            async def get_order_status(self, venue, order_id):
+                if self.canceled_ids:
+                    return OrderResult(
+                        client_order_id=self.requests[0].client_order_id,
+                        venue_order_id=order_id,
+                        status=OrderStatus.CANCELED,
+                        filled_quantity=Decimal("0"),
+                        average_fill_price=None,
+                        fees=Decimal("0"))
+                return None
+
+        engine = CancelableRestingLegA()
+        coordinator, tracker, state, _alerts = _coordinator(engine)
+        report = asyncio.run(coordinator.execute(_op()))
+        assert not report.success
+        assert len(engine.requests) == 1
+        assert engine.canceled_ids == ["fault-1"]
+        assert asyncio.run(tracker.total_unhedged_dollars()) == Decimal("0")
+        assert not kill_switch.is_engaged()
+        assert state.open_positions == 0
 
 
 def _fee_calc():

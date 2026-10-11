@@ -163,8 +163,47 @@ class ExecutionCoordinator:
             leg_a.result = await self.engine.submit_order(requests[0])
         except Exception as exc:
             leg_a.error = str(exc)
-            report.notes.append(f"leg A failed pre-transmission: {exc}")
-            return report
+            reconciled = await self._reconcile_order(requests[0])
+            if reconciled is not None:
+                leg_a.result = reconciled
+            else:
+                # D35: NEVER assume a leg-A exception was pre-transmission.
+                await self._record_ambiguous_leg_a(
+                    op, requests[0], capital_by_venue, report,
+                    f"leg A raised ({exc}) and outcome is UNKNOWN — "
+                    "exposure recorded and kill switch engaged")
+                return report
+
+        assert leg_a.result is not None
+        if leg_a.result.status in (OrderStatus.SUBMITTED, OrderStatus.PENDING,
+                                   OrderStatus.UNKNOWN):
+            # D36: a resting (SUBMITTED/PENDING) or UNKNOWN leg A may still
+            # fill at the venue. Attempt cancel + status reconciliation first;
+            # only a confirmed terminal CANCELED/REJECTED with zero fill is
+            # safe to abort without tracking exposure and engaging kill switch.
+            if leg_a.result.status in (OrderStatus.SUBMITTED,
+                                       OrderStatus.PENDING):
+                await self._try_cancel_order(requests[0], leg_a.result)
+            reconciled = await self._reconcile_order(
+                requests[0], leg_a.result.venue_order_id)
+            if reconciled is not None:
+                leg_a.result = reconciled
+            if (leg_a.result.status in (OrderStatus.CANCELED,
+                                        OrderStatus.REJECTED)
+                    and leg_a.result.filled_quantity <= 0):
+                report.notes.append(
+                    f"leg A resting order confirmed "
+                    f"{leg_a.result.status.value} with zero fill — aborting "
+                    "before leg B")
+                return report
+            if leg_a.result.status not in (OrderStatus.FILLED,
+                                           OrderStatus.PARTIALLY_FILLED):
+                await self._record_ambiguous_leg_a(
+                    op, requests[0], capital_by_venue, report,
+                    f"leg A unresolved ({leg_a.result.status.value}: "
+                    f"{leg_a.result.message}) — exposure recorded and kill "
+                    "switch engaged")
+                return report
 
         if leg_a.result.status not in (OrderStatus.FILLED,
                                        OrderStatus.PARTIALLY_FILLED):
@@ -174,6 +213,13 @@ class ExecutionCoordinator:
             return report
 
         filled_a = leg_a.result.filled_quantity
+        if filled_a <= 0:
+            await self._record_ambiguous_leg_a(
+                op, requests[0], capital_by_venue, report,
+                f"leg A reported {leg_a.result.status.value} with non-positive "
+                f"filled_quantity={filled_a} — exposure recorded and kill "
+                "switch engaged")
+            return report
         # Match leg B to what leg A actually filled.
         requests[1].quantity = min(requests[1].quantity, filled_a)
         entry_price = (leg_a.result.average_fill_price
@@ -193,7 +239,34 @@ class ExecutionCoordinator:
             leg_b.result = await self.engine.submit_order(requests[1])
         except Exception as exc:
             leg_b.error = str(exc)
+            reconciled_b = await self._reconcile_order(requests[1])
+            if reconciled_b is not None:
+                leg_b.result = reconciled_b
         report.time_between_legs_ms = (time.monotonic() - t0) * 1000.0
+
+        if (leg_b.result is not None
+                and leg_b.result.status in (OrderStatus.SUBMITTED,
+                                            OrderStatus.PENDING,
+                                            OrderStatus.UNKNOWN)):
+            if leg_b.result.status in (OrderStatus.SUBMITTED,
+                                       OrderStatus.PENDING):
+                await self._try_cancel_order(requests[1], leg_b.result)
+            reconciled_b = await self._reconcile_order(
+                requests[1], leg_b.result.venue_order_id)
+            if reconciled_b is not None:
+                leg_b.result = reconciled_b
+            if leg_b.result.status in (OrderStatus.SUBMITTED,
+                                       OrderStatus.PENDING,
+                                       OrderStatus.UNKNOWN):
+                report.notes.append(
+                    f"leg B unresolved ({leg_b.result.status.value}: "
+                    f"{leg_b.result.message}) — halting before recovery to "
+                    "prevent duplicate exposure")
+                self._record_deployment(op, capital_by_venue, len(op.legs))
+                self._engage_kill_switch(
+                    report, f"ambiguous leg B outcome for {op.opportunity_id}")
+                await self._exposure_checkpoint(report, "after ambiguous leg B")
+                return report
 
         filled_b = (leg_b.result.filled_quantity
                     if leg_b.result else Decimal("0"))
@@ -266,6 +339,59 @@ class ExecutionCoordinator:
                 report, f"unresolved paper exposure for {op.opportunity_id}")
         await self._exposure_checkpoint(report, "after recovery")
         return report
+
+    async def _reconcile_order(
+        self,
+        request: OrderRequest,
+        venue_order_id: Optional[str] = None,
+    ) -> Optional[OrderResult]:
+        for lookup_id in (venue_order_id, request.client_order_id):
+            if not lookup_id:
+                continue
+            try:
+                status = await self.engine.get_order_status(
+                    request.venue, lookup_id)
+            except Exception as exc:
+                log.warning("order status lookup failed for %s/%s: %s",
+                            request.venue, lookup_id, exc)
+                return None
+            if status is not None:
+                return status
+        return None
+
+    async def _try_cancel_order(self, request: OrderRequest,
+                                result: OrderResult) -> bool:
+        cancel_id = result.venue_order_id or request.client_order_id
+        if not cancel_id:
+            return False
+        try:
+            return await self.engine.cancel_order(request.venue, cancel_id)
+        except Exception as exc:
+            log.warning("cancel_order failed for %s/%s: %s",
+                        request.venue, cancel_id, exc)
+            return False
+
+    async def _record_ambiguous_leg_a(
+        self,
+        op: Opportunity,
+        request: OrderRequest,
+        capital_by_venue: dict[str, Decimal],
+        report: ExecutionReport,
+        note: str,
+    ) -> None:
+        entry_price = request.limit_price or Decimal("1")
+        await self.exposure.record_unhedged(UnhedgedExposure(
+            opportunity_id=op.opportunity_id,
+            venue=request.venue,
+            contract_id=request.contract_id,
+            contracts=request.quantity,
+            dollars=request.quantity * entry_price,
+            since=utcnow()))
+        self._record_deployment(op, capital_by_venue, 1)
+        report.notes.append(note)
+        self._engage_kill_switch(
+            report, f"ambiguous leg A outcome for {op.opportunity_id}")
+        await self._exposure_checkpoint(report, "after ambiguous leg A")
 
     def _capital_by_venue(self, op: Opportunity) -> dict[str, Decimal]:
         by_venue: dict[str, Decimal] = {}
