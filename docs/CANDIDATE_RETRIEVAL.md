@@ -338,8 +338,9 @@ recovered, a similarity signal that stays proposal-only is the cleaner route.
 
 ## 11. Related defect (not fixed) — D25
 
-Recorded in `docs/AGENT_HANDOFF.md` §7a. Retrieval proposes the pair, and the
-deterministic matcher rejects it because the venues encode the same threshold
+Recorded as D25 in `docs/ROADMAP.md` and summarized in
+`docs/AGENT_HANDOFF.md` §3. Retrieval proposes the pair, and the deterministic
+matcher rejects it because the venues encode the same threshold
 differently: Kalshi sets `threshold_operator` to the raw `strike_type` string
 (for example `greater`), and Polymarket US sets it to `None`. Reproduced
 2026-10-10: identical event, threshold 5.0, settlement equal, Kalshi `greater`

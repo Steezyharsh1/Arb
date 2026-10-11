@@ -1,22 +1,23 @@
 # SPECIFICATION (RECONSTRUCTED) — prediction_arb v1
 
-**Status:** RECONSTRUCTED; causal historical-evaluation §102 added 2026-10-10
-(UTC), after evidence-state §101.
+**Status:** RECONSTRUCTED; §101 adapter evidence, §102 causal historical
+evaluation, and §103 pipeline observability were added by 2026-10-10 (UTC).
 **Confidence:** derived, not authoritative. See "How this was reconstructed".
 
 The original numbered specification that this codebase was built against was
 never committed to the repository. Its section numbers survive across code,
 config, docs and tests. The original audit counted 73 distinct references at
-224 sites on 2026-09-13. After the historical addition (§102), **80 sections**
-are reconstructed. The current tracked/nonignored Python + YAML inventory has
-**313 literal citation sites across 76 distinct numbers** (2026-10-10);
-every code/config citation resolves here. Documentation-local numbered headings
-are not global spec citations and are excluded from that count. The older
-451-site code/doc audit is historical, not a current measurement.
-This document reconstructs the cited requirements from surviving code,
-documentation, tests and configuration; numbers with insufficient surviving
-evidence remain listed as UNKNOWN in Appendix B. Section §101 is the adapter-
-evidence addition; §102 records the user-requested causal historical requirements. Both have code/test evidence.
+224 sites on 2026-09-13. After additions through §103, **81 sections** are
+reconstructed. The current tracked Python/YAML inventory has **340 literal
+citation sites across 77 distinct section numbers** (2026-10-10); every
+reference resolves here. This count uses tracked `.py`, `.yaml`, and `.yml`
+files and the pattern `§` followed by a number; Markdown documentation-local
+headings are not included. The older 451-site code/doc audit is historical,
+not a current measurement. This document reconstructs the cited requirements
+from surviving code, documentation, tests and configuration; numbers with
+insufficient surviving evidence remain listed as UNKNOWN in Appendix B. The
+three appended requirements have code/test evidence; §33 and §68 remain
+inferred and owner-confirmation-gated.
 
 **Coverage is explicit:** reconstructed sections and unresolved historical
 gaps are listed separately. Do not infer content for an UNKNOWN number.
@@ -535,14 +536,19 @@ in the mode file.
 **Evidence.** `prediction_arb/core/config.py`, `config/*.yaml`.
 
 ### §57 — Per-mode data providers, one fill model  `[C]`
-**Requirement.** Each mode has its own data provider behind an identical
-interface (historical: recorded frames; paper: live REST polling; live: live
-data via verified adapters). Backtesting and historical replay MUST share ONE
-deterministic fill model — the backtest simulator is an alias layer over
-`HistoricalExecutionEngine`, not a second implementation.
+**Requirement.** Historical data comes only from recorded frames; paper
+market-data discovery uses its REST/streaming provider when an adapter is
+admitted. A `LiveDataProvider` class exists, but the current `LiveEngine.run()`
+is monitor-only and does not scan through it. Backtesting and historical replay
+MUST share ONE deterministic conditional fill model: `HistoricalFillSimulator`
+is the evaluator, with `BacktestFillSimulator` as its alias. The older,
+undated `execution.simulated.HistoricalExecutionEngine` remains outside the
+dated evaluator (it is retained for direct unit tests) and MUST NOT be described
+as the historical replay simulator.
 **Evidence.** `prediction_arb/modes/historical/data_provider.py`,
 `modes/paper/data_provider.py`, `modes/live/data_provider.py`,
-`backtesting/simulator.py`, `execution/coordinator.py`.
+`backtesting/{engine,simulator}.py`, `execution/simulated.py`,
+`docs/HISTORICAL_EVALUATION.md`.
 
 ### §58 — Workflow and readiness  `[C,D]`
 **Requirement.** The progression is HISTORICAL (validate logic) → PAPER
@@ -552,18 +558,24 @@ live-capable independent venues, and the final decision remains the operator's.
 Readiness MUST be reported per mode and derived from observed state (§99): each
 mode's block lists the criteria that apply to it with the observed value and,
 when a criterion is unmet, the reason. Fee-schedule freshness is one of those
-criteria, and its strictness depends on the mode (§98).
+criteria, and its strictness depends on the mode (§98). A COLLECT READY verdict
+means its evidence/admission criteria pass; it MUST NOT be read as current
+endpoint reachability or proof that a collection cycle saved data.
 **Evidence.** `prediction_arb/main.py` (`cmd_readiness`),
 `prediction_arb/monitoring/readiness.py`, `docs/MODE_SEPARATION.md`,
 `docs/FEE_READINESS.md`.
 
 ### §60 — The only live order path  `[C,T]`
 **Requirement.** `LiveExecutionEngine.submit_order` (the generic interface
-method) MUST raise unconditionally. The only working path is
+method) MUST raise unconditionally. The guarded component-level path is
 `submit_order_with_context(request, FirewallContext)`, and
-`execution/live.py` is the only module that may import the firewall.
+`execution/live.py` is the only module that may import the firewall. This
+component is **not** an enabled application route: the current
+`LiveEngine.run()` is monitor-only, no production `FirewallContext` is built,
+and no production order loop calls the guarded method.
 **Evidence.** `prediction_arb/execution/live.py`, `execution/executor.py`,
-`modes/live/execution.py`, `tests/test_safety.py`.
+`prediction_arb/modes/live/engine.py`, `modes/live/execution.py`,
+`tests/test_safety.py`, `docs/RISK_MANAGEMENT.md`.
 
 ---
 
@@ -759,10 +771,13 @@ credentials, and collection MUST never construct or invoke an execution path.
 ### §92 — No fabricated history or data  `[C,D,T]`
 **Requirement.** Historical replay MUST use only recorded data. When no data
 exists for the requested range it MUST say so and MUST NOT fabricate history,
-synthesize books, or fall back to live data (§55). Full backtest metrics are a
-stub until collected data justifies them, and the stub MUST raise.
+synthesize books, or fall back to live data (§55). The evaluator exists (§102);
+missing or unsupported input MUST produce an honest empty/unavailable result
+with unavailable P&L, not an exception merely because no dataset exists. Such a
+result is not a strategy-performance finding.
 **Evidence.** `prediction_arb/modes/historical/engine.py`,
-`backtesting/engine.py`, `tests/test_failure_modes.py`.
+`backtesting/{engine,metrics}.py`, `tests/test_failure_modes.py`,
+`tests/test_historical_evaluation.py`.
 
 ### §95 — Safe defaults  `[G,C]`
 **Requirement.** The default mode MUST be paper; the application MUST never
@@ -1086,8 +1101,8 @@ Ranges imply that every number inside them existed in the original spec.
 ## Appendix D — Reconstruction confidence
 
 * Sections reconstructed: **81** (2026-10-10; includes §101–§103).
-* Python/config literal citation sites: **313**, **76 distinct numbers**
-  (tracked/nonignored `.py` / `.yaml`; all resolve). Documentation's own local
+* Python/config literal citation sites: **340**, **77 distinct numbers**
+  (tracked `.py`, `.yaml`, and `.yml`; all resolve). Documentation's own local
   numbered headings are excluded rather than confused with spec references.
 * Sections carrying an `[I]` INFERRED flag — confirm or correct these first:
 

@@ -181,6 +181,12 @@ the adapter remains an untested structured stub.
 
 ## Pre-trade checklist (§33) mapping
 
+The checks below describe the evaluator and the wired research/paper path;
+they do **not** mean that a production live-order route exists. The current
+`LiveEngine.run()` is monitor-only, no production `FirewallContext` is built,
+and no production caller submits through the firewall. The firewall remains a
+guarded component exercised by tests, not an enabled live capability.
+
 Implemented across: match certificate (APPROVED required),
 independence (INDEPENDENT required; UNKNOWN blocks), book freshness
 (aggregator staleness + firewall), liquidity (walker), capital (risk limits
